@@ -1,7 +1,8 @@
 import * as THREE from 'three'
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js'
-import { rocks as rockPositions, campfires as campfirePositions, ponds as pondDefs, fishingLake } from '../config/world.js'
-import { createTerrain } from './terrain.js'
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
+import { ponds as pondDefs, fishingLake } from '../config/world.js'
+import { createHeightmapTerrain } from './heightmapTerrain.js'
 
 
 // ── 工具函数 ──────────────────────────────────────────
@@ -111,76 +112,207 @@ function makeGrass(scene, placements) {
   scene.add(mesh)
 }
 
+function createTerrainBlendMaterial(texLoader) {
+  const applyRepeat = (tex) => {
+    tex.wrapS = tex.wrapT = THREE.RepeatWrapping
+    tex.repeat.set(48, 48)
+    return tex
+  }
 
-// 返回 { group, crownGroup, windPhase, windSpeed } 供风动画使用
-function makeTree(scene, x, z, h = 3, r = 1.2) {
-  const group = new THREE.Group()
-
-  // 树根鼓包
-  const base = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.28, 0.34, 0.2, 7),
-    new THREE.MeshLambertMaterial({ color: 0x7a4f2a })
-  )
-  base.position.y = 0.1
-  base.castShadow = true
-  group.add(base)
-
-  // 下段树干（粗）
-  const trunkLow = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.16, 0.26, h * 0.32, 7),
-    new THREE.MeshLambertMaterial({ color: 0x8B5E3C })
-  )
-  trunkLow.position.y = h * 0.16 + 0.2
-  trunkLow.castShadow = true
-  group.add(trunkLow)
-
-  // 上段树干（细，轻微倾斜）
-  const trunkHigh = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.1, 0.16, h * 0.22, 6),
-    new THREE.MeshLambertMaterial({ color: 0x9e6d45 })
-  )
-  trunkHigh.position.y = h * 0.37 + 0.2
-  trunkHigh.rotation.z = (Math.random() - 0.5) * 0.08
-  trunkHigh.castShadow = true
-  group.add(trunkHigh)
-
-  // 树冠 group（整体随风摆动）
-  const crownGroup = new THREE.Group()
-  crownGroup.position.y = h * 0.45 + 0.2
-
-  const crownColors = [0x1e6b1e, 0x2d8a2d, 0x3aa03a, 0x237823, 0x4aaa4a]
-  const layers = [
-    { dy: 0,         pr: r,         seg: 8 },
-    { dy: h * 0.18,  pr: r * 0.78,  seg: 7 },
-    { dy: h * 0.33,  pr: r * 0.58,  seg: 7 },
-    { dy: h * 0.46,  pr: r * 0.40,  seg: 6 },
-    { dy: h * 0.56,  pr: r * 0.24,  seg: 6 },
-  ]
-  layers.forEach(({ dy, pr, seg }, i) => {
-    const cone = new THREE.Mesh(
-      new THREE.ConeGeometry(pr, h * 0.32, seg),
-      new THREE.MeshLambertMaterial({ color: crownColors[i] })
-    )
-    cone.position.y = dy
-    cone.rotation.y = (Math.random() * Math.PI * 2)
-    cone.castShadow = true
-    crownGroup.add(cone)
+  const mat = new THREE.MeshStandardMaterial({
+    map:          applyRepeat(texLoader.load('/textures/coast_sand_rocks_02_diff_1k.jpg')),
+    normalMap:    applyRepeat(texLoader.load('/textures/coast_sand_rocks_02_nor_gl_1k.jpg')),
+    roughnessMap: applyRepeat(texLoader.load('/textures/coast_sand_rocks_02_rough_1k.jpg')),
+    roughness: 1.0,
+    metalness: 0.0,
   })
 
-  group.add(crownGroup)
-  group.position.set(x, 0, z)
-  group.rotation.y = Math.random() * Math.PI * 2
-  scene.add(group)
+  const uniforms = {
+    uLowColor:        { value: new THREE.Color(0x6f8a54) },
+    uSlopeColor:      { value: new THREE.Color(0x8c7a64) },
+    uHighColor:       { value: new THREE.Color(0xbeb59a) },
+    uSlopeStart:      { value: 0.24 },
+    uSlopeEnd:        { value: 0.46 },
+    uHeightStart:     { value: 5.5 },
+    uHeightEnd:       { value: 15.5 },
+    uContourScale:    { value: 0.28 },
+    uContourStrength: { value: 0.3 },
+    uNoiseScale:      { value: 0.085 },
+  }
 
-  return {
-    group,
-    crownGroup,
-    windPhase: Math.random() * Math.PI * 2,
-    windSpeed: 0.35 + Math.random() * 0.3,
+  mat.onBeforeCompile = (shader) => {
+    Object.assign(shader.uniforms, uniforms)
+
+    shader.vertexShader = `
+      varying vec3 vWorldPos;
+      varying vec3 vWorldNormal;
+    ` + shader.vertexShader.replace(
+      '#include <worldpos_vertex>',
+      `#include <worldpos_vertex>
+       vWorldPos = worldPosition.xyz;
+       vWorldNormal = normalize(mat3(modelMatrix) * objectNormal);`
+    )
+
+    shader.fragmentShader = `
+      varying vec3 vWorldPos;
+      varying vec3 vWorldNormal;
+      uniform vec3 uLowColor;
+      uniform vec3 uSlopeColor;
+      uniform vec3 uHighColor;
+      uniform float uSlopeStart;
+      uniform float uSlopeEnd;
+      uniform float uHeightStart;
+      uniform float uHeightEnd;
+      uniform float uContourScale;
+      uniform float uContourStrength;
+      uniform float uNoiseScale;
+
+      float terrainNoise(vec2 p) {
+        return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
+      }
+    ` + shader.fragmentShader.replace(
+      '#include <color_fragment>',
+      `
+      float slope = 1.0 - clamp(dot(normalize(vWorldNormal), vec3(0.0, 1.0, 0.0)), 0.0, 1.0);
+      float slopeMask = smoothstep(uSlopeStart, uSlopeEnd, slope);
+      float highMask = smoothstep(uHeightStart, uHeightEnd, vWorldPos.y);
+
+      float contourPhase = abs(fract(vWorldPos.y * uContourScale) - 0.5) * 2.0;
+      float contourMask = pow(1.0 - contourPhase, 3.0) * (0.35 + 0.65 * slopeMask);
+
+      float n = terrainNoise(vWorldPos.xz * uNoiseScale);
+      vec3 terrainTint = mix(uLowColor, uSlopeColor, slopeMask);
+      terrainTint = mix(terrainTint, uHighColor, highMask);
+      terrainTint *= 0.94 + n * 0.12;
+      terrainTint = mix(terrainTint, terrainTint * 0.74, contourMask * uContourStrength);
+
+      diffuseColor.rgb *= terrainTint;
+      #include <color_fragment>
+      `
+    )
+  }
+
+  mat.customProgramCacheKey = () => 'terrain-blend-v1'
+  return mat
+}
+
+
+// ── 编辑器模板缓存 ────────────────────────────────────────
+let _treeGltfScene = null
+let _rockGltfScene = null
+const _campfireStates = []   // 所有火堆的动画状态，update() 中迭代
+// 启动时 GLB 尚未加载完成时的待处理队列
+const _pendingTreeClones    = []   // { group, scale }
+const _pendingRockClones    = []   // { group, scale } — 编辑器单独克隆时用
+let   _pendingRockInstances = null // { scene, rocks } — 非编辑器 InstancedMesh 构建
+
+let _rockInstancedMesh = null  // 游戏模式下的岩石 InstancedMesh
+let _sampleTerrainHeight = () => 0
+let _terrainReady = false
+const _pendingGroundings = []
+
+function _applyGrounding(group, yOffset = 0) {
+  if (!group) return
+  group.position.y = _sampleTerrainHeight(group.position.x, group.position.z) + yOffset
+}
+
+export function getGroundHeight(x, z) {
+  return _sampleTerrainHeight(x, z)
+}
+
+export function snapObjectToGround(group, yOffset = 0) {
+  if (!group) return
+  if (_terrainReady) {
+    _applyGrounding(group, yOffset)
+  } else {
+    _pendingGroundings.push({ group, yOffset })
   }
 }
 
-function makeHouse(scene, x, z, rotY = 0) {
+function _buildRockInstancedMesh(scene, rocks) {
+  if (!rocks.length) return
+  let templateMesh = null
+  _rockGltfScene.traverse(c => { if (c.isMesh && !templateMesh) templateMesh = c })
+  if (!templateMesh) return
+
+  const inst = new THREE.InstancedMesh(templateMesh.geometry, templateMesh.material, rocks.length)
+  inst.castShadow = true
+  inst.receiveShadow = true
+  inst.userData.editorMeta = { type: 'rock_instanced', rocks }
+
+  const dummy = new THREE.Object3D()
+  rocks.forEach(({ x, z, scale = 0.9 }, i) => {
+    dummy.position.set(x, getGroundHeight(x, z), z)
+    dummy.scale.setScalar(scale)
+    // 基于位置的确定性旋转，避免每次刷新朝向不同
+    dummy.rotation.y = ((x * 127 + z * 31) & 0xffff) / 0xffff * Math.PI * 2
+    dummy.updateMatrix()
+    inst.setMatrixAt(i, dummy.matrix)
+  })
+  inst.instanceMatrix.needsUpdate = true
+  scene.add(inst)
+  _rockInstancedMesh = inst
+}
+
+/** 游戏模式：将所有岩石合批为一个 InstancedMesh */
+export function buildRockInstances(scene, rocks) {
+  if (!rocks?.length) return
+  if (_rockGltfScene) {
+    _buildRockInstancedMesh(scene, rocks)
+  } else {
+    _pendingRockInstances = { scene, rocks }
+  }
+}
+
+/** 进入编辑器前移除 InstancedMesh（编辑器会换成独立克隆） */
+export function destroyRockInstances(scene) {
+  if (_rockInstancedMesh) {
+    scene.remove(_rockInstancedMesh)
+    _rockInstancedMesh = null
+  }
+}
+
+export function cloneTreeForEditor(scene, x, z, scale = 1.0) {
+  const group = new THREE.Group()
+  group.position.set(x, 0, z)
+  group.userData.editorMeta = { type: 'tree', x, z, scale, rotY: 0 }
+  scene.add(group)
+  snapObjectToGround(group)
+  if (_treeGltfScene) {
+    const mesh = _treeGltfScene.clone()
+    mesh.scale.setScalar(scale)
+    mesh.traverse(c => {
+      if (c.isMesh) { c.castShadow = true; c.receiveShadow = false }
+    })
+    group.add(mesh)
+  } else {
+    _pendingTreeClones.push({ group, scale })
+  }
+  return group
+}
+
+export function cloneRockForEditor(scene, x, z, scale = 1.0) {
+  const group = new THREE.Group()
+  group.position.set(x, 0, z)
+  group.userData.editorMeta = { type: 'rock', x, z, scale }
+  scene.add(group)
+  snapObjectToGround(group)
+  if (_rockGltfScene) {
+    const mesh = _rockGltfScene.clone(true)
+    mesh.scale.setScalar(scale)
+    mesh.traverse(c => {
+      if (c.isMesh) { c.castShadow = true; c.receiveShadow = true }
+    })
+    group.add(mesh)
+  } else {
+    _pendingRockClones.push({ group, scale })
+  }
+  return group
+}
+
+
+
+export function makeHouse(scene, x, z, rotY = 0) {
   const group = new THREE.Group()
 
   const wallMat  = new THREE.MeshLambertMaterial({ color: 0xf0dbb0 })
@@ -276,9 +408,37 @@ function makeHouse(scene, x, z, rotY = 0) {
     group.add(beam)
   })
 
+  // ── 按材质合并子 Mesh，从 ~17 Draw Call → ~6 Draw Call ──
+  const byMat = new Map()
+  for (const child of group.children) {
+    if (!child.isMesh) continue
+    child.updateMatrix()
+    const geo = child.geometry.clone()
+    geo.applyMatrix4(child.matrix)
+    const key = child.material.uuid
+    if (!byMat.has(key)) byMat.set(key, { mat: child.material, geos: [], transparent: !!child.material.transparent })
+    byMat.get(key).geos.push(geo)
+  }
+  // 移除原始散件
+  for (let i = group.children.length - 1; i >= 0; i--) {
+    const c = group.children[i]
+    if (c.isMesh) { c.geometry.dispose(); group.remove(c) }
+  }
+  // 添加合并后的 Mesh
+  for (const { mat, geos, transparent } of byMat.values()) {
+    const merged = mergeGeometries(geos)
+    geos.forEach(g => g.dispose())
+    const mesh = new THREE.Mesh(merged, mat)
+    mesh.castShadow    = !transparent
+    mesh.receiveShadow = true
+    group.add(mesh)
+  }
+
   group.position.set(x, 0, z)
   group.rotation.y = rotY
+  group.userData.editorMeta = { type: 'house', x, z, rotY }
   scene.add(group)
+  snapObjectToGround(group)
   return group
 }
 
@@ -340,25 +500,27 @@ function makePond(scene, x, z, r = 1.8) {
 
   const pond = new THREE.Mesh(new THREE.CircleGeometry(r, 48), material)
   pond.rotation.x = -Math.PI / 2
-  pond.position.set(x, 0.02, z)
+  pond.position.set(x, 0, z)
   scene.add(pond)
+  snapObjectToGround(pond, 0.02)
 
   const rim = new THREE.Mesh(
     new THREE.RingGeometry(r, r + 0.3, 24),
     new THREE.MeshLambertMaterial({ color: 0x999080 })
   )
   rim.rotation.x = -Math.PI / 2
-  rim.position.set(x, 0.01, z)
+  rim.position.set(x, 0, z)
   rim.receiveShadow = true
   scene.add(rim)
+  snapObjectToGround(rim, 0.01)
 
   return material
 }
 
-// 返回 { flames, light, phase } 供动画更新
-function makeCampfire(scene, x, z) {
+export function makeCampfire(scene, x, z) {
   const group = new THREE.Group()
   group.position.set(x, 0, z)
+  group.userData.editorMeta = { type: 'campfire', x, z }
 
   // 石圈
   const stoneMat = new THREE.MeshLambertMaterial({ color: 0x888070 })
@@ -414,7 +576,7 @@ function makeCampfire(scene, x, z) {
     return mesh
   })
 
-  // 烟雾（半透明灰球，静态装饰）
+  // 烟雾（半透明灰球，静态装饰，不投影）
   for (let i = 0; i < 3; i++) {
     const smoke = new THREE.Mesh(
       new THREE.SphereGeometry(0.08 + i * 0.04, 6, 6),
@@ -423,6 +585,7 @@ function makeCampfire(scene, x, z) {
         opacity: 0.18 - i * 0.04,
       })
     )
+    smoke.castShadow = false
     smoke.position.set(
       (Math.random() - 0.5) * 0.15,
       1.0 + i * 0.22,
@@ -431,21 +594,22 @@ function makeCampfire(scene, x, z) {
     group.add(smoke)
   }
 
-  scene.add(group)
-
-  // 主点光源（暖橙，投射阴影）
+  // 灯光作为 group 子节点（相对坐标），随 group 移动/删除
   const light = new THREE.PointLight(0xff5500, 4.0, 14)
-  light.position.set(x, 0.8, z)
+  light.position.set(0, 0.8, 0)
   light.castShadow = false
-  scene.add(light)
+  group.add(light)
 
-  // 补充光（更大范围、低强度，模拟地面反光晕染）
   const glow = new THREE.PointLight(0xff3300, 1.5, 28)
-  glow.position.set(x, 0.3, z)
-  scene.add(glow)
+  glow.position.set(0, 0.3, 0)
+  group.add(glow)
+
+  scene.add(group)
+  snapObjectToGround(group)
 
   const phase = Math.random() * Math.PI * 2
-  return { flames, light, glow, phase }
+  _campfireStates.push({ flames, light, glow, phase, group })
+  return group
 }
 
 // ── 主函数 ────────────────────────────────────────────
@@ -453,22 +617,32 @@ function makeCampfire(scene, x, z) {
 export function createMap(scene) {
   // 地面
   const texLoader = new THREE.TextureLoader()
-  const applyRepeat = (tex) => {
-    tex.wrapS = tex.wrapT = THREE.RepeatWrapping
-    tex.repeat.set(48, 48)
-    return tex
-  }
-  const groundMat = new THREE.MeshStandardMaterial({
-    map:          applyRepeat(texLoader.load('/textures/coast_sand_rocks_02_diff_1k.jpg')),
-    normalMap:    applyRepeat(texLoader.load('/textures/coast_sand_rocks_02_nor_gl_1k.jpg')),
-    roughnessMap: applyRepeat(texLoader.load('/textures/coast_sand_rocks_02_rough_1k.jpg')),
-    roughness: 1.0,
-    metalness: 0.0,
+  const groundMat = createTerrainBlendMaterial(texLoader)
+  createHeightmapTerrain(scene, {
+    material: groundMat,
+    size: 192,
+    segments: 256,
+    maxHeight: 26,
+    sharpenMix: 0.7,
+    sharpenPower: 1.75,
+    heightmapUrl: '/heightmaps/main_height_1024.png',
+    onReady: (sampleHeight) => {
+      _sampleTerrainHeight = sampleHeight
+      _terrainReady = true
+
+      if (_rockInstancedMesh?.userData?.editorMeta?.rocks) {
+        const rocks = _rockInstancedMesh.userData.editorMeta.rocks
+        scene.remove(_rockInstancedMesh)
+        _rockInstancedMesh = null
+        _buildRockInstancedMesh(scene, rocks)
+      }
+
+      const pending = _pendingGroundings.splice(0, _pendingGroundings.length)
+      pending.forEach(({ group, yOffset }) => {
+        if (group.parent) _applyGrounding(group, yOffset)
+      })
+    },
   })
-  const ground = new THREE.Mesh(new THREE.PlaneGeometry(192, 192), groundMat)
-  ground.rotation.x = -Math.PI / 2
-  ground.receiveShadow = true
-  scene.add(ground)
 
   // 曲线路面 + 路边草
   // 主横路（东西，轻微起伏）
@@ -483,101 +657,35 @@ export function createMap(scene) {
   makeCurvedPath(scene, [[0,10],[-5,13],[-9,15],[-14,18]], 1.2)
 
   // ── 树木 ─────────────────────────────────────────
-  // 内圈（5–10 单位，围绕中心广场）
-  const innerTrees = [
-    [-5,-5], [-3,-7], [3,-6], [6,-4], [-6, 3],
-    [-4, 6], [5, 5],  [7, 3], [-7,-2], [2, 7],
-    [-5, 2], [4,-3],  [-2,-6],[6, 1],  [-7, 5],
-    [3,  8], [8,-5],  [-8, 6],[5,-8],  [-3, 4],
-  ]
-  // 中圈（10–20 单位）
-  const midTrees = [
-    [12,-8],  [-11, 7], [9, 13], [-10,-13], [14, 4],
-    [-14,-5], [11, 16], [-13,11],[17, -6],  [-16, 9],
-    [13,-17], [-9,-16], [15, 14],[-15, 13], [18, 10],
-    [-17,-14],[10,-20], [-8, 19],[19,  5],  [-18,-10],
-  ]
-  // 外缘（22–38 单位，形成森林边界感）
-  const outerTrees = [
-    [25,-8],  [-23,14], [18,26],  [-20,-22],[28, 6],
-    [-26,-10],[14, 28], [-17,-26],[32,-12], [-30,18],
-    [20,-30], [-18, 32],[35, 8],  [-33,-16],[26, 28],
-    [-28, 24],[38,-18], [-36, 20],[22,-36], [-24,-34],
-  ]
-  // 扩展区（40–80 单位，覆盖新增可移动区域）
-  const farTrees = [
-    [42,-12], [-40,18], [28,42],  [-25,-40],[48, 8],
-    [-44,-14],[22, 45], [-20,-44],[55,-18], [-52,22],
-    [35,-55], [-32, 50],[60, 12], [-58,-20],[45, 48],
-    [-46, 42],[68,-22], [-65, 28],[38,-65], [-35,-62],
-    [72, 5],  [-70,-10],[25,-72], [-22, 70],[75,-35],
-    [-72, 38],[50,-70], [-48, 65],[78, 18], [-75,-30],
-  ]
-  const treeData = [...innerTrees, ...midTrees, ...outerTrees, ...farTrees]
-  const trees = treeData.map(([x, z]) =>
-    makeTree(scene, x, z, 2.5 + Math.random() * 1.2, 1 + Math.random() * 0.5)
-  )
-
-
-  // ── 房屋 ─────────────────────────────────────────
-  // 内圈村落
-  makeHouse(scene, -6,  -6, 0)
-  makeHouse(scene,  6,   6, Math.PI)
-  makeHouse(scene, -6,   6, Math.PI / 2)
-  // 中圈散布
-  makeHouse(scene,  16, -12, Math.PI * 0.25)
-  makeHouse(scene, -16,  12, Math.PI * 1.25)
-  makeHouse(scene,  14,  16, Math.PI * 0.75)
-  makeHouse(scene, -14, -14, Math.PI * 1.75)
-  makeHouse(scene,  20,   4, Math.PI * 0.5)
-  // 扩展区新增
-  makeHouse(scene,  32, -20, Math.PI * 0.125)
-  makeHouse(scene, -30,  28, Math.PI * 1.125)
-  makeHouse(scene,  28,  32, Math.PI * 0.625)
-  makeHouse(scene, -32, -28, Math.PI * 1.625)
-  makeHouse(scene,  40,  10, Math.PI * 0.375)
-  makeHouse(scene, -38, -15, Math.PI * 0.875)
-
-  const houseCollidables = [
-    { x: -6,  z: -6,  r: 2.2 },
-    { x:  6,  z:  6,  r: 2.2 },
-    { x: -6,  z:  6,  r: 2.2 },
-    { x:  16, z: -12, r: 2.2 },
-    { x: -16, z:  12, r: 2.2 },
-    { x:  14, z:  16, r: 2.2 },
-    { x: -14, z: -14, r: 2.2 },
-    { x:  20, z:   4, r: 2.2 },
-    { x:  32, z: -20, r: 2.2 },
-    { x: -30, z:  28, r: 2.2 },
-    { x:  28, z:  32, r: 2.2 },
-    { x: -32, z: -28, r: 2.2 },
-    { x:  40, z:  10, r: 2.2 },
-    { x: -38, z: -15, r: 2.2 },
-  ]
-
-  // ── 岩石 ─────────────────────────────────────────
-  // 碰撞半径用随机种子固定（与 GLTF 加载解耦）
-  const rng = rockPositions.map(() => 0.5 + Math.random() * 0.4)
-  const rockCollidables = rockPositions.map(([x, z], i) => {
-    const s = 0.6 + rng[i] * 0.5   // 与 GLTF 加载时的 scale 一致
-    return { x, z, r: rng[i] * 1.6, h: s * 0.85 }
+  // 仅预加载 GLB 模板，供编辑器/地图文件使用；不再硬编码任何树木位置
+  new GLTFLoader().load('/models/trees/custom_tree.glb', (gltf) => {
+    _treeGltfScene = gltf.scene
+    _pendingTreeClones.forEach(({ group, scale }) => {
+      const mesh = _treeGltfScene.clone()
+      mesh.scale.setScalar(scale)
+      mesh.traverse(c => { if (c.isMesh) { c.castShadow = true; c.receiveShadow = false } })
+      group.add(mesh)
+    })
+    _pendingTreeClones.length = 0
   })
 
-  const boulderLoader = new GLTFLoader()
-  boulderLoader.load('/models/rocks/namaqualand_boulder_03/namaqualand_boulder_03_1k.gltf', (gltf) => {
-    rockPositions.forEach(([x, z], i) => {
-      const rock = gltf.scene.clone(true)
-      const s = 0.6 + rng[i] * 0.5          // 0.6–1.1，大小随机
-      rock.scale.setScalar(s)
-      rock.position.set(x, 0, z)
-      rock.rotation.set(
-        (Math.random() - 0.5) * 0.4,
-        Math.random() * Math.PI * 2,
-        (Math.random() - 0.5) * 0.3
-      )
-      rock.traverse(c => { if (c.isMesh) { c.castShadow = true; c.receiveShadow = true } })
-      scene.add(rock)
+
+  // ── 岩石 GLB（仅加载模板）─────────────────────────────
+  new GLTFLoader().load('/models/rocks/namaqualand_boulder_03/namaqualand_boulder_03_1k.gltf', (gltf) => {
+    _rockGltfScene = gltf.scene
+    // 消费编辑器的个别克隆请求
+    _pendingRockClones.forEach(({ group, scale }) => {
+      const mesh = _rockGltfScene.clone(true)
+      mesh.scale.setScalar(scale)
+      mesh.traverse(c => { if (c.isMesh) { c.castShadow = true; c.receiveShadow = true } })
+      group.add(mesh)
     })
+    _pendingRockClones.length = 0
+    // 消费游戏启动时的 InstancedMesh 请求
+    if (_pendingRockInstances) {
+      _buildRockInstancedMesh(_pendingRockInstances.scene, _pendingRockInstances.rocks)
+      _pendingRockInstances = null
+    }
   })
 
   // ── 水池 ─────────────────────────────────────────
@@ -586,20 +694,8 @@ export function createMap(scene) {
     makePond(scene, fishingLake.x, fishingLake.z, fishingLake.r),
   ]
 
-  // ── 火堆 ─────────────────────────────────────────
-  const campfires = campfirePositions.map(([x, z]) => makeCampfire(scene, x, z))
-
-  // ── 地形（山丘台阶）─────────────────────────────────
-  const { collidables: terrainCollidables, getSurfaceHeight: getTerrainHeight } = createTerrain(scene)
-
-  // ── 碰撞体（水池不加碰撞，玩家可以走入）────────────
-  const collidables = [
-    ...treeData.map(([x, z]) => ({ x, z, r: 0.8 })),
-    ...houseCollidables,
-    ...rockCollidables,
-    ...campfirePositions.map(([x, z]) => ({ x, z, r: 0.6 })),
-    ...terrainCollidables,
-  ]
+  // 房屋/岩石/树木/火堆碰撞在 main.js 从地图文件动态添加
+  const collidables = []
 
   // ── 涟漪数据池（纯数据，shader 负责渲染）────────
   const rippleData = Array.from({ length: 8 }, () => ({ x: 0, z: 0, age: -1 }))
@@ -618,14 +714,8 @@ export function createMap(scene) {
     const dt = Math.min(time - _lastTime, 0.05)
     _lastTime = time
 
-    for (const { crownGroup, windPhase, windSpeed } of trees) {
-      const sway = Math.sin(time * windSpeed       + windPhase) * 0.030
-                 + Math.sin(time * windSpeed * 2.5 + windPhase) * 0.010
-      crownGroup.rotation.z = sway
-      crownGroup.rotation.x = Math.sin(time * windSpeed * 0.7 + windPhase + 1.2) * 0.015
-    }
-
-    for (const { flames, light, glow, phase } of campfires) {
+    for (const { flames, light, glow, phase, group } of _campfireStates) {
+      if (!group.parent) continue   // 已从场景移除，跳过
       const f = Math.sin(time * 7.3  + phase) * 0.22
               + Math.sin(time * 13.1 + phase * 1.7) * 0.10
               + Math.sin(time * 19.7 + phase * 0.9) * 0.05
@@ -658,5 +748,5 @@ export function createMap(scene) {
     }
   }
 
-  return { collidables, update, ponds: [...pondDefs, fishingLake], spawnRipple, getTerrainHeight }
+  return { collidables, update, ponds: [...pondDefs, fishingLake], spawnRipple, getTerrainHeight: getGroundHeight }
 }

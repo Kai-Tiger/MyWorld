@@ -16,6 +16,22 @@ export class CollisionSystem {
   }
 
   /**
+   * 返回 (nx, nz) 位置的阻挡碰撞体，无则返回 null
+   */
+  getBlockingCollidable(nx, nz, radius = 0.4, playerY = 0, self = null) {
+    if (Math.abs(nx) > this.xBound || Math.abs(nz) > this.zBound) return { x: 0, z: 0, r: 0 }
+    for (const o of this.collidables) {
+      if (o === self) continue
+      if (o.h !== undefined && playerY >= o.h - 0.2) continue
+      const dx = nx - o.x
+      const dz = nz - o.z
+      const minDist = radius + o.r
+      if (dx * dx + dz * dz < minDist * minDist) return o
+    }
+    return null
+  }
+
+  /**
    * 检查 (nx, nz) 是否可以移动到
    * @param {number} nx  目标 x
    * @param {number} nz  目标 z

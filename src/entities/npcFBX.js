@@ -1,6 +1,14 @@
 import * as THREE from 'three'
 import { FBXLoader } from 'three/addons/loaders/FBXLoader.js'
 
+let _canvas = null
+let _canvasRect = null
+window.addEventListener('resize', () => { _canvasRect = null })
+function getCachedRect() {
+  if (!_canvas) _canvas = document.querySelector('canvas')
+  return _canvasRect ??= _canvas.getBoundingClientRect()
+}
+
 /**
  * createFBXNPC
  * 与 createNPC 接口完全一致，但用 FBX 模型替换程序几何体。
@@ -12,10 +20,15 @@ export function createFBXNPC(scene, {
   modelPath  = '/models/npc1.fbx',
   speed      = 1.0,
   wanderRadius = 3.0,
+  getTerrainHeight = null,
 } = {}) {
   const group = new THREE.Group()
   group.position.set(x, 0, z)
   scene.add(group)
+
+  if (getTerrainHeight) {
+    group.position.y = getTerrainHeight(x, z)
+  }
 
   // 地面阴影
   const shadow = new THREE.Mesh(
@@ -84,12 +97,37 @@ export function createFBXNPC(scene, {
   let wanderDir   = new THREE.Vector2(Math.random() - 0.5, Math.random() - 0.5).normalize()
   let wanderTimer = 0
   let talking     = false
+  let focused     = false
   const TALK_DISTANCE = 2.5
 
   return {
     update(dt, player, collision) {
       if (mixer) mixer.update(dt)
-      if (talking) return
+      if (getTerrainHeight) {
+        group.position.y = getTerrainHeight(group.position.x, group.position.z)
+      }
+      const playerPos = player.getPosition()
+      const distToPlayer = group.position.distanceTo(playerPos)
+      if (talking || distToPlayer < TALK_DISTANCE || focused) {
+        if (distToPlayer < TALK_DISTANCE || talking) {
+          const toPlayer = new THREE.Vector2(
+            playerPos.x - group.position.x,
+            playerPos.z - group.position.z
+          ).normalize()
+          group.rotation.y = Math.atan2(toPlayer.x, toPlayer.y)
+          if (!talking) {
+            const rect = getCachedRect()
+            label.style.left = (rect.left + rect.width  * 0.5) + 'px'
+            label.style.top  = (rect.top  + rect.height * 0.3) + 'px'
+            label.style.display = 'block'
+          }
+          focused = true
+        } else {
+          label.style.display = 'none'
+          focused = false
+        }
+        return
+      }
 
       // 游荡
       wanderTimer -= dt
@@ -117,25 +155,6 @@ export function createFBXNPC(scene, {
       collidable.x = group.position.x
       collidable.z = group.position.z
       group.rotation.y = Math.atan2(wanderDir.x, wanderDir.y)
-
-      // 靠近玩家时朝向玩家并显示名字
-      const playerPos = player.getPosition()
-      const dist = group.position.distanceTo(playerPos)
-      if (dist < TALK_DISTANCE) {
-        const toPlayer = new THREE.Vector2(
-          playerPos.x - group.position.x,
-          playerPos.z - group.position.z
-        ).normalize()
-        group.rotation.y = Math.atan2(toPlayer.x, toPlayer.y)
-        label.style.display = 'block'
-      } else {
-        label.style.display = 'none'
-      }
-
-      const canvas = document.querySelector('canvas')
-      const rect   = canvas.getBoundingClientRect()
-      label.style.left = (rect.left + rect.width  * 0.5) + 'px'
-      label.style.top  = (rect.top  + rect.height * 0.3) + 'px'
     },
 
     getPosition() { return group.position },

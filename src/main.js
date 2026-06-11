@@ -1,4 +1,7 @@
 import * as THREE from 'three'
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js'
+import { RenderPass } from 'three/addons/postprocessing/RenderPass.js'
+import { SSAOPass } from 'three/addons/postprocessing/SSAOPass.js'
 import { createScene } from './scene/scene.js'
 import { createMap } from './scene/map.js'
 import { createLighting } from './scene/lighting.js'
@@ -13,9 +16,13 @@ import { InteractionSystem } from './systems/interaction.js'
 import { createAppleTree } from './scene/appleTree.js'
 import { createFishingRod } from './scene/fishingRod.js'
 import { InventorySystem } from './systems/inventory.js'
-import { houses, appleTree as appleTreeConfig, fishingLake } from './config/world.js'
+import { appleTree as appleTreeConfig, fishingLake } from './config/world.js'
+import { defaultMap } from './config/defaultMap.js'
 import { createHolidayDecorations } from './scene/holiday.js'
 import { createSky } from './scene/sky.js'
+import { createMapEditor, applyLayoutToScene } from './editor/mapEditor.js'
+import { buildRockInstances } from './scene/map.js'
+import { createEditorUI } from './editor/editorUI.js'
 
 // ── 初始化渲染器 ──────────────────────────────────────
 const app = document.getElementById('app')
@@ -32,11 +39,36 @@ app.appendChild(renderer.domElement)
 
 // ── 搭建场景 ──────────────────────────────────────────
 const { scene, camera } = createScene()
-const { sun } = createLighting(scene)
+const { sun, hemi, fill } = createLighting(scene)
+const composer = new EffectComposer(renderer)
+const renderPass = new RenderPass(scene, camera)
+composer.addPass(renderPass)
+const ssaoPass = new SSAOPass(scene, camera, window.innerWidth, window.innerHeight)
+ssaoPass.kernelRadius = 18
+ssaoPass.minDistance = 0.0015
+ssaoPass.maxDistance = 0.04
+composer.addPass(ssaoPass)
+
+function renderWithAO(activeCamera) {
+  renderer.render(scene, activeCamera)
+}
+
+function updateDayNightLighting(sunPhase) {
+  const sunH = Math.sin(sunPhase) * 30 + 15
+  const nightFactor = THREE.MathUtils.clamp((-sunH + 10) / 16, 0, 1)
+  sun.intensity = THREE.MathUtils.lerp(2.2, 0.65, nightFactor)
+  hemi.intensity = THREE.MathUtils.lerp(0.62, 0.28, nightFactor)
+  fill.intensity = THREE.MathUtils.lerp(0.34, 0.12, nightFactor)
+  renderer.toneMappingExposure = THREE.MathUtils.lerp(1.15, 0.9, nightFactor)
+}
+// 优先加载存档，无存档时使用默认地图配置
+const _layoutData = localStorage.getItem('mapLayout') ? JSON.parse(localStorage.getItem('mapLayout')) : defaultMap
 const { collidables, update: updateMap, ponds, spawnRipple, getTerrainHeight } = createMap(scene)
+applyLayoutToScene(scene, _layoutData)
 
 // ── 创建玩家 ──────────────────────────────────────────
 const player = createPlayer(scene)
+const playerCollidable = { x: 0, z: 0, r: 0.4 }
 
 // ── 室内场景 ──────────────────────────────────────────
 const { scene: indoorScene, camera: indoorCamera, collidables: indoorCollidables } = createIndoorScene()
@@ -46,8 +78,10 @@ const npcTalkCamera = new THREE.PerspectiveCamera(55, window.innerWidth / window
 let activeNpc = null
 
 // ── 交互系统（门检测）────────────────────────────────
-const interaction = new InteractionSystem(houses)
+const interaction = new InteractionSystem(_layoutData.houses ?? [])
 let activeScene = 'outdoor'
+let _editor = null
+let _editorUi = null
 
 // ── 创建 NPC（依赖 houses，必须在此之后）────────────────
 const npcDefs = [
@@ -66,7 +100,7 @@ const npcDefs = [
   { name: 'Koko',  color: 0xffeaa7 },
   { name: 'Maru',  color: 0x74b9ff },
 ]
-const npcs = houses.map(({ x, z, rotY }, i) => {
+const npcs = (_layoutData.houses ?? []).map(({ x, z, rotY }, i) => {
   const def = npcDefs[i % npcDefs.length]
   return createNPC(scene, {
     x: x + Math.sin(rotY) * 3.2,
@@ -75,11 +109,12 @@ const npcs = houses.map(({ x, z, rotY }, i) => {
     name:  def.name,
     speed:        0.8 + Math.random() * 1.4,
     wanderRadius: 2.0 + Math.random() * 3.0,
+    getTerrainHeight,
   })
 })
 
 // ── FBX NPC（npc1.fbx，放在村中广场）────────────────────
-const fbxNpc = createFBXNPC(scene, { x: -30, z: -15, name: 'Nora', speed: 0.9, wanderRadius: 2.5 })
+const fbxNpc = createFBXNPC(scene, { x: -30, z: -15, name: 'Nora', speed: 0.9, wanderRadius: 2.5, getTerrainHeight })
 npcs.push(fbxNpc)
 
 // ── 天空系统 ──────────────────────────────────────────
@@ -101,20 +136,91 @@ let _fishTimer = 0
 const input = new InputSystem()
 const collision = new CollisionSystem(collidables, 96, 96)
 collision.add({ x: appleTreeConfig.x, z: appleTreeConfig.z, r: 0.35 })
+collision.add(playerCollidable)
 npcs.forEach(npc => collision.add(npc.collidable))
+// 记录"固定/动态碰撞体"结束位置，布局碰撞体从此之后追加
+// 退出编辑器时截断这里并用新布局重填，保证新增对象也有碰撞
+const _layoutCollidableIdx = collision.collidables.length
+function _applyLayoutCollidables(layout) {
+  collision.collidables.splice(_layoutCollidableIdx)
+  layout.houses?.forEach(({ x, z }) => collision.add({ x, z, r: 2.2 }))
+  layout.rocks?.forEach(({ x, z }) => collision.add({ x, z, r: 0.8 }))
+  layout.trees?.forEach(({ x, z }) => collision.add({ x, z, r: 0.5 }))
+  layout.campfires?.forEach(({ x, z }) => collision.add({ x, z, r: 0.6 }))
+}
+_applyLayoutCollidables(_layoutData)
 
 // ── UI ───────────────────────────────────────────────
 const ui = createUI(app)
 
+// ── 编辑器入口按钮 ────────────────────────────────────
+const _editBtn = document.createElement('button')
+_editBtn.textContent = '✏️ 编辑地图'
+_editBtn.style.cssText = `
+  position:absolute; top:12px; right:12px; z-index:50;
+  padding:7px 14px; border:none; border-radius:8px; cursor:pointer;
+  background:rgba(30,30,50,0.75); color:#ddd; font-size:13px;
+  backdrop-filter:blur(4px); pointer-events:all;
+`
+_editBtn.onmouseenter = () => { _editBtn.style.background = 'rgba(60,60,100,0.9)' }
+_editBtn.onmouseleave = () => { _editBtn.style.background = 'rgba(30,30,50,0.75)' }
+_editBtn.onclick = enterEditor
+app.appendChild(_editBtn)
+
+function enterEditor() {
+  player.getGroup().visible = false
+  activeScene = 'editor'
+  _editBtn.style.display = 'none'
+  _editor = createMapEditor(scene, camera, renderer, player.getPosition().clone())
+  _editorUi = createEditorUI(app, {
+    onSelectType: (type) => _editor.setPlacingType(type),
+    onExport:     ()     => _editor.exportLayout(),
+    onLoad:       (json) => _editor.loadLayout(json),
+    onExit:       exitEditor,
+  })
+  _editorUi.show()
+}
+
+function exitEditor() {
+  const _exportedJson = _editor.exportLayout()
+  localStorage.setItem('mapLayout', _exportedJson)
+
+  _editor.destroy()
+  _editorUi.destroy()
+  _editor = null
+  _editorUi = null
+
+  const _newLayout = JSON.parse(_exportedJson)
+
+  // 将编辑器留下的个别岩石克隆替换为 InstancedMesh，恢复游戏渲染性能
+  const _rockClones = scene.children.filter(obj => obj.userData?.editorMeta?.type === 'rock')
+  _rockClones.forEach(obj => scene.remove(obj))
+  buildRockInstances(scene, _newLayout.rocks ?? [])
+
+  // 用新布局刷新碰撞系统，确保编辑器新增的对象也有碰撞体积
+  _applyLayoutCollidables(_newLayout)
+
+  player.getGroup().visible = true
+  // 恢复摄像机到玩家跟随
+  const pos = player.getPosition()
+  camera.position.copy(pos).add(new THREE.Vector3(20, 20, 20))
+  camera.lookAt(pos)
+  camera.zoom = 1
+  camera.updateProjectionMatrix()
+  _editBtn.style.display = ''
+  activeScene = 'outdoor'
+}
 
 // ── 游戏主循环 ────────────────────────────────────────
 const clock = new THREE.Clock()
 // 预分配，避免每帧产生 GC 压力
-const _offset        = new THREE.Vector3(20, 20, 20)
-const _indoorOffset  = new THREE.Vector3(10, 10, 10)
-// 透视起点：等轴测方向（1,1,1）归一化后 × 11.5（FOV55 等效距离）
+const _offset         = new THREE.Vector3(20, 20, 20)
+const _indoorOffset   = new THREE.Vector3(10, 10, 10)
 const _npcStartOffset = new THREE.Vector3(6.64, 6.64, 6.64)
-const _npcLookOffset  = new THREE.Vector3(0, 0.9, 0)  // 看向玩家腰部，避免俯视感
+const _npcLookOffset  = new THREE.Vector3(0, 0.9, 0)
+const _toNpc          = new THREE.Vector3()   // NPC 对话摄像机过渡方向（触发时复用）
+const _talkEndOffset  = new THREE.Vector3(0.6, 1.5, 0)  // 肩膀偏移（常量）
+const _fishLakeWorld  = new THREE.Vector3(fishingLake.x, 0.1, fishingLake.z)  // 钓鱼按钮位置
 
 const indoorCollision = new CollisionSystem(indoorCollidables, 3.6, 2.6)
 let savedOutdoorPos = null
@@ -146,6 +252,12 @@ function gameLoop() {
   requestAnimationFrame(gameLoop)
   const dt = Math.min(clock.getDelta(), 0.05)
 
+  if (activeScene === 'editor') {
+    _editor.update(dt)
+    renderWithAO(camera)
+    return
+  }
+
   if (activeScene === 'indoor') {
     player.update(dt, input, indoorCollision)
     const ipos = player.getPosition()
@@ -168,6 +280,7 @@ function gameLoop() {
         _talkTrans.active = false
         if (_talkTrans.entering) {
           ui.showDialoguePanel(activeNpc.getName(), activeNpc.getColor(), exitDialogue)
+          ui.updateDialoguePanelPosition(activeNpc.getHeadWorldPos(), npcTalkCamera, renderer)
         } else {
           activeScene = 'outdoor'
           activeNpc = null
@@ -188,11 +301,15 @@ function gameLoop() {
 
     npcTalkCamera.position.copy(_tmpCamPos)
     npcTalkCamera.lookAt(_tmpCamLook)
+    if (activeNpc) {
+      ui.updateDialoguePanelPosition(activeNpc.getHeadWorldPos(), npcTalkCamera, renderer)
+    }
 
     const sunPhaseNpc = (clock.elapsedTime % 1800) / 1800 * Math.PI * 2
+    updateDayNightLighting(sunPhaseNpc)
     sky.update(sunPhaseNpc, dt, true)
 
-    renderer.render(scene, npcTalkCamera)
+    renderWithAO(npcTalkCamera)
     return
   }
 
@@ -209,6 +326,7 @@ function gameLoop() {
     camera.lookAt(fpos)
 
     const sunPhase = (clock.elapsedTime % 1800) / 1800 * Math.PI * 2
+    updateDayNightLighting(sunPhase)
     const _fsx = Math.cos(sunPhase) * 40
     const _fsy = Math.sin(sunPhase) * 30 + 15
     const _fsz = Math.sin(sunPhase * 0.6) * 25
@@ -237,7 +355,7 @@ function gameLoop() {
 
     sky.update(sunPhase, dt, false)
     ui.update(player, sunPhase)
-    renderer.render(scene, camera)
+    renderWithAO(camera)
     return
   }
 
@@ -246,10 +364,12 @@ function gameLoop() {
   appleTree.update(clock.elapsedTime)
 
   // 更新玩家
-  player.update(dt, input, collision, getTerrainHeight)
+  player.update(dt, input, collision, getTerrainHeight, playerCollidable)
 
   // 水中检测
   const pos = player.getPosition()
+  playerCollidable.x = pos.x
+  playerCollidable.z = pos.z
   const inWater = ponds.some(p => {
     const dx = pos.x - p.x, dz = pos.z - p.z
     return dx * dx + dz * dz < p.r * p.r
@@ -274,6 +394,7 @@ function gameLoop() {
 
   // 太阳绕场景旋转，60 分钟一循环
   const sunPhase = (clock.elapsedTime % 1800) / 1800 * Math.PI * 2
+  updateDayNightLighting(sunPhase)
   // 计算太阳方向（单位向量），保持光照方向不随玩家位置变化
   const _sx = Math.cos(sunPhase) * 40
   const _sy = Math.sin(sunPhase) * 30 + 15
@@ -303,7 +424,7 @@ function gameLoop() {
         activeScene = 'outdoor'
         ui.hideExitButton()
         scene.add(player.getGroup())       // 移回室外
-        if (savedOutdoorPos) player.setPosition(savedOutdoorPos.x, savedOutdoorPos.z)
+        if (savedOutdoorPos) player.setPosition(savedOutdoorPos.x, savedOutdoorPos.z, savedOutdoorPos.y)
       })
     })
   } else {
@@ -339,8 +460,7 @@ function gameLoop() {
   const flDx = pos.x - fishingLake.x, flDz = pos.z - fishingLake.z
   const distToLake = Math.sqrt(flDx * flDx + flDz * flDz)
   if (distToLake < fishingLake.r + 2.5 && !nearDoor && !nearNpc && !nearApple) {
-    const lakeWorld = new THREE.Vector3(fishingLake.x, 0.1, fishingLake.z)
-    ui.showFishButton(lakeWorld, camera, renderer, () => {
+    ui.showFishButton(_fishLakeWorld, camera, renderer, () => {
       _fishPhase = 'casting'
       _fishTimer = 0
       activeScene = 'fishing'
@@ -371,11 +491,11 @@ function gameLoop() {
       _talkTrans.startPos.copy(playerPos).add(_npcStartOffset)
       _talkTrans.startLook.copy(playerPos).add(_npcLookOffset)
 
-      // 过渡终点：肩膀透视位置
-      const toNpc = new THREE.Vector3().subVectors(npcPos, playerPos).setY(0).normalize()
+      // 过渡终点：肩膀透视位置（复用预分配向量）
+      _toNpc.subVectors(npcPos, playerPos).setY(0).normalize()
       _talkTrans.endPos.copy(playerPos)
-        .sub(toNpc.clone().multiplyScalar(2.2))
-        .add(new THREE.Vector3(0.6, 1.5, 0))
+        .addScaledVector(_toNpc, -2.2)
+        .add(_talkEndOffset)
       _talkTrans.endLook.set(npcPos.x, npcPos.y + 1.1, npcPos.z)
 
       _talkTrans.t = 0
@@ -392,7 +512,7 @@ function gameLoop() {
   // 更新 UI
   ui.update(player, sunPhase)
 
-  renderer.render(scene, camera)
+  renderWithAO(camera)
 }
 
 gameLoop()
@@ -412,4 +532,6 @@ window.addEventListener('resize', () => {
   npcTalkCamera.aspect = aspect
   npcTalkCamera.updateProjectionMatrix()
   renderer.setSize(w, h)
+  composer.setSize(w, h)
+  ssaoPass.setSize(w, h)
 })

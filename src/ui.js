@@ -165,46 +165,61 @@ export function createUI(container) {
     }
     #dialogue-panel {
       position: absolute;
-      bottom: 0; left: 0; right: 0;
-      background: rgba(20,12,28,0.88);
-      border-top: 2px solid #ffb8c6;
-      padding: 18px 24px 20px;
+      left: 0;
+      top: 0;
+      transform: translate(-50%, -100%);
+      background: rgba(20,12,28,0.92);
+      border: 2px solid #ffb8c6;
+      border-radius: 14px;
+      padding: 12px 14px;
       display: flex;
       align-items: flex-start;
-      gap: 18px;
+      gap: 10px;
       z-index: 200;
       font-family: sans-serif;
+      max-width: min(320px, calc(100vw - 24px));
+      box-shadow: 0 8px 24px rgba(0,0,0,0.35);
+    }
+    #dialogue-panel::after {
+      content: '';
+      position: absolute;
+      left: 50%;
+      bottom: -10px;
+      transform: translateX(-50%);
+      border: 8px solid transparent;
+      border-top-color: #ffb8c6;
+      border-bottom: 0;
     }
     #dialogue-avatar {
-      width: 52px; height: 52px;
+      width: 42px; height: 42px;
       border-radius: 50%;
       border: 2px solid #ffb8c6;
       flex-shrink: 0;
       display: flex; align-items: center; justify-content: center;
-      font-size: 22px;
+      font-size: 18px;
     }
     #dialogue-body {
       flex: 1;
     }
     #dialogue-name {
-      font-size: 14px;
+      font-size: 13px;
       font-weight: bold;
       color: #ffb8c6;
-      margin-bottom: 6px;
+      margin-bottom: 4px;
     }
     #dialogue-text {
-      font-size: 14px;
+      font-size: 13px;
       color: #f0e8f4;
       line-height: 1.6;
     }
     #dialogue-end-btn {
-      align-self: flex-end;
-      padding: 7px 18px;
+      align-self: center;
+      padding: 5px 12px;
       border: 2px solid #ffb8c6;
       border-radius: 20px;
       background: transparent;
       color: #ffb8c6;
-      font-size: 13px;
+      font-size: 12px;
       cursor: pointer;
       white-space: nowrap;
       transition: background 0.15s, color 0.15s;
@@ -630,6 +645,31 @@ export function createUI(container) {
       dialoguePanel.querySelector('#dialogue-end-btn').addEventListener('click', onEnd)
       hud.style.display = 'none'
       dpad.style.display = 'none'
+    },
+
+    updateDialoguePanelPosition(worldPos, camera, renderer) {
+      if (!dialoguePanel || !worldPos) return
+      const v = new THREE.Vector3(worldPos.x, worldPos.y, worldPos.z).project(camera)
+      if (v.z < -1 || v.z > 1) {
+        dialoguePanel.style.display = 'none'
+        return
+      }
+      dialoguePanel.style.display = ''
+
+      const w = renderer.domElement.clientWidth
+      const h = renderer.domElement.clientHeight
+      const sx = (v.x * 0.5 + 0.5) * w
+      const sy = (-v.y * 0.5 + 0.5) * h
+
+      const rect = dialoguePanel.getBoundingClientRect()
+      const margin = 12
+      const halfW = rect.width * 0.5
+      const bubbleH = rect.height
+      const clampedX = Math.min(Math.max(sx, margin + halfW), w - margin - halfW)
+      const clampedY = Math.min(Math.max(sy - 14, margin + bubbleH), h - margin)
+
+      dialoguePanel.style.left = `${clampedX}px`
+      dialoguePanel.style.top  = `${clampedY}px`
     },
 
     hideDialoguePanel() {

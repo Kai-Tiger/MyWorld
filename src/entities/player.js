@@ -48,6 +48,7 @@ export function createPlayer(scene) {
   const MODEL_HEIGHT = 1.8                                   // FBX 厘米 × 0.01 ≈ 1.8m
   const GRAVITY     = 20
   const JUMP_SPEED  = Math.sqrt(2 * GRAVITY * MODEL_HEIGHT)  // v² = 2gh → 约 8.5
+  const AUTO_STEP   = 0.55
 
   let currentSpeed    = 0
   let vy              = 0
@@ -59,7 +60,7 @@ export function createPlayer(scene) {
   let _smoothGroundY  = 0   // 平滑后的地面高度，避免台阶边缘瞬间跳变
 
   return {
-    update(dt, input, collision, getTerrainHeight = null) {
+    update(dt, input, collision, getTerrainHeight = null, selfCollidable = null) {
       let dx = 0, dz = 0
       if (input.isPressed('up'))    { dx -= 1; dz -= 1 }
       if (input.isPressed('down'))  { dx += 1; dz += 1 }
@@ -78,20 +79,18 @@ export function createPlayer(scene) {
         const nx = group.position.x + dx * effectiveSpeed * dt
         const nz = group.position.z + dz * effectiveSpeed * dt
 
-        const AUTO_STEP = 0.55
         const targetTerrainH = getTerrainHeight ? getTerrainHeight(nx, nz) : 0
         const heightDiff = targetTerrainH - group.position.y
 
-        if (!collision.check(nx, nz, 0.4, group.position.y)) {
+        const blocker = collision.getBlockingCollidable(nx, nz, 0.4, group.position.y, selfCollidable)
+
+        if (!blocker) {
           if (heightDiff <= AUTO_STEP) {
-            // 平地或小台阶，正常移动
             group.position.x = nx
             group.position.z = nz
             currentSpeed = effectiveSpeed
           }
-          // heightDiff > AUTO_STEP：目标是平台侧面，拦截，不移动
-        } else if (heightDiff > 0 && heightDiff <= AUTO_STEP) {
-          // 有墙体碰撞但地形高度在 auto-step 范围内，爬台阶（Y 由后续平滑插值处理）
+        } else if (blocker.h !== undefined && heightDiff > 0 && heightDiff <= AUTO_STEP) {
           group.position.x = nx
           group.position.z = nz
           vy = 0
@@ -139,8 +138,12 @@ export function createPlayer(scene) {
       _waterDepth += (sinkTarget - _waterDepth) * Math.min(dt * 5, 1)
       _waterTime  += dt
       if (onGround) {
+        if (group.position.y < surfaceH) {
+          _smoothGroundY = surfaceH
+          group.position.y = surfaceH
+        }
         // 只允许向上贴合 ≤ AUTO_STEP 的高度差；更高的表面（岩石、平台）须跳跃才能到达
-        if (surfaceH - group.position.y <= 0.55) {
+        if (surfaceH - group.position.y <= AUTO_STEP) {
           // 平滑逼近目标地面高度，消除台阶边缘的瞬间跳变
           _smoothGroundY += (surfaceH - _smoothGroundY) * Math.min(dt * 18, 1)
           group.position.y = _smoothGroundY + _waterDepth
@@ -166,10 +169,11 @@ export function createPlayer(scene) {
       return group
     },
 
-    setPosition(x, z) {
-      group.position.set(x, 0, z)
+    setPosition(x, z, y = 0) {
+      group.position.set(x, y, z)
       vy = 0
       onGround = true
+      _smoothGroundY = group.position.y
     },
 
     setInWater(val) {

@@ -115,6 +115,7 @@ export function createSky(scene) {
   const starPoints = makeStars(scene)
 
   let _starTime = 0
+  let _prevNightFactor = -1
 
   return {
     update(sunPhase, dt = 0, showClouds = false) {
@@ -157,7 +158,10 @@ export function createSky(scene) {
       starPoints.visible = isNight
       if (isNight) {
         starPoints.material.opacity = nightFactor * (0.75 + Math.sin(_starTime * 2.1) * 0.12)
-        starPoints.material.needsUpdate = true
+        if (Math.abs(nightFactor - _prevNightFactor) > 0.01) {
+          starPoints.material.needsUpdate = true
+          _prevNightFactor = nightFactor
+        }
       }
     }
   }

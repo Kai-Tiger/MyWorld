@@ -116,7 +116,7 @@ export function createFishingRod(scene) {
         attr.setXYZ(0, _tipWorld.x, _tipWorld.y, _tipWorld.z)
         attr.setXYZ(1, bobberGroup.position.x, bobberGroup.position.y, bobberGroup.position.z)
         attr.needsUpdate = true
-        lineGeo.computeBoundingSphere()
+        lineGeo.boundingSphere = null   // 让 Three.js 在需要时惰性计算，无需每帧主动调用
       }
     },
   }

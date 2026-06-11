@@ -1,10 +1,22 @@
 import * as THREE from 'three'
 
+// 模块级缓存：所有 NPC 共享同一个 canvas 引用和 DOMRect
+let _canvas = null
+let _canvasRect = null
+window.addEventListener('resize', () => { _canvasRect = null })
+function getCachedRect() {
+  if (!_canvas) _canvas = document.querySelector('canvas')
+  return _canvasRect ??= _canvas.getBoundingClientRect()
+}
+
+// 预分配复用向量，避免每帧每个 NPC 创建临时对象
+const _toOrigin = new THREE.Vector2()
+
 /**
  * createNPC
  * 简单 NPC：在原地随机游荡，靠近玩家时显示对话气泡。
  */
-export function createNPC(scene, { x = 0, z = 0, color = 0xff6b6b, name = 'NPC', speed = 1.2, wanderRadius = 2.5 } = {}) {
+export function createNPC(scene, { x = 0, z = 0, color = 0xff6b6b, name = 'NPC', speed = 1.2, wanderRadius = 2.5, getTerrainHeight = null } = {}) {
   const group = new THREE.Group()
 
   // 阴影
@@ -59,6 +71,10 @@ export function createNPC(scene, { x = 0, z = 0, color = 0xff6b6b, name = 'NPC',
   group.position.set(x, 0, z)
   scene.add(group)
 
+  if (getTerrainHeight) {
+    group.position.y = getTerrainHeight(x, z)
+  }
+
   // 动态碰撞体，位置每帧同步，由外部注册到 CollisionSystem
   const collidable = { x, z, r: 0.32 }
 
@@ -89,10 +105,36 @@ export function createNPC(scene, { x = 0, z = 0, color = 0xff6b6b, name = 'NPC',
   const WANDER_RADIUS = wanderRadius
   const TALK_DISTANCE = 2.5
   let talking = false
+  let focused = false
 
   return {
     update(dt, player, collision) {
-      if (talking) return
+      if (getTerrainHeight) {
+        group.position.y = getTerrainHeight(group.position.x, group.position.z)
+      }
+      const playerPos = player.getPosition()
+      const distToPlayer = group.position.distanceTo(playerPos)
+      if (talking || distToPlayer < TALK_DISTANCE || focused) {
+        if (distToPlayer < TALK_DISTANCE || talking) {
+          _toOrigin.set(playerPos.x - group.position.x, playerPos.z - group.position.z).normalize()
+          group.rotation.y = Math.atan2(_toOrigin.x, _toOrigin.y)
+          if (!talking) {
+            const rect = getCachedRect()
+            label.style.left = (rect.left + rect.width  * 0.5) + 'px'
+            label.style.top  = (rect.top  + rect.height * 0.3) + 'px'
+            label.style.display = 'block'
+          }
+          focused = true
+        } else {
+          label.style.display = 'none'
+          focused = false
+        }
+        if (!talking) {
+          legs[0].rotation.x = 0
+          legs[1].rotation.x = 0
+        }
+        return
+      }
 
       // 游荡逻辑：每隔一段时间换方向
       wanderTimer -= dt
@@ -101,15 +143,12 @@ export function createNPC(scene, { x = 0, z = 0, color = 0xff6b6b, name = 'NPC',
         wanderTimer = 1.5 + Math.random() * 2
       }
 
-      // 偏向原点，防止走太远
-      const toOrigin = new THREE.Vector2(
-        origin.x - group.position.x,
-        origin.z - group.position.z
-      )
-      const distFromOrigin = toOrigin.length()
+      // 偏向原点，防止走太远（复用模块级向量，不产生 GC）
+      _toOrigin.set(origin.x - group.position.x, origin.z - group.position.z)
+      const distFromOrigin = _toOrigin.length()
       if (distFromOrigin > WANDER_RADIUS) {
-        toOrigin.normalize()
-        wanderDir.lerp(toOrigin, 0.3)
+        _toOrigin.normalize()
+        wanderDir.lerp(_toOrigin, 0.3)
       }
 
       const nx = group.position.x + wanderDir.x * WANDER_SPEED * dt
@@ -128,25 +167,6 @@ export function createNPC(scene, { x = 0, z = 0, color = 0xff6b6b, name = 'NPC',
       const swing = Math.sin(walkTime) * 0.4
       legs[0].rotation.x =  swing
       legs[1].rotation.x = -swing
-
-      const playerPos = player.getPosition()
-      const dist = group.position.distanceTo(playerPos)
-
-      if (dist < TALK_DISTANCE) {
-        const toPlayer = new THREE.Vector2(
-          playerPos.x - group.position.x,
-          playerPos.z - group.position.z
-        ).normalize()
-        group.rotation.y = Math.atan2(toPlayer.x, toPlayer.y)
-        label.style.display = 'block'
-      } else {
-        label.style.display = 'none'
-      }
-
-      const canvas = document.querySelector('canvas')
-      const rect   = canvas.getBoundingClientRect()
-      label.style.left = (rect.left + rect.width  * 0.5) + 'px'
-      label.style.top  = (rect.top  + rect.height * 0.3) + 'px'
     },
 
     getPosition() {
