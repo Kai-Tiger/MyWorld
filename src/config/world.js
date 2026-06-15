@@ -62,3 +62,6 @@ export const hills = [
   { x:  5, z: -26 },   // 南侧山丘
   { x: 28, z:  12 },   // 东侧山丘
 ]
+
+// ── 敌对 NPC（追击/攻击）──────────────────────────────
+export const enemyNpc = { x: -18, z: 6, rotY: Math.PI * 0.5 }

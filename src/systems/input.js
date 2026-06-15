@@ -7,14 +7,39 @@ export class InputSystem {
   constructor() {
     this._keys = new Set()
     this._virtual = { up: false, down: false, left: false, right: false }
+    this._blockedCodes = new Set([
+      'KeyW', 'KeyA', 'KeyS', 'KeyD',
+      'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight',
+      'Space', 'KeyQ', 'KeyJ', 'KeyK',
+    ])
+
+    const shouldIgnoreKeyCapture = (e) => {
+      if (e.metaKey || e.ctrlKey || e.altKey) return true
+      const el = e.target
+      if (!el) return false
+      const tag = el.tagName
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return true
+      if (el.isContentEditable) return true
+      return false
+    }
 
     // 键盘
     window.addEventListener('keydown', e => {
+      if (shouldIgnoreKeyCapture(e)) return
       this._keys.add(e.code)
-      // 阻止方向键和空格键滚动页面
-      if (e.code.startsWith('Arrow') || e.code === 'Space') e.preventDefault()
-    })
-    window.addEventListener('keyup', e => this._keys.delete(e.code))
+      if (this._blockedCodes.has(e.code)) {
+        e.preventDefault()
+        e.stopPropagation()
+      }
+    }, { capture: true })
+    window.addEventListener('keyup', e => {
+      if (shouldIgnoreKeyCapture(e)) return
+      this._keys.delete(e.code)
+      if (this._blockedCodes.has(e.code)) {
+        e.preventDefault()
+        e.stopPropagation()
+      }
+    }, { capture: true })
 
     // 自动绑定页面里带 data-action 属性的虚拟按钮
     this._bindVirtualButtons()

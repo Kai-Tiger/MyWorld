@@ -622,9 +622,9 @@ export function createMap(scene) {
     material: groundMat,
     size: 192,
     segments: 256,
-    maxHeight: 26,
-    sharpenMix: 0.7,
-    sharpenPower: 1.75,
+    maxHeight: 18,
+    sharpenMix: 0.35,
+    sharpenPower: 1.35,
     heightmapUrl: '/heightmaps/main_height_1024.png',
     onReady: (sampleHeight) => {
       _sampleTerrainHeight = sampleHeight

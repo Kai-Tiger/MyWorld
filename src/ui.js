@@ -24,8 +24,11 @@ export function createUI(container) {
   `
   hud.innerHTML = `
     <div><span style="color:#7ec87e">WASD</span> / 方向键 移动</div>
+    <div><span style="color:#8bd3ff">Q</span> 锁定目标</div>
     <div id="hud-pos">位置: (0, 0)</div>
     <div id="hud-spd">速度: 0.00</div>
+    <div id="hud-combat">HP: 100/100  ATK: 20</div>
+    <div id="hud-lock">LOCK: OFF</div>
   `
   container.appendChild(hud)
 
@@ -385,6 +388,37 @@ export function createUI(container) {
       background: #4fc3f7;
       color: #0a1222;
     }
+    .npc-hp {
+      position: absolute;
+      width: 46px;
+      height: 6px;
+      border-radius: 999px;
+      border: 1px solid rgba(0,0,0,0.65);
+      background: rgba(20,20,20,0.75);
+      transform: translateX(-50%);
+      pointer-events: none;
+      z-index: 210;
+      overflow: hidden;
+    }
+    .npc-hp-fill {
+      width: 100%;
+      height: 100%;
+      transform-origin: left center;
+      background: #e24a4a;
+      transition: transform 0.08s linear;
+    }
+    .damage-float {
+      position: absolute;
+      transform: translate(-50%, -50%);
+      pointer-events: none;
+      z-index: 220;
+      color: #ffd76a;
+      font-family: sans-serif;
+      font-size: 16px;
+      font-weight: bold;
+      text-shadow: 0 1px 4px rgba(0,0,0,0.75);
+      white-space: nowrap;
+    }
   `
   document.head.appendChild(promptStyle)
 
@@ -395,6 +429,8 @@ export function createUI(container) {
   let fishBtn = null
   let fishResultEl = null
   let dialoguePanel = null
+  const npcHpBars = new Map()
+  const damageFloats = []
 
   // ── 背包按钮（固定，常驻）────────────────────────
   const bagBtn = document.createElement('button')
@@ -427,6 +463,16 @@ export function createUI(container) {
       ).join('')
       bagPanel.innerHTML = `<h4>背包</h4>${rows}`
     }
+  }
+
+  function projectToScreen(worldPos, camera, renderer) {
+    const v = new THREE.Vector3(worldPos.x, worldPos.y, worldPos.z).project(camera)
+    if (v.z < -1 || v.z > 1) return null
+    const w = renderer.domElement.clientWidth
+    const h = renderer.domElement.clientHeight
+    const sx = (v.x * 0.5 + 0.5) * w
+    const sy = (-v.y * 0.5 + 0.5) * h
+    return { sx, sy, w, h }
   }
 
   // ── 太阳表盘 ──────────────────────────────────────
@@ -540,16 +586,104 @@ export function createUI(container) {
   // ── 更新函数 ──────────────────────────────────────
   const posEl = hud.querySelector('#hud-pos')
   const spdEl = hud.querySelector('#hud-spd')
+  const combatEl = hud.querySelector('#hud-combat')
+  const lockEl = hud.querySelector('#hud-lock')
 
   return {
     update(player, sunPhase) {
       const pos = player.getPosition()
       posEl.textContent = `位置: (${pos.x.toFixed(1)}, ${pos.z.toFixed(1)})`
       spdEl.textContent = `速度: ${player.getSpeed().toFixed(2)}`
+      if (player.getHp && player.getMaxHp && player.getAtk) {
+        combatEl.textContent = `HP: ${Math.round(player.getHp())}/${player.getMaxHp()}  ATK: ${player.getAtk()}`
+      }
       if (sunPhase !== undefined) drawSunDial(sunPhase)
     },
 
-    showEnterPrompt(worldPos, camera, renderer, onEnter) {
+    showNpcHpBar(npc, worldPos, ratio, camera, renderer) {
+      if (!npc) return
+      const projected = projectToScreen(worldPos, camera, renderer)
+      if (!projected) {
+        const stale = npcHpBars.get(npc)
+        if (stale) stale.el.style.display = 'none'
+        return
+      }
+
+      let entry = npcHpBars.get(npc)
+      if (!entry) {
+        const el = document.createElement('div')
+        el.className = 'npc-hp'
+        const fill = document.createElement('div')
+        fill.className = 'npc-hp-fill'
+        el.appendChild(fill)
+        container.appendChild(el)
+        entry = { el, fill }
+        npcHpBars.set(npc, entry)
+      }
+
+      const clamped = Math.min(1, Math.max(0, ratio))
+      entry.fill.style.transform = `scaleX(${clamped})`
+      entry.el.style.display = ''
+      entry.el.style.left = `${projected.sx}px`
+      entry.el.style.top = `${projected.sy - 14}px`
+    },
+
+    hideNpcHpBar(npc) {
+      const entry = npcHpBars.get(npc)
+      if (!entry) return
+      entry.el.remove()
+      npcHpBars.delete(npc)
+    },
+
+    spawnDamageText(worldPos, value) {
+      const el = document.createElement('div')
+      el.className = 'damage-float'
+      el.textContent = `-${value}`
+      container.appendChild(el)
+      damageFloats.push({
+        el,
+        age: 0,
+        ttl: 0.65,
+        world: new THREE.Vector3(worldPos.x, worldPos.y, worldPos.z),
+      })
+    },
+
+    updateCombatOverlay(dt, camera, renderer) {
+      for (let i = damageFloats.length - 1; i >= 0; i--) {
+        const f = damageFloats[i]
+        f.age += dt
+        if (f.age >= f.ttl) {
+          f.el.remove()
+          damageFloats.splice(i, 1)
+          continue
+        }
+
+        const rise = f.age * 0.9
+        const p = projectToScreen({ x: f.world.x, y: f.world.y + rise, z: f.world.z }, camera, renderer)
+        if (!p) {
+          f.el.style.display = 'none'
+          continue
+        }
+        const alpha = 1 - f.age / f.ttl
+        f.el.style.display = ''
+        f.el.style.left = `${p.sx}px`
+        f.el.style.top = `${p.sy}px`
+        f.el.style.opacity = alpha.toFixed(3)
+      }
+    },
+
+    clearCombatOverlays() {
+      for (const { el } of npcHpBars.values()) el.remove()
+      npcHpBars.clear()
+      for (const f of damageFloats) f.el.remove()
+      damageFloats.length = 0
+    },
+
+    setLockTarget(name = 'OFF') {
+      lockEl.textContent = `LOCK: ${name}`
+    },
+
+    showEnterPrompt(worldPos, camera, renderer, onEnter, label = '进入房屋') {
       const v = worldPos.clone().project(camera)
       const w = renderer.domElement.clientWidth
       const h = renderer.domElement.clientHeight
@@ -559,7 +693,7 @@ export function createUI(container) {
       if (!promptEl) {
         promptEl = document.createElement('div')
         promptEl.id = 'enter-prompt'
-        promptEl.innerHTML = `进入房屋 <button>进门 🚪</button>`
+        promptEl.innerHTML = `${label} <button>进门 🚪</button>`
         container.appendChild(promptEl)
         promptEl.querySelector('button').addEventListener('click', onEnter)
       }

@@ -1,5 +1,6 @@
 import * as THREE from 'three'
 import { FBXLoader } from 'three/addons/loaders/FBXLoader.js'
+import { BALANCE } from '../config/balance.js'
 
 let _canvas = null
 let _canvasRect = null
@@ -21,6 +22,7 @@ export function createFBXNPC(scene, {
   speed      = 1.0,
   wanderRadius = 3.0,
   getTerrainHeight = null,
+  maxHp = BALANCE.npc.fbx.maxHp,
 } = {}) {
   const group = new THREE.Group()
   group.position.set(x, 0, z)
@@ -38,6 +40,23 @@ export function createFBXNPC(scene, {
   shadow.rotation.x = -Math.PI / 2
   shadow.position.y = 0.01
   group.add(shadow)
+
+  const lockRing = new THREE.Mesh(
+    new THREE.TorusGeometry(0.42, 0.02, 8, 28),
+    new THREE.MeshStandardMaterial({
+      color: 0xffffff,
+      emissive: 0x111111,
+      emissiveIntensity: 0.15,
+      roughness: 0.4,
+      metalness: 0.0,
+      transparent: true,
+      opacity: 0.92,
+    })
+  )
+  lockRing.rotation.x = Math.PI / 2
+  lockRing.position.y = 0.03
+  lockRing.visible = false
+  group.add(lockRing)
 
   // FBX 加载
   let mixer = null
@@ -99,10 +118,56 @@ export function createFBXNPC(scene, {
   let talking     = false
   let focused     = false
   const TALK_DISTANCE = 2.5
+  let hp = maxHp
+  const hitRadius = BALANCE.npc.fbx.hitRadius
+  let alive = true
+  let hitShakeTime = 0
+  const HIT_SHAKE_DURATION = 0.22
+  let lockVisualState = 'hidden'
+  let lockPulseTime = 0
+
+  function applyLockVisualState(state) {
+    lockVisualState = state
+    if (state === 'hidden') {
+      lockRing.visible = false
+      lockRing.scale.setScalar(1)
+      return
+    }
+
+    lockRing.visible = true
+    lockRing.scale.setScalar(1)
+    const mat = lockRing.material
+    if (state === 'locked') {
+      mat.color.setHex(0xff4b4b)
+      mat.emissive.setHex(0xff2a2a)
+      mat.emissiveIntensity = 0.45
+    } else {
+      mat.color.setHex(0xffffff)
+      mat.emissive.setHex(0x222222)
+      mat.emissiveIntensity = 0.12
+    }
+  }
+
+  function getShakeYaw(dt) {
+    if (hitShakeTime <= 0) return 0
+    hitShakeTime = Math.max(0, hitShakeTime - dt)
+    const t = 1 - hitShakeTime / HIT_SHAKE_DURATION
+    const amp = 0.22 * (hitShakeTime / HIT_SHAKE_DURATION)
+    return Math.sin(t * Math.PI * 6) * amp
+  }
 
   return {
     update(dt, player, collision) {
+      if (!alive) return
       if (mixer) mixer.update(dt)
+      if (lockVisualState === 'locked') {
+        lockPulseTime += dt
+        const pulse = 1 + Math.sin(lockPulseTime * 8.0) * 0.06
+        lockRing.scale.setScalar(pulse)
+      } else {
+        lockRing.scale.setScalar(1)
+      }
+      const shakeYaw = getShakeYaw(dt)
       if (getTerrainHeight) {
         group.position.y = getTerrainHeight(group.position.x, group.position.z)
       }
@@ -114,7 +179,7 @@ export function createFBXNPC(scene, {
             playerPos.x - group.position.x,
             playerPos.z - group.position.z
           ).normalize()
-          group.rotation.y = Math.atan2(toPlayer.x, toPlayer.y)
+          group.rotation.y = Math.atan2(toPlayer.x, toPlayer.y) + shakeYaw
           if (!talking) {
             const rect = getCachedRect()
             label.style.left = (rect.left + rect.width  * 0.5) + 'px'
@@ -154,7 +219,7 @@ export function createFBXNPC(scene, {
       }
       collidable.x = group.position.x
       collidable.z = group.position.z
-      group.rotation.y = Math.atan2(wanderDir.x, wanderDir.y)
+      group.rotation.y = Math.atan2(wanderDir.x, wanderDir.y) + shakeYaw
     },
 
     getPosition() { return group.position },
@@ -166,6 +231,63 @@ export function createFBXNPC(scene, {
     getHeadWorldPos() {
       const p = group.position
       return { x: p.x, y: p.y + 1.6, z: p.z }
+    },
+
+    getHp() {
+      return hp
+    },
+
+    getMaxHp() {
+      return maxHp
+    },
+
+    getHpRatio() {
+      return maxHp > 0 ? hp / maxHp : 0
+    },
+
+    isAlive() {
+      return alive && hp > 0
+    },
+
+    getHitRadius() {
+      return hitRadius
+    },
+
+    takeDamage(amount) {
+      hp = Math.max(0, hp - Math.max(0, amount))
+      if (hp <= 0) {
+        alive = false
+        talking = false
+        focused = false
+        label.style.display = 'none'
+        applyLockVisualState('hidden')
+        group.visible = false
+      }
+      return hp
+    },
+
+    onHit(amount) {
+      hitShakeTime = HIT_SHAKE_DURATION
+      return this.takeDamage(amount)
+    },
+
+    die() {
+      if (!alive) return
+      hp = 0
+      alive = false
+      talking = false
+      focused = false
+      label.style.display = 'none'
+      applyLockVisualState('hidden')
+      group.visible = false
+    },
+
+    setLockVisualState(state) {
+      if (!alive) {
+        applyLockVisualState('hidden')
+        return
+      }
+      applyLockVisualState(state)
     },
 
     startTalk(playerPos) {

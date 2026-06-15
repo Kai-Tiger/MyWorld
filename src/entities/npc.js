@@ -1,4 +1,5 @@
 import * as THREE from 'three'
+import { BALANCE } from '../config/balance.js'
 
 // 模块级缓存：所有 NPC 共享同一个 canvas 引用和 DOMRect
 let _canvas = null
@@ -16,7 +17,7 @@ const _toOrigin = new THREE.Vector2()
  * createNPC
  * 简单 NPC：在原地随机游荡，靠近玩家时显示对话气泡。
  */
-export function createNPC(scene, { x = 0, z = 0, color = 0xff6b6b, name = 'NPC', speed = 1.2, wanderRadius = 2.5, getTerrainHeight = null } = {}) {
+export function createNPC(scene, { x = 0, z = 0, color = 0xff6b6b, name = 'NPC', speed = 1.2, wanderRadius = 2.5, getTerrainHeight = null, maxHp = BALANCE.npc.normal.maxHp } = {}) {
   const group = new THREE.Group()
 
   // 阴影
@@ -27,6 +28,23 @@ export function createNPC(scene, { x = 0, z = 0, color = 0xff6b6b, name = 'NPC',
   shadow.rotation.x = -Math.PI / 2
   shadow.position.y = 0.01
   group.add(shadow)
+
+  const lockRing = new THREE.Mesh(
+    new THREE.TorusGeometry(0.34, 0.018, 8, 28),
+    new THREE.MeshStandardMaterial({
+      color: 0xffffff,
+      emissive: 0x111111,
+      emissiveIntensity: 0.15,
+      roughness: 0.4,
+      metalness: 0.0,
+      transparent: true,
+      opacity: 0.92,
+    })
+  )
+  lockRing.rotation.x = Math.PI / 2
+  lockRing.position.y = 0.03
+  lockRing.visible = false
+  group.add(lockRing)
 
   // 身体
   const body = new THREE.Mesh(
@@ -106,9 +124,55 @@ export function createNPC(scene, { x = 0, z = 0, color = 0xff6b6b, name = 'NPC',
   const TALK_DISTANCE = 2.5
   let talking = false
   let focused = false
+  let hp = maxHp
+  const hitRadius = BALANCE.npc.normal.hitRadius
+  let alive = true
+  let hitShakeTime = 0
+  const HIT_SHAKE_DURATION = 0.22
+  let lockVisualState = 'hidden'
+  let lockPulseTime = 0
+
+  function applyLockVisualState(state) {
+    lockVisualState = state
+    if (state === 'hidden') {
+      lockRing.visible = false
+      lockRing.scale.setScalar(1)
+      return
+    }
+
+    lockRing.visible = true
+    lockRing.scale.setScalar(1)
+    const mat = lockRing.material
+    if (state === 'locked') {
+      mat.color.setHex(0xff4b4b)
+      mat.emissive.setHex(0xff2a2a)
+      mat.emissiveIntensity = 0.45
+    } else {
+      mat.color.setHex(0xffffff)
+      mat.emissive.setHex(0x222222)
+      mat.emissiveIntensity = 0.12
+    }
+  }
+
+  function getShakeYaw(dt) {
+    if (hitShakeTime <= 0) return 0
+    hitShakeTime = Math.max(0, hitShakeTime - dt)
+    const t = 1 - hitShakeTime / HIT_SHAKE_DURATION
+    const amp = 0.22 * (hitShakeTime / HIT_SHAKE_DURATION)
+    return Math.sin(t * Math.PI * 6) * amp
+  }
 
   return {
     update(dt, player, collision) {
+      if (!alive) return
+      if (lockVisualState === 'locked') {
+        lockPulseTime += dt
+        const pulse = 1 + Math.sin(lockPulseTime * 8.0) * 0.06
+        lockRing.scale.setScalar(pulse)
+      } else {
+        lockRing.scale.setScalar(1)
+      }
+      const shakeYaw = getShakeYaw(dt)
       if (getTerrainHeight) {
         group.position.y = getTerrainHeight(group.position.x, group.position.z)
       }
@@ -117,7 +181,7 @@ export function createNPC(scene, { x = 0, z = 0, color = 0xff6b6b, name = 'NPC',
       if (talking || distToPlayer < TALK_DISTANCE || focused) {
         if (distToPlayer < TALK_DISTANCE || talking) {
           _toOrigin.set(playerPos.x - group.position.x, playerPos.z - group.position.z).normalize()
-          group.rotation.y = Math.atan2(_toOrigin.x, _toOrigin.y)
+          group.rotation.y = Math.atan2(_toOrigin.x, _toOrigin.y) + shakeYaw
           if (!talking) {
             const rect = getCachedRect()
             label.style.left = (rect.left + rect.width  * 0.5) + 'px'
@@ -161,7 +225,7 @@ export function createNPC(scene, { x = 0, z = 0, color = 0xff6b6b, name = 'NPC',
       }
       collidable.x = group.position.x
       collidable.z = group.position.z
-      group.rotation.y = Math.atan2(wanderDir.x, wanderDir.y)
+      group.rotation.y = Math.atan2(wanderDir.x, wanderDir.y) + shakeYaw
       walkTime += dt * 5
 
       const swing = Math.sin(walkTime) * 0.4
@@ -184,6 +248,63 @@ export function createNPC(scene, { x = 0, z = 0, color = 0xff6b6b, name = 'NPC',
     getHeadWorldPos() {
       const p = group.position
       return { x: p.x, y: p.y + 1.5, z: p.z }
+    },
+
+    getHp() {
+      return hp
+    },
+
+    getMaxHp() {
+      return maxHp
+    },
+
+    getHpRatio() {
+      return maxHp > 0 ? hp / maxHp : 0
+    },
+
+    isAlive() {
+      return alive && hp > 0
+    },
+
+    getHitRadius() {
+      return hitRadius
+    },
+
+    takeDamage(amount) {
+      hp = Math.max(0, hp - Math.max(0, amount))
+      if (hp <= 0) {
+        alive = false
+        talking = false
+        focused = false
+        label.style.display = 'none'
+        applyLockVisualState('hidden')
+        group.visible = false
+      }
+      return hp
+    },
+
+    onHit(amount) {
+      hitShakeTime = HIT_SHAKE_DURATION
+      return this.takeDamage(amount)
+    },
+
+    die() {
+      if (!alive) return
+      hp = 0
+      alive = false
+      talking = false
+      focused = false
+      label.style.display = 'none'
+      applyLockVisualState('hidden')
+      group.visible = false
+    },
+
+    setLockVisualState(state) {
+      if (!alive) {
+        applyLockVisualState('hidden')
+        return
+      }
+      applyLockVisualState(state)
     },
 
     startTalk(playerPos) {

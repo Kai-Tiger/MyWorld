@@ -9,9 +9,9 @@ const SKY_KEYS = [
   { t: Math.PI * .5,  hex: '#5AAFF0' }, // 正午
   { t: Math.PI * .75, hex: '#A8DAFF' }, // 下午
   { t: Math.PI,       hex: '#FF6040' }, // 黄昏
-  { t: Math.PI * 1.2, hex: '#2A105A' }, // 入夜
-  { t: Math.PI * 1.5, hex: '#07021A' }, // 深夜
-  { t: Math.PI * 1.8, hex: '#2A105A' }, // 拂晓前
+  { t: Math.PI * 1.2, hex: '#22305A' }, // 入夜
+  { t: Math.PI * 1.5, hex: '#11182A' }, // 深夜
+  { t: Math.PI * 1.8, hex: '#22305A' }, // 拂晓前
   { t: Math.PI * 2,   hex: '#FF8C60' }, // 回到黎明
 ]
 

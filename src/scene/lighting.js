@@ -9,7 +9,7 @@ export function createLighting(scene) {
   const sun = new THREE.DirectionalLight(0xfff1d4, 2.2)
   sun.position.set(15, 25, 10)
   sun.castShadow = true
-  sun.shadow.mapSize.set(2048, 2048)
+  sun.shadow.mapSize.set(1536, 1536)
   sun.shadow.camera.near = 1
   sun.shadow.camera.far  = 220
   sun.shadow.camera.left   = -40
@@ -27,5 +27,21 @@ export function createLighting(scene) {
   fill.position.set(-10, 10, -10)
   scene.add(fill)
 
-  return { sun, hemi, fill }
+  const moon = new THREE.DirectionalLight(0xc7d8ff, 0.0)
+  moon.position.set(-15, 25, -10)
+  moon.castShadow = false
+  moon.shadow.mapSize.set(1536, 1536)
+  moon.shadow.camera.near = 1
+  moon.shadow.camera.far = 220
+  moon.shadow.camera.left = -40
+  moon.shadow.camera.right = 40
+  moon.shadow.camera.top = 40
+  moon.shadow.camera.bottom = -40
+  moon.shadow.bias = -0.00015
+  moon.shadow.normalBias = 0.02
+  moon.shadow.radius = 2
+  scene.add(moon)
+  scene.add(moon.target)
+
+  return { sun, moon, hemi, fill }
 }

@@ -23,6 +23,14 @@ export class CollisionSystem {
     for (const o of this.collidables) {
       if (o === self) continue
       if (o.h !== undefined && playerY >= o.h - 0.2) continue
+      if (o.hx !== undefined && o.hz !== undefined) {
+        const closestX = Math.max(o.x - o.hx, Math.min(nx, o.x + o.hx))
+        const closestZ = Math.max(o.z - o.hz, Math.min(nz, o.z + o.hz))
+        const dx = nx - closestX
+        const dz = nz - closestZ
+        if (dx * dx + dz * dz < radius * radius) return o
+        continue
+      }
       const dx = nx - o.x
       const dz = nz - o.z
       const minDist = radius + o.r
@@ -46,6 +54,14 @@ export class CollisionSystem {
       if (o === self) continue  // 跳过自身，防止 NPC 自碰
       // 有顶面且玩家在顶面附近，不再水平拦截（留 0.2 缓冲防止刚落边缘时被卡住）
       if (o.h !== undefined && playerY >= o.h - 0.2) continue
+      if (o.hx !== undefined && o.hz !== undefined) {
+        const closestX = Math.max(o.x - o.hx, Math.min(nx, o.x + o.hx))
+        const closestZ = Math.max(o.z - o.hz, Math.min(nz, o.z + o.hz))
+        const dx = nx - closestX
+        const dz = nz - closestZ
+        if (dx * dx + dz * dz < radius * radius) return true
+        continue
+      }
       const dx = nx - o.x
       const dz = nz - o.z
       const minDist = radius + o.r
@@ -59,6 +75,12 @@ export class CollisionSystem {
     let maxH = 0
     for (const o of this.collidables) {
       if (o.h === undefined) continue
+      if (o.hx !== undefined && o.hz !== undefined) {
+        if (Math.abs(nx - o.x) < o.hx && Math.abs(nz - o.z) < o.hz) {
+          maxH = Math.max(maxH, o.h)
+        }
+        continue
+      }
       const dx = nx - o.x
       const dz = nz - o.z
       if (dx * dx + dz * dz < (o.r * 0.75) ** 2) {
