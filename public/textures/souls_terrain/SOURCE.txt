@@ -1,0 +1,20 @@
+Rock cliff texture:
+  Asset: Rock063
+  Source: https://ambientcg.com/a/Rock063
+  Download: https://ambientcg.com/get?file=Rock063_1K-JPG.zip
+
+Mossy rock texture:
+  Asset: Rock064
+  Source: https://ambientcg.com/a/Rock064
+  Download: https://ambientcg.com/get?file=Rock064_1K-JPG.zip
+
+Wet ground texture:
+  Asset: Ground103
+  Source: https://ambientcg.com/a/Ground103
+  Download: https://ambientcg.com/get?file=Ground103_1K-JPG.zip
+
+Flagstone path texture:
+  Asset: PavingStones150
+  Source: public/textures/road_paving_stones_150/SOURCE.txt
+
+These PBR texture sets are used by tools/blender/build_souls_vertical_terrain.py.

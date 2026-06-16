@@ -1,0 +1,8 @@
+Asset: Bricks068
+Source: https://ambientcg.com/a/Bricks068
+Downloaded package: Bricks068_1K-JPG.zip
+Used maps:
+- Bricks068_1K-JPG_Color.jpg -> castle_stone_wall_diff_1k.jpg, contrast-enhanced for clearer in-game mortar lines
+- Bricks068_1K-JPG_NormalGL.jpg -> castle_stone_wall_nor_gl_1k.jpg
+- Bricks068_1K-JPG_Roughness.jpg -> castle_stone_wall_rough_1k.jpg
+- Bricks068_1K-JPG_AmbientOcclusion.jpg -> castle_stone_wall_ao_1k.jpg

@@ -1,0 +1,3239 @@
+{
+  "version": 2,
+  "buildVersion": 16,
+  "source": "assets/blender/castle_master.blend",
+  "zones": {
+    "gatehouse": {
+      "name": "\u57ce\u95e8",
+      "bounds": {
+        "minX": -7,
+        "maxX": 7,
+        "minZ": 0,
+        "maxZ": 16
+      },
+      "minY": -1,
+      "maxY": 4.5,
+      "neighbors": [
+        "courtyard",
+        "north-wing",
+        "south-wing"
+      ],
+      "connectors": [
+        {
+          "to": "courtyard",
+          "x": 0,
+          "y": 0,
+          "z": 15.4,
+          "range": 3.4
+        },
+        {
+          "to": "north-wing",
+          "x": -6.1,
+          "y": 0,
+          "z": 8,
+          "range": 3.0
+        },
+        {
+          "to": "south-wing",
+          "x": 6.1,
+          "y": 0,
+          "z": 8,
+          "range": 3.0
+        }
+      ],
+      "colliders": [
+        {
+          "x": -6.75,
+          "z": 8.0,
+          "hx": 0.25,
+          "hz": 8.0,
+          "name": "COL_BOX_GATE_WALL_L",
+          "minY": 0.0,
+          "maxY": 5.0
+        },
+        {
+          "x": 6.75,
+          "z": 8.0,
+          "hx": 0.25,
+          "hz": 8.0,
+          "name": "COL_BOX_GATE_WALL_R",
+          "minY": 0.0,
+          "maxY": 5.0
+        },
+        {
+          "x": -4.7,
+          "z": 15.75,
+          "hx": 2.3,
+          "hz": 0.25,
+          "name": "COL_BOX_GATE_REAR_WALL_-4.7",
+          "minY": 0.0,
+          "maxY": 5.0
+        },
+        {
+          "x": -4.7,
+          "z": 0.25,
+          "hx": 2.3,
+          "hz": 0.25,
+          "name": "COL_BOX_GATE_FRONT_WALL_-4.7",
+          "minY": 0.0,
+          "maxY": 5.0
+        },
+        {
+          "x": 4.7,
+          "z": 15.75,
+          "hx": 2.3,
+          "hz": 0.25,
+          "name": "COL_BOX_GATE_REAR_WALL_4.7",
+          "minY": 0.0,
+          "maxY": 5.0
+        },
+        {
+          "x": 4.7,
+          "z": 0.25,
+          "hx": 2.3,
+          "hz": 0.25,
+          "name": "COL_BOX_GATE_FRONT_WALL_4.7",
+          "minY": 0.0,
+          "maxY": 5.0
+        },
+        {
+          "x": 0.0,
+          "z": 15.75,
+          "hx": 2.4,
+          "hz": 0.25,
+          "name": "COL_BOX_GATE_REAR_DOOR_BLOCKER",
+          "minY": 0.0,
+          "maxY": 5.0
+        },
+        {
+          "x": -5.4,
+          "z": 8.0,
+          "hx": 1.5,
+          "hz": 1.5,
+          "name": "COL_BOX_GATE_TOWER_L",
+          "minY": 0.0,
+          "maxY": 11.0
+        },
+        {
+          "x": 5.4,
+          "z": 8.0,
+          "hx": 1.5,
+          "hz": 1.5,
+          "name": "COL_BOX_GATE_TOWER_R",
+          "minY": 0.0,
+          "maxY": 11.0
+        }
+      ],
+      "sockets": {
+        "SOCKET_TORCH_01": {
+          "x": -2.6,
+          "y": 2.2,
+          "z": 12.0
+        },
+        "SOCKET_TORCH_02": {
+          "x": 2.6,
+          "y": 2.2,
+          "z": 12.0
+        }
+      }
+    },
+    "courtyard": {
+      "name": "\u4e0b\u5c42\u5ead\u9662\u4e0e\u4e2d\u5ead\u524d\u5385",
+      "bounds": {
+        "minX": -42,
+        "maxX": 42,
+        "minZ": -48,
+        "maxZ": 16
+      },
+      "minY": -1,
+      "maxY": 4.5,
+      "neighbors": [
+        "gatehouse",
+        "north-wing",
+        "south-wing",
+        "great-hall",
+        "atrium"
+      ],
+      "connectors": [
+        {
+          "to": "gatehouse",
+          "x": 0,
+          "y": 0,
+          "z": 0.3,
+          "range": 3.4
+        },
+        {
+          "to": "great-hall",
+          "x": 0,
+          "y": 0,
+          "z": -23.7,
+          "range": 3.4
+        },
+        {
+          "to": "atrium",
+          "x": 0,
+          "y": 0,
+          "z": -32,
+          "range": 7.0
+        },
+        {
+          "to": "north-wing",
+          "x": -14,
+          "y": 0,
+          "z": -10,
+          "range": 5.0
+        },
+        {
+          "to": "south-wing",
+          "x": 14,
+          "y": 0,
+          "z": -10,
+          "range": 5.0
+        }
+      ],
+      "colliders": [
+        {
+          "x": -13.75,
+          "z": -22.25,
+          "hx": 0.25,
+          "hz": 1.75,
+          "name": "COL_BOX_COURTYARD_SIDE_-13.75_-22.25",
+          "minY": 0.0,
+          "maxY": 6.0
+        },
+        {
+          "x": -13.75,
+          "z": -12.0,
+          "hx": 0.25,
+          "hz": 4.0,
+          "name": "COL_BOX_COURTYARD_SIDE_-13.75_-12",
+          "minY": 0.0,
+          "maxY": 6.0
+        },
+        {
+          "x": -13.75,
+          "z": -1.75,
+          "hx": 0.25,
+          "hz": 1.75,
+          "name": "COL_BOX_COURTYARD_SIDE_-13.75_-1.75",
+          "minY": 0.0,
+          "maxY": 6.0
+        },
+        {
+          "x": 13.75,
+          "z": -22.25,
+          "hx": 0.25,
+          "hz": 1.75,
+          "name": "COL_BOX_COURTYARD_SIDE_13.75_-22.25",
+          "minY": 0.0,
+          "maxY": 6.0
+        },
+        {
+          "x": 13.75,
+          "z": -12.0,
+          "hx": 0.25,
+          "hz": 4.0,
+          "name": "COL_BOX_COURTYARD_SIDE_13.75_-12",
+          "minY": 0.0,
+          "maxY": 6.0
+        },
+        {
+          "x": 13.75,
+          "z": -1.75,
+          "hx": 0.25,
+          "hz": 1.75,
+          "name": "COL_BOX_COURTYARD_SIDE_13.75_-1.75",
+          "minY": 0.0,
+          "maxY": 6.0
+        },
+        {
+          "x": -8.5,
+          "z": -0.25,
+          "hx": 5.5,
+          "hz": 0.25,
+          "name": "COL_BOX_COURTYARD_END_L_-0.25",
+          "minY": 0.0,
+          "maxY": 6.0
+        },
+        {
+          "x": 8.5,
+          "z": -0.25,
+          "hx": 5.5,
+          "hz": 0.25,
+          "name": "COL_BOX_COURTYARD_END_R_-0.25",
+          "minY": 0.0,
+          "maxY": 6.0
+        },
+        {
+          "x": -8.5,
+          "z": -23.75,
+          "hx": 5.5,
+          "hz": 0.25,
+          "name": "COL_BOX_COURTYARD_END_L_-23.75",
+          "minY": 0.0,
+          "maxY": 6.0
+        },
+        {
+          "x": 8.5,
+          "z": -23.75,
+          "hx": 5.5,
+          "hz": 0.25,
+          "name": "COL_BOX_COURTYARD_END_R_-23.75",
+          "minY": 0.0,
+          "maxY": 6.0
+        },
+        {
+          "x": 0.0,
+          "z": -12.0,
+          "hx": 1.3,
+          "hz": 1.3,
+          "name": "COL_BOX_COURTYARD_WELL",
+          "h": 0.7,
+          "minY": 0.0,
+          "maxY": 0.7
+        }
+      ],
+      "sockets": {
+        "SOCKET_TORCH_01.001": {
+          "x": -6.0,
+          "y": 2.2,
+          "z": -20.0
+        },
+        "SOCKET_TORCH_02.001": {
+          "x": 6.0,
+          "y": 2.2,
+          "z": -20.0
+        }
+      }
+    },
+    "north-wing": {
+      "name": "\u5317\u7ffc\u5175\u5668\u5e93",
+      "bounds": {
+        "minX": -50,
+        "maxX": -14,
+        "minZ": -78,
+        "maxZ": 20
+      },
+      "minY": -1,
+      "maxY": 5.5,
+      "neighbors": [
+        "gatehouse",
+        "courtyard",
+        "atrium",
+        "great-hall",
+        "upper-floor"
+      ],
+      "connectors": [
+        {
+          "to": "gatehouse",
+          "x": -14,
+          "y": 0,
+          "z": 8,
+          "range": 4.0
+        },
+        {
+          "to": "courtyard",
+          "x": -14,
+          "y": 0,
+          "z": -10,
+          "range": 5.0
+        },
+        {
+          "to": "upper-floor",
+          "x": -18,
+          "y": 5,
+          "z": -16.5,
+          "range": 4.0
+        },
+        {
+          "to": "atrium",
+          "x": -34,
+          "y": 0,
+          "z": -29,
+          "range": 5.0
+        }
+      ],
+      "colliders": [
+        {
+          "x": -21.0,
+          "z": 7.75,
+          "hx": 7.0,
+          "hz": 0.25,
+          "name": "COL_BOX_NORTH_FRONT_WALL",
+          "minY": 0.0,
+          "maxY": 8.0
+        },
+        {
+          "x": -24.5,
+          "z": -20.0,
+          "hx": 2.1,
+          "hz": 1.1,
+          "name": "COL_BOX_NORTH_ROOM_BLOCK_-20",
+          "minY": 0.0,
+          "maxY": 2.8
+        },
+        {
+          "x": -24.5,
+          "z": -8.0,
+          "hx": 2.1,
+          "hz": 1.1,
+          "name": "COL_BOX_NORTH_ROOM_BLOCK_-8",
+          "minY": 0.0,
+          "maxY": 2.8
+        },
+        {
+          "x": -24.5,
+          "z": 4.0,
+          "hx": 2.1,
+          "hz": 1.1,
+          "name": "COL_BOX_NORTH_ROOM_BLOCK_4",
+          "minY": 0.0,
+          "maxY": 2.8
+        },
+        {
+          "x": -18.0,
+          "z": -10.0,
+          "hx": 1.8,
+          "hz": 7.0,
+          "name": "COL_RAMP_NORTH_STAIR",
+          "type": "ramp",
+          "axis": "z",
+          "h0": 0,
+          "h1": 5.0,
+          "reverse": true,
+          "surface": true
+        },
+        {
+          "x": -20.0,
+          "z": -10.0,
+          "hx": 0.2,
+          "hz": 7.0,
+          "name": "COL_BOX_NORTH_STAIR_RAIL_L",
+          "minY": 0.0,
+          "maxY": 6.0
+        },
+        {
+          "x": -16.0,
+          "z": -10.0,
+          "hx": 0.2,
+          "hz": 7.0,
+          "name": "COL_BOX_NORTH_STAIR_RAIL_R",
+          "minY": 0.0,
+          "maxY": 6.0
+        },
+        {
+          "x": -27.75,
+          "z": -7.3,
+          "hx": 0.25,
+          "hz": 15.3,
+          "name": "COL_BOX_NORTH_OUTER_WALL_B",
+          "minY": 0.0,
+          "maxY": 8.0
+        }
+      ],
+      "sockets": {
+        "SOCKET_TORCH_22": {
+          "x": -24.5,
+          "y": 2.2,
+          "z": -22.0
+        },
+        "SOCKET_TORCH_04": {
+          "x": -24.5,
+          "y": 2.2,
+          "z": -4.0
+        }
+      }
+    },
+    "south-wing": {
+      "name": "\u5357\u7ffc\u793c\u62dc\u5802",
+      "bounds": {
+        "minX": 14,
+        "maxX": 50,
+        "minZ": -78,
+        "maxZ": 20
+      },
+      "minY": -1,
+      "maxY": 5.5,
+      "neighbors": [
+        "gatehouse",
+        "courtyard",
+        "atrium",
+        "great-hall",
+        "upper-floor"
+      ],
+      "connectors": [
+        {
+          "to": "gatehouse",
+          "x": 14,
+          "y": 0,
+          "z": 8,
+          "range": 4.0
+        },
+        {
+          "to": "courtyard",
+          "x": 14,
+          "y": 0,
+          "z": -10,
+          "range": 5.0
+        },
+        {
+          "to": "upper-floor",
+          "x": 18,
+          "y": 5,
+          "z": -16.5,
+          "range": 4.0
+        },
+        {
+          "to": "atrium",
+          "x": 34,
+          "y": 0,
+          "z": -29,
+          "range": 5.0
+        }
+      ],
+      "colliders": [
+        {
+          "x": 21.0,
+          "z": 7.75,
+          "hx": 7.0,
+          "hz": 0.25,
+          "name": "COL_BOX_SOUTH_FRONT_WALL",
+          "minY": 0.0,
+          "maxY": 8.0
+        },
+        {
+          "x": 24.5,
+          "z": -20.0,
+          "hx": 2.1,
+          "hz": 1.1,
+          "name": "COL_BOX_SOUTH_ROOM_BLOCK_-20",
+          "minY": 0.0,
+          "maxY": 2.8
+        },
+        {
+          "x": 24.5,
+          "z": -8.0,
+          "hx": 2.1,
+          "hz": 1.1,
+          "name": "COL_BOX_SOUTH_ROOM_BLOCK_-8",
+          "minY": 0.0,
+          "maxY": 2.8
+        },
+        {
+          "x": 24.5,
+          "z": 4.0,
+          "hx": 2.1,
+          "hz": 1.1,
+          "name": "COL_BOX_SOUTH_ROOM_BLOCK_4",
+          "minY": 0.0,
+          "maxY": 2.8
+        },
+        {
+          "x": 18.0,
+          "z": -10.0,
+          "hx": 1.8,
+          "hz": 7.0,
+          "name": "COL_RAMP_SOUTH_STAIR",
+          "type": "ramp",
+          "axis": "z",
+          "h0": 0,
+          "h1": 5.0,
+          "reverse": true,
+          "surface": true
+        },
+        {
+          "x": 16.0,
+          "z": -10.0,
+          "hx": 0.2,
+          "hz": 7.0,
+          "name": "COL_BOX_SOUTH_STAIR_RAIL_L",
+          "minY": 0.0,
+          "maxY": 6.0
+        },
+        {
+          "x": 20.0,
+          "z": -10.0,
+          "hx": 0.2,
+          "hz": 7.0,
+          "name": "COL_BOX_SOUTH_STAIR_RAIL_R",
+          "minY": 0.0,
+          "maxY": 6.0
+        },
+        {
+          "x": 27.75,
+          "z": -7.3,
+          "hx": 0.25,
+          "hz": 15.3,
+          "name": "COL_BOX_SOUTH_OUTER_WALL_B",
+          "minY": 0.0,
+          "maxY": 8.0
+        }
+      ],
+      "sockets": {
+        "SOCKET_TORCH_22.001": {
+          "x": 24.5,
+          "y": 2.2,
+          "z": -22.0
+        },
+        "SOCKET_TORCH_04.001": {
+          "x": 24.5,
+          "y": 2.2,
+          "z": -4.0
+        }
+      }
+    },
+    "great-hall": {
+      "name": "\u4e3b\u5385",
+      "bounds": {
+        "minX": -42,
+        "maxX": 42,
+        "minZ": -80,
+        "maxZ": -44
+      },
+      "minY": -1,
+      "maxY": 5.5,
+      "neighbors": [
+        "courtyard",
+        "atrium",
+        "north-wing",
+        "south-wing",
+        "upper-floor"
+      ],
+      "connectors": [
+        {
+          "to": "courtyard",
+          "x": 0,
+          "y": 0,
+          "z": -24.3,
+          "range": 3.4
+        },
+        {
+          "to": "atrium",
+          "x": 0,
+          "y": 0,
+          "z": -48,
+          "range": 5.0
+        },
+        {
+          "to": "upper-floor",
+          "x": 0,
+          "y": 5,
+          "z": -43.5,
+          "range": 4.0
+        }
+      ],
+      "colliders": [
+        {
+          "x": -9.75,
+          "z": -28.25,
+          "hx": 0.25,
+          "hz": 4.25,
+          "name": "COL_BOX_HALL_SIDE_FRONT_-9.75",
+          "minY": 0.0,
+          "maxY": 8.0
+        },
+        {
+          "x": -9.75,
+          "z": -39.75,
+          "hx": 0.25,
+          "hz": 4.25,
+          "name": "COL_BOX_HALL_SIDE_REAR_-9.75",
+          "minY": 0.0,
+          "maxY": 8.0
+        },
+        {
+          "x": 9.75,
+          "z": -28.25,
+          "hx": 0.25,
+          "hz": 4.25,
+          "name": "COL_BOX_HALL_SIDE_FRONT_9.75",
+          "minY": 0.0,
+          "maxY": 8.0
+        },
+        {
+          "x": 9.75,
+          "z": -39.75,
+          "hx": 0.25,
+          "hz": 4.25,
+          "name": "COL_BOX_HALL_SIDE_REAR_9.75",
+          "minY": 0.0,
+          "maxY": 8.0
+        },
+        {
+          "x": -5.8,
+          "z": -24.25,
+          "hx": 4.2,
+          "hz": 0.25,
+          "name": "COL_BOX_HALL_FRONT_-5.8",
+          "minY": 0.0,
+          "maxY": 8.0
+        },
+        {
+          "x": -5.8,
+          "z": -43.75,
+          "hx": 4.2,
+          "hz": 0.25,
+          "name": "COL_BOX_HALL_REAR_-5.8",
+          "minY": 0.0,
+          "maxY": 9.0
+        },
+        {
+          "x": 5.8,
+          "z": -24.25,
+          "hx": 4.2,
+          "hz": 0.25,
+          "name": "COL_BOX_HALL_FRONT_5.8",
+          "minY": 0.0,
+          "maxY": 8.0
+        },
+        {
+          "x": 5.8,
+          "z": -43.75,
+          "hx": 4.2,
+          "hz": 0.25,
+          "name": "COL_BOX_HALL_REAR_5.8",
+          "minY": 0.0,
+          "maxY": 9.0
+        },
+        {
+          "x": 0.0,
+          "z": -40.8,
+          "hx": 2.25,
+          "hz": 0.75,
+          "name": "COL_BOX_HALL_THRONE",
+          "minY": 0.0,
+          "maxY": 1.3
+        },
+        {
+          "x": 0.0,
+          "z": -43.75,
+          "hx": 1.0,
+          "hz": 0.25,
+          "name": "COL_BOX_HALL_EXIT_DOOR",
+          "minY": 0.0,
+          "maxY": 2.8
+        }
+      ],
+      "sockets": {
+        "SOCKET_TORCH_01.002": {
+          "x": -7.5,
+          "y": 2.2,
+          "z": -27.0
+        },
+        "SOCKET_TORCH_02.002": {
+          "x": 7.5,
+          "y": 2.2,
+          "z": -27.0
+        },
+        "SOCKET_EXIT": {
+          "x": 0.0,
+          "y": 1.0,
+          "z": -42.8
+        }
+      }
+    },
+    "upper-floor": {
+      "name": "\u4e8c\u697c\u5927\u5385\u7fa4",
+      "bounds": {
+        "minX": -50,
+        "maxX": 50,
+        "minZ": -80,
+        "maxZ": 24
+      },
+      "minY": 4.5,
+      "maxY": 9.5,
+      "neighbors": [
+        "atrium",
+        "north-wing",
+        "south-wing",
+        "great-hall",
+        "floor-3"
+      ],
+      "connectors": [
+        {
+          "to": "atrium",
+          "x": -27.8,
+          "y": 5,
+          "z": -29,
+          "range": 4.0
+        },
+        {
+          "to": "north-wing",
+          "x": -18,
+          "y": 5,
+          "z": -16.5,
+          "range": 4.0
+        },
+        {
+          "to": "south-wing",
+          "x": 18,
+          "y": 5,
+          "z": -16.5,
+          "range": 4.0
+        },
+        {
+          "to": "floor-3",
+          "x": -27.8,
+          "y": 10,
+          "z": -29,
+          "range": 4.0
+        }
+      ],
+      "colliders": [
+        {
+          "x": 0.0,
+          "z": -32.0,
+          "hx": 11.0,
+          "hz": 11.0,
+          "name": "COL_SURFACE_UPPER_HALL",
+          "surface": true,
+          "h": 5.0
+        },
+        {
+          "x": -24.15,
+          "z": -10.0,
+          "hx": 3.85,
+          "hz": 18.0,
+          "name": "COL_SURFACE_UPPER_NORTH_OUTER",
+          "surface": true,
+          "h": 5.0
+        },
+        {
+          "x": -14.85,
+          "z": -10.0,
+          "hx": 0.85,
+          "hz": 18.0,
+          "name": "COL_SURFACE_UPPER_NORTH_INNER",
+          "surface": true,
+          "h": 5.0
+        },
+        {
+          "x": -18.0,
+          "z": -22.5,
+          "hx": 2.3,
+          "hz": 5.5,
+          "name": "COL_SURFACE_UPPER_NORTH_STAIR_REAR",
+          "surface": true,
+          "h": 5.0
+        },
+        {
+          "x": -18.0,
+          "z": 2.75,
+          "hx": 2.3,
+          "hz": 5.25,
+          "name": "COL_SURFACE_UPPER_NORTH_STAIR_FRONT",
+          "surface": true,
+          "h": 5.0
+        },
+        {
+          "x": -20.5,
+          "z": -9.75,
+          "hx": 0.125,
+          "hz": 7.25,
+          "name": "COL_BOX_UPPER_NORTH_RAIL_L",
+          "minY": 5.0,
+          "maxY": 6.1
+        },
+        {
+          "x": -15.5,
+          "z": -9.75,
+          "hx": 0.125,
+          "hz": 7.25,
+          "name": "COL_BOX_UPPER_NORTH_RAIL_R",
+          "minY": 5.0,
+          "maxY": 6.1
+        },
+        {
+          "x": 24.15,
+          "z": -10.0,
+          "hx": 3.85,
+          "hz": 18.0,
+          "name": "COL_SURFACE_UPPER_SOUTH_OUTER",
+          "surface": true,
+          "h": 5.0
+        },
+        {
+          "x": 14.85,
+          "z": -10.0,
+          "hx": 0.85,
+          "hz": 18.0,
+          "name": "COL_SURFACE_UPPER_SOUTH_INNER",
+          "surface": true,
+          "h": 5.0
+        },
+        {
+          "x": 18.0,
+          "z": -22.5,
+          "hx": 2.3,
+          "hz": 5.5,
+          "name": "COL_SURFACE_UPPER_SOUTH_STAIR_REAR",
+          "surface": true,
+          "h": 5.0
+        },
+        {
+          "x": 18.0,
+          "z": 2.75,
+          "hx": 2.3,
+          "hz": 5.25,
+          "name": "COL_SURFACE_UPPER_SOUTH_STAIR_FRONT",
+          "surface": true,
+          "h": 5.0
+        },
+        {
+          "x": 15.5,
+          "z": -9.75,
+          "hx": 0.125,
+          "hz": 7.25,
+          "name": "COL_BOX_UPPER_SOUTH_RAIL_L",
+          "minY": 5.0,
+          "maxY": 6.1
+        },
+        {
+          "x": 20.5,
+          "z": -9.75,
+          "hx": 0.125,
+          "hz": 7.25,
+          "name": "COL_BOX_UPPER_SOUTH_RAIL_R",
+          "minY": 5.0,
+          "maxY": 6.1
+        },
+        {
+          "x": 0.0,
+          "z": -20.0,
+          "hx": 15.0,
+          "hz": 2.5,
+          "name": "COL_SURFACE_UPPER_BRIDGE",
+          "surface": true,
+          "h": 5.0
+        },
+        {
+          "x": 0.0,
+          "z": 8.0,
+          "hx": 15.0,
+          "hz": 6.0,
+          "name": "COL_SURFACE_UPPER_TERRACE",
+          "surface": true,
+          "h": 5.0
+        },
+        {
+          "x": -18.0,
+          "z": 8.0,
+          "hx": 3.0,
+          "hz": 6.0,
+          "name": "COL_SURFACE_UPPER_TERRACE_NORTH",
+          "surface": true,
+          "h": 5.0
+        },
+        {
+          "x": 18.0,
+          "z": 8.0,
+          "hx": 3.0,
+          "hz": 6.0,
+          "name": "COL_SURFACE_UPPER_TERRACE_SOUTH",
+          "surface": true,
+          "h": 5.0
+        },
+        {
+          "x": 0.0,
+          "z": -43.75,
+          "hx": 28.0,
+          "hz": 0.25,
+          "name": "COL_BOX_UPPER_REAR",
+          "minY": 5.0,
+          "maxY": 9.0
+        },
+        {
+          "x": -25.6,
+          "z": 2.0,
+          "hx": 2.4,
+          "hz": 0.25,
+          "name": "COL_BOX_UPPER_TERRACE_DIVIDER_-25.6",
+          "minY": 5.0,
+          "maxY": 10.0
+        },
+        {
+          "x": -10.6,
+          "z": 2.0,
+          "hx": 8.2,
+          "hz": 0.25,
+          "name": "COL_BOX_UPPER_TERRACE_DIVIDER_-10.6",
+          "minY": 5.0,
+          "maxY": 10.0
+        },
+        {
+          "x": 10.6,
+          "z": 2.0,
+          "hx": 8.2,
+          "hz": 0.25,
+          "name": "COL_BOX_UPPER_TERRACE_DIVIDER_10.6",
+          "minY": 5.0,
+          "maxY": 10.0
+        },
+        {
+          "x": 25.6,
+          "z": 2.0,
+          "hx": 2.4,
+          "hz": 0.25,
+          "name": "COL_BOX_UPPER_TERRACE_DIVIDER_25.6",
+          "minY": 5.0,
+          "maxY": 10.0
+        },
+        {
+          "x": -12.0,
+          "z": 8.0,
+          "hx": 0.25,
+          "hz": 6.0,
+          "name": "COL_BOX_UPPER_TERRACE_PARAPET_-12",
+          "minY": 5.0,
+          "maxY": 7.0
+        },
+        {
+          "x": 12.0,
+          "z": 8.0,
+          "hx": 0.25,
+          "hz": 6.0,
+          "name": "COL_BOX_UPPER_TERRACE_PARAPET_12",
+          "minY": 5.0,
+          "maxY": 7.0
+        },
+        {
+          "x": -27.75,
+          "z": -30.75,
+          "hx": 0.25,
+          "hz": 1.25,
+          "name": "COL_BOX_UPPER_OUTER_-27.75_A",
+          "minY": 5.0,
+          "maxY": 9.0
+        },
+        {
+          "x": -27.75,
+          "z": -7.25,
+          "hx": 0.25,
+          "hz": 15.25,
+          "name": "COL_BOX_UPPER_OUTER_-27.75_B",
+          "minY": 5.0,
+          "maxY": 9.0
+        },
+        {
+          "x": 27.75,
+          "z": -30.75,
+          "hx": 0.25,
+          "hz": 1.25,
+          "name": "COL_BOX_UPPER_OUTER_27.75_A",
+          "minY": 5.0,
+          "maxY": 9.0
+        },
+        {
+          "x": 27.75,
+          "z": -7.25,
+          "hx": 0.25,
+          "hz": 15.25,
+          "name": "COL_BOX_UPPER_OUTER_27.75_B",
+          "minY": 5.0,
+          "maxY": 9.0
+        }
+      ],
+      "sockets": {
+        "SOCKET_TORCH_01.003": {
+          "x": -12.0,
+          "y": 7.1,
+          "z": -31.0
+        },
+        "SOCKET_TORCH_02.003": {
+          "x": 12.0,
+          "y": 7.1,
+          "z": -31.0
+        }
+      }
+    },
+    "atrium": {
+      "name": "\u4e2d\u592e\u4e2d\u5ead",
+      "bounds": {
+        "minX": -50,
+        "maxX": 50,
+        "minZ": -80,
+        "maxZ": 24
+      },
+      "minY": -1,
+      "maxY": 20.5,
+      "neighbors": [
+        "courtyard",
+        "north-wing",
+        "south-wing",
+        "great-hall",
+        "upper-floor",
+        "floor-3",
+        "floor-4"
+      ],
+      "connectors": [
+        {
+          "to": "courtyard",
+          "x": 0,
+          "y": 0,
+          "z": -10,
+          "range": 7.0
+        },
+        {
+          "to": "upper-floor",
+          "x": -27.8,
+          "y": 5,
+          "z": -29,
+          "range": 4.0
+        },
+        {
+          "to": "floor-3",
+          "x": -27.8,
+          "y": 10,
+          "z": -29,
+          "range": 4.0
+        },
+        {
+          "to": "floor-4",
+          "x": -27.8,
+          "y": 15,
+          "z": -29,
+          "range": 4.0
+        }
+      ],
+      "colliders": [
+        {
+          "x": 0.0,
+          "z": -60.0,
+          "hx": 42.0,
+          "hz": 12.0,
+          "name": "COL_SURFACE_ATRIUM_L1_NORTH",
+          "surface": true,
+          "h": 0.0
+        },
+        {
+          "x": 0.0,
+          "z": 2.0,
+          "hx": 42.0,
+          "hz": 12.0,
+          "name": "COL_SURFACE_ATRIUM_L1_SOUTH",
+          "surface": true,
+          "h": 0.0
+        },
+        {
+          "x": -34.0,
+          "z": -29.0,
+          "hx": 8.0,
+          "hz": 19.0,
+          "name": "COL_SURFACE_ATRIUM_L1_WEST",
+          "surface": true,
+          "h": 0.0
+        },
+        {
+          "x": 34.0,
+          "z": -29.0,
+          "hx": 8.0,
+          "hz": 19.0,
+          "name": "COL_SURFACE_ATRIUM_L1_EAST",
+          "surface": true,
+          "h": 0.0
+        },
+        {
+          "x": -24.0,
+          "z": -29.0,
+          "hx": 0.75,
+          "hz": 0.75,
+          "name": "COL_BOX_ATRIUM_SPIRAL_STAIR_CORE",
+          "minY": 0.0,
+          "maxY": 21.2
+        },
+        {
+          "x": -19.6562,
+          "z": -28.299,
+          "hx": 1.55,
+          "hz": 1.05,
+          "name": "COL_SURFACE_ATRIUM_SPIRAL_STAIR_STEP_00",
+          "surface": true,
+          "h": 0.37037037037037035
+        },
+        {
+          "x": -19.6502,
+          "z": -29.663,
+          "hx": 1.55,
+          "hz": 1.05,
+          "name": "COL_SURFACE_ATRIUM_SPIRAL_STAIR_STEP_01",
+          "surface": true,
+          "h": 0.7407407407407407
+        },
+        {
+          "x": -20.0623,
+          "z": -30.9633,
+          "hx": 1.55,
+          "hz": 1.05,
+          "name": "COL_SURFACE_ATRIUM_SPIRAL_STAIR_STEP_02",
+          "surface": true,
+          "h": 1.1111111111111112
+        },
+        {
+          "x": -20.8527,
+          "z": -32.0749,
+          "hx": 1.55,
+          "hz": 1.05,
+          "name": "COL_SURFACE_ATRIUM_SPIRAL_STAIR_STEP_03",
+          "surface": true,
+          "h": 1.4814814814814814
+        },
+        {
+          "x": -21.9456,
+          "z": -32.891,
+          "hx": 1.55,
+          "hz": 1.05,
+          "name": "COL_SURFACE_ATRIUM_SPIRAL_STAIR_STEP_04",
+          "surface": true,
+          "h": 1.8518518518518516
+        },
+        {
+          "x": -23.2359,
+          "z": -33.3332,
+          "hx": 1.55,
+          "hz": 1.05,
+          "name": "COL_SURFACE_ATRIUM_SPIRAL_STAIR_STEP_05",
+          "surface": true,
+          "h": 2.2222222222222223
+        },
+        {
+          "x": -24.5997,
+          "z": -33.3589,
+          "hx": 1.55,
+          "hz": 1.05,
+          "name": "COL_SURFACE_ATRIUM_SPIRAL_STAIR_STEP_06",
+          "surface": true,
+          "h": 2.5925925925925926
+        },
+        {
+          "x": -25.9058,
+          "z": -32.9658,
+          "hx": 1.55,
+          "hz": 1.05,
+          "name": "COL_SURFACE_ATRIUM_SPIRAL_STAIR_STEP_07",
+          "surface": true,
+          "h": 2.962962962962963
+        },
+        {
+          "x": -27.0288,
+          "z": -32.1916,
+          "hx": 1.55,
+          "hz": 1.05,
+          "name": "COL_SURFACE_ATRIUM_SPIRAL_STAIR_STEP_08",
+          "surface": true,
+          "h": 3.333333333333333
+        },
+        {
+          "x": -27.8607,
+          "z": -31.1107,
+          "hx": 1.55,
+          "hz": 1.05,
+          "name": "COL_SURFACE_ATRIUM_SPIRAL_STAIR_STEP_09",
+          "surface": true,
+          "h": 3.7037037037037033
+        },
+        {
+          "x": -28.3216,
+          "z": -29.827,
+          "hx": 1.55,
+          "hz": 1.05,
+          "name": "COL_SURFACE_ATRIUM_SPIRAL_STAIR_STEP_10",
+          "surface": true,
+          "h": 4.0740740740740735
+        },
+        {
+          "x": -28.3672,
+          "z": -28.4638,
+          "hx": 1.55,
+          "hz": 1.05,
+          "name": "COL_SURFACE_ATRIUM_SPIRAL_STAIR_STEP_11",
+          "surface": true,
+          "h": 4.444444444444445
+        },
+        {
+          "x": -27.9931,
+          "z": -27.1521,
+          "hx": 1.55,
+          "hz": 1.05,
+          "name": "COL_SURFACE_ATRIUM_SPIRAL_STAIR_STEP_12",
+          "surface": true,
+          "h": 4.814814814814815
+        },
+        {
+          "x": -27.2354,
+          "z": -26.018,
+          "hx": 1.55,
+          "hz": 1.05,
+          "name": "COL_SURFACE_ATRIUM_SPIRAL_STAIR_STEP_13",
+          "surface": true,
+          "h": 5.185185185185185
+        },
+        {
+          "x": -26.1667,
+          "z": -25.1704,
+          "hx": 1.55,
+          "hz": 1.05,
+          "name": "COL_SURFACE_ATRIUM_SPIRAL_STAIR_STEP_14",
+          "surface": true,
+          "h": 5.555555555555555
+        },
+        {
+          "x": -24.8898,
+          "z": -24.6909,
+          "hx": 1.55,
+          "hz": 1.05,
+          "name": "COL_SURFACE_ATRIUM_SPIRAL_STAIR_STEP_15",
+          "surface": true,
+          "h": 5.925925925925926
+        },
+        {
+          "x": -23.5273,
+          "z": -24.6255,
+          "hx": 1.55,
+          "hz": 1.05,
+          "name": "COL_SURFACE_ATRIUM_SPIRAL_STAIR_STEP_16",
+          "surface": true,
+          "h": 6.296296296296297
+        },
+        {
+          "x": -22.2104,
+          "z": -24.9804,
+          "hx": 1.55,
+          "hz": 1.05,
+          "name": "COL_SURFACE_ATRIUM_SPIRAL_STAIR_STEP_17",
+          "surface": true,
+          "h": 6.666666666666666
+        },
+        {
+          "x": -21.0653,
+          "z": -25.7216,
+          "hx": 1.55,
+          "hz": 1.05,
+          "name": "COL_SURFACE_ATRIUM_SPIRAL_STAIR_STEP_18",
+          "surface": true,
+          "h": 7.037037037037037
+        },
+        {
+          "x": -20.2024,
+          "z": -26.7779,
+          "hx": 1.55,
+          "hz": 1.05,
+          "name": "COL_SURFACE_ATRIUM_SPIRAL_STAIR_STEP_19",
+          "surface": true,
+          "h": 7.4074074074074066
+        },
+        {
+          "x": -19.7043,
+          "z": -28.0477,
+          "hx": 1.55,
+          "hz": 1.05,
+          "name": "COL_SURFACE_ATRIUM_SPIRAL_STAIR_STEP_20",
+          "surface": true,
+          "h": 7.777777777777778
+        },
+        {
+          "x": -19.619,
+          "z": -29.409,
+          "hx": 1.55,
+          "hz": 1.05,
+          "name": "COL_SURFACE_ATRIUM_SPIRAL_STAIR_STEP_21",
+          "surface": true,
+          "h": 8.148148148148147
+        },
+        {
+          "x": -19.9548,
+          "z": -30.731,
+          "hx": 1.55,
+          "hz": 1.05,
+          "name": "COL_SURFACE_ATRIUM_SPIRAL_STAIR_STEP_22",
+          "surface": true,
+          "h": 8.518518518518519
+        },
+        {
+          "x": -20.6793,
+          "z": -31.8867,
+          "hx": 1.55,
+          "hz": 1.05,
+          "name": "COL_SURFACE_ATRIUM_SPIRAL_STAIR_STEP_23",
+          "surface": true,
+          "h": 8.88888888888889
+        },
+        {
+          "x": -21.7229,
+          "z": -32.7649,
+          "hx": 1.55,
+          "hz": 1.05,
+          "name": "COL_SURFACE_ATRIUM_SPIRAL_STAIR_STEP_24",
+          "surface": true,
+          "h": 9.25925925925926
+        },
+        {
+          "x": -22.9853,
+          "z": -33.2814,
+          "hx": 1.55,
+          "hz": 1.05,
+          "name": "COL_SURFACE_ATRIUM_SPIRAL_STAIR_STEP_25",
+          "surface": true,
+          "h": 9.62962962962963
+        },
+        {
+          "x": -24.3452,
+          "z": -33.3864,
+          "hx": 1.55,
+          "hz": 1.05,
+          "name": "COL_SURFACE_ATRIUM_SPIRAL_STAIR_STEP_26",
+          "surface": true,
+          "h": 10.0
+        },
+        {
+          "x": -25.672,
+          "z": -33.07,
+          "hx": 1.55,
+          "hz": 1.05,
+          "name": "COL_SURFACE_ATRIUM_SPIRAL_STAIR_STEP_27",
+          "surface": true,
+          "h": 10.37037037037037
+        },
+        {
+          "x": -26.8381,
+          "z": -32.3624,
+          "hx": 1.55,
+          "hz": 1.05,
+          "name": "COL_SURFACE_ATRIUM_SPIRAL_STAIR_STEP_28",
+          "surface": true,
+          "h": 10.740740740740742
+        },
+        {
+          "x": -27.7314,
+          "z": -31.3316,
+          "hx": 1.55,
+          "hz": 1.05,
+          "name": "COL_SURFACE_ATRIUM_SPIRAL_STAIR_STEP_29",
+          "surface": true,
+          "h": 11.11111111111111
+        },
+        {
+          "x": -28.2662,
+          "z": -30.0769,
+          "hx": 1.55,
+          "hz": 1.05,
+          "name": "COL_SURFACE_ATRIUM_SPIRAL_STAIR_STEP_30",
+          "surface": true,
+          "h": 11.481481481481481
+        },
+        {
+          "x": -28.391,
+          "z": -28.7186,
+          "hx": 1.55,
+          "hz": 1.05,
+          "name": "COL_SURFACE_ATRIUM_SPIRAL_STAIR_STEP_31",
+          "surface": true,
+          "h": 11.851851851851851
+        },
+        {
+          "x": -28.0938,
+          "z": -27.3874,
+          "hx": 1.55,
+          "hz": 1.05,
+          "name": "COL_SURFACE_ATRIUM_SPIRAL_STAIR_STEP_32",
+          "surface": true,
+          "h": 12.222222222222223
+        },
+        {
+          "x": -27.4033,
+          "z": -26.2111,
+          "hx": 1.55,
+          "hz": 1.05,
+          "name": "COL_SURFACE_ATRIUM_SPIRAL_STAIR_STEP_33",
+          "surface": true,
+          "h": 12.592592592592593
+        },
+        {
+          "x": -26.3857,
+          "z": -25.3029,
+          "hx": 1.55,
+          "hz": 1.05,
+          "name": "COL_SURFACE_ATRIUM_SPIRAL_STAIR_STEP_34",
+          "surface": true,
+          "h": 12.962962962962962
+        },
+        {
+          "x": -25.1388,
+          "z": -24.7499,
+          "hx": 1.55,
+          "hz": 1.05,
+          "name": "COL_SURFACE_ATRIUM_SPIRAL_STAIR_STEP_35",
+          "surface": true,
+          "h": 13.333333333333332
+        },
+        {
+          "x": -23.7825,
+          "z": -24.6054,
+          "hx": 1.55,
+          "hz": 1.05,
+          "name": "COL_SURFACE_ATRIUM_SPIRAL_STAIR_STEP_36",
+          "surface": true,
+          "h": 13.703703703703704
+        },
+        {
+          "x": -22.4471,
+          "z": -24.8831,
+          "hx": 1.55,
+          "hz": 1.05,
+          "name": "COL_SURFACE_ATRIUM_SPIRAL_STAIR_STEP_37",
+          "surface": true,
+          "h": 14.074074074074074
+        },
+        {
+          "x": -21.2609,
+          "z": -25.5565,
+          "hx": 1.55,
+          "hz": 1.05,
+          "name": "COL_SURFACE_ATRIUM_SPIRAL_STAIR_STEP_38",
+          "surface": true,
+          "h": 14.444444444444445
+        },
+        {
+          "x": -20.338,
+          "z": -26.5608,
+          "hx": 1.55,
+          "hz": 1.05,
+          "name": "COL_SURFACE_ATRIUM_SPIRAL_STAIR_STEP_39",
+          "surface": true,
+          "h": 14.814814814814813
+        },
+        {
+          "x": -19.7669,
+          "z": -27.7995,
+          "hx": 1.55,
+          "hz": 1.05,
+          "name": "COL_SURFACE_ATRIUM_SPIRAL_STAIR_STEP_40",
+          "surface": true,
+          "h": 15.185185185185187
+        },
+        {
+          "x": -19.6027,
+          "z": -29.1536,
+          "hx": 1.55,
+          "hz": 1.05,
+          "name": "COL_SURFACE_ATRIUM_SPIRAL_STAIR_STEP_41",
+          "surface": true,
+          "h": 15.555555555555555
+        },
+        {
+          "x": -19.861,
+          "z": -30.4929,
+          "hx": 1.55,
+          "hz": 1.05,
+          "name": "COL_SURFACE_ATRIUM_SPIRAL_STAIR_STEP_42",
+          "surface": true,
+          "h": 15.925925925925926
+        },
+        {
+          "x": -20.5171,
+          "z": -31.6887,
+          "hx": 1.55,
+          "hz": 1.05,
+          "name": "COL_SURFACE_ATRIUM_SPIRAL_STAIR_STEP_43",
+          "surface": true,
+          "h": 16.296296296296294
+        },
+        {
+          "x": -21.5078,
+          "z": -32.6262,
+          "hx": 1.55,
+          "hz": 1.05,
+          "name": "COL_SURFACE_ATRIUM_SPIRAL_STAIR_STEP_44",
+          "surface": true,
+          "h": 16.666666666666668
+        },
+        {
+          "x": -22.7381,
+          "z": -33.2152,
+          "hx": 1.55,
+          "hz": 1.05,
+          "name": "COL_SURFACE_ATRIUM_SPIRAL_STAIR_STEP_45",
+          "surface": true,
+          "h": 17.037037037037038
+        },
+        {
+          "x": -24.0896,
+          "z": -33.3991,
+          "hx": 1.55,
+          "hz": 1.05,
+          "name": "COL_SURFACE_ATRIUM_SPIRAL_STAIR_STEP_46",
+          "surface": true,
+          "h": 17.40740740740741
+        },
+        {
+          "x": -25.4325,
+          "z": -33.1603,
+          "hx": 1.55,
+          "hz": 1.05,
+          "name": "COL_SURFACE_ATRIUM_SPIRAL_STAIR_STEP_47",
+          "surface": true,
+          "h": 17.77777777777778
+        },
+        {
+          "x": -26.6378,
+          "z": -32.5217,
+          "hx": 1.55,
+          "hz": 1.05,
+          "name": "COL_SURFACE_ATRIUM_SPIRAL_STAIR_STEP_48",
+          "surface": true,
+          "h": 18.14814814814815
+        },
+        {
+          "x": -27.5895,
+          "z": -31.5447,
+          "hx": 1.55,
+          "hz": 1.05,
+          "name": "COL_SURFACE_ATRIUM_SPIRAL_STAIR_STEP_49",
+          "surface": true,
+          "h": 18.51851851851852
+        },
+        {
+          "x": -28.1964,
+          "z": -30.3231,
+          "hx": 1.55,
+          "hz": 1.05,
+          "name": "COL_SURFACE_ATRIUM_SPIRAL_STAIR_STEP_50",
+          "surface": true,
+          "h": 18.88888888888889
+        },
+        {
+          "x": -28.3999,
+          "z": -28.9744,
+          "hx": 1.55,
+          "hz": 1.05,
+          "name": "COL_SURFACE_ATRIUM_SPIRAL_STAIR_STEP_51",
+          "surface": true,
+          "h": 19.25925925925926
+        },
+        {
+          "x": -28.1807,
+          "z": -27.6282,
+          "hx": 1.55,
+          "hz": 1.05,
+          "name": "COL_SURFACE_ATRIUM_SPIRAL_STAIR_STEP_52",
+          "surface": true,
+          "h": 19.62962962962963
+        },
+        {
+          "x": -27.5597,
+          "z": -26.4137,
+          "hx": 1.55,
+          "hz": 1.05,
+          "name": "COL_SURFACE_ATRIUM_SPIRAL_STAIR_STEP_53",
+          "surface": true,
+          "h": 20.0
+        },
+        {
+          "x": -27.8,
+          "z": -29.0,
+          "hx": 2.2,
+          "hz": 2.8,
+          "name": "COL_SURFACE_ATRIUM_SPIRAL_STAIR_LANDING_5",
+          "surface": true,
+          "h": 5.0
+        },
+        {
+          "x": -27.8,
+          "z": -29.0,
+          "hx": 2.2,
+          "hz": 2.8,
+          "name": "COL_SURFACE_ATRIUM_SPIRAL_STAIR_LANDING_20",
+          "surface": true,
+          "h": 20.0
+        },
+        {
+          "x": 0.0,
+          "z": -48.0,
+          "hx": 14.0,
+          "hz": 0.225,
+          "name": "COL_BOX_ATRIUM_L1_ATRIUM_RAIL_N",
+          "minY": 0.0,
+          "maxY": 1.4
+        },
+        {
+          "x": 14.0,
+          "z": -29.0,
+          "hx": 0.225,
+          "hz": 19.0,
+          "name": "COL_BOX_ATRIUM_L1_ATRIUM_RAIL_E",
+          "minY": 0.0,
+          "maxY": 1.4
+        },
+        {
+          "x": 0.0,
+          "z": -48.0,
+          "hx": 14.0,
+          "hz": 0.225,
+          "name": "COL_BOX_ATRIUM_L2_ATRIUM_RAIL_N",
+          "minY": 5.0,
+          "maxY": 6.4
+        },
+        {
+          "x": 0.0,
+          "z": -10.0,
+          "hx": 14.0,
+          "hz": 0.225,
+          "name": "COL_BOX_ATRIUM_L2_ATRIUM_RAIL_S",
+          "minY": 5.0,
+          "maxY": 6.4
+        },
+        {
+          "x": 14.0,
+          "z": -29.0,
+          "hx": 0.225,
+          "hz": 19.0,
+          "name": "COL_BOX_ATRIUM_L2_ATRIUM_RAIL_E",
+          "minY": 5.0,
+          "maxY": 6.4
+        },
+        {
+          "x": 0.0,
+          "z": -48.0,
+          "hx": 14.0,
+          "hz": 0.225,
+          "name": "COL_BOX_ATRIUM_L3_ATRIUM_RAIL_N",
+          "minY": 10.0,
+          "maxY": 11.4
+        },
+        {
+          "x": 0.0,
+          "z": -10.0,
+          "hx": 14.0,
+          "hz": 0.225,
+          "name": "COL_BOX_ATRIUM_L3_ATRIUM_RAIL_S",
+          "minY": 10.0,
+          "maxY": 11.4
+        },
+        {
+          "x": -14.0,
+          "z": -29.0,
+          "hx": 0.225,
+          "hz": 19.0,
+          "name": "COL_BOX_ATRIUM_L3_ATRIUM_RAIL_W",
+          "minY": 10.0,
+          "maxY": 11.4
+        },
+        {
+          "x": 14.0,
+          "z": -29.0,
+          "hx": 0.225,
+          "hz": 19.0,
+          "name": "COL_BOX_ATRIUM_L3_ATRIUM_RAIL_E",
+          "minY": 10.0,
+          "maxY": 11.4
+        },
+        {
+          "x": 0.0,
+          "z": -48.0,
+          "hx": 14.0,
+          "hz": 0.225,
+          "name": "COL_BOX_ATRIUM_L4_ATRIUM_RAIL_N",
+          "minY": 15.0,
+          "maxY": 16.4
+        },
+        {
+          "x": 0.0,
+          "z": -10.0,
+          "hx": 14.0,
+          "hz": 0.225,
+          "name": "COL_BOX_ATRIUM_L4_ATRIUM_RAIL_S",
+          "minY": 15.0,
+          "maxY": 16.4
+        },
+        {
+          "x": -14.0,
+          "z": -29.0,
+          "hx": 0.225,
+          "hz": 19.0,
+          "name": "COL_BOX_ATRIUM_L4_ATRIUM_RAIL_W",
+          "minY": 15.0,
+          "maxY": 16.4
+        },
+        {
+          "x": 14.0,
+          "z": -29.0,
+          "hx": 0.225,
+          "hz": 19.0,
+          "name": "COL_BOX_ATRIUM_L4_ATRIUM_RAIL_E",
+          "minY": 15.0,
+          "maxY": 16.4
+        },
+        {
+          "x": -14.0,
+          "z": -41.0,
+          "hx": 0.225,
+          "hz": 7.0,
+          "name": "COL_BOX_ATRIUM_L1_ATRIUM_RAIL_W_NORTH",
+          "minY": 0.0,
+          "maxY": 1.4
+        },
+        {
+          "x": -14.0,
+          "z": -17.0,
+          "hx": 0.225,
+          "hz": 7.0,
+          "name": "COL_BOX_ATRIUM_L1_ATRIUM_RAIL_W_SOUTH",
+          "minY": 0.0,
+          "maxY": 1.4
+        }
+      ],
+      "sockets": {
+        "SOCKET_ELEVATOR_LEVER_01": {
+          "x": 4.2,
+          "y": 1.0,
+          "z": -25.8,
+          "floorIndex": 0
+        },
+        "SOCKET_ELEVATOR_LEVER_02": {
+          "x": 4.2,
+          "y": 6.0,
+          "z": -25.8,
+          "floorIndex": 1
+        },
+        "SOCKET_ELEVATOR_LEVER_03": {
+          "x": 4.2,
+          "y": 11.0,
+          "z": -25.8,
+          "floorIndex": 2
+        },
+        "SOCKET_ELEVATOR_LEVER_04": {
+          "x": 4.2,
+          "y": 16.0,
+          "z": -25.8,
+          "floorIndex": 3
+        },
+        "SOCKET_ELEVATOR_PLATFORM": {
+          "x": 0.0,
+          "y": 0.2,
+          "z": -32.0
+        },
+        "SOCKET_ELEVATOR_STOP_01": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": -32.0
+        },
+        "SOCKET_ELEVATOR_STOP_02": {
+          "x": 0.0,
+          "y": 5.0,
+          "z": -32.0
+        },
+        "SOCKET_ELEVATOR_STOP_03": {
+          "x": 0.0,
+          "y": 10.0,
+          "z": -32.0
+        },
+        "SOCKET_ELEVATOR_STOP_04": {
+          "x": 0.0,
+          "y": 15.0,
+          "z": -32.0
+        },
+        "SOCKET_TORCH_ATRIUM_01": {
+          "x": -36.0,
+          "y": 2.2,
+          "z": -52.0
+        },
+        "SOCKET_TORCH_ATRIUM_02": {
+          "x": 36.0,
+          "y": 2.2,
+          "z": -52.0
+        },
+        "SOCKET_TORCH_ATRIUM_03": {
+          "x": -36.0,
+          "y": 2.2,
+          "z": -6.0
+        },
+        "SOCKET_TORCH_ATRIUM_04": {
+          "x": 36.0,
+          "y": 2.2,
+          "z": -6.0
+        },
+        "SOCKET_TORCH_ATRIUM_05": {
+          "x": -12.0,
+          "y": 2.2,
+          "z": -48.0
+        },
+        "SOCKET_TORCH_ATRIUM_06": {
+          "x": 12.0,
+          "y": 2.2,
+          "z": -10.0
+        }
+      }
+    },
+    "floor-3": {
+      "name": "\u4e09\u697c\u56de\u5eca",
+      "bounds": {
+        "minX": -50,
+        "maxX": 50,
+        "minZ": -80,
+        "maxZ": 24
+      },
+      "minY": 9.5,
+      "maxY": 14.5,
+      "neighbors": [
+        "atrium",
+        "upper-floor",
+        "floor-4"
+      ],
+      "connectors": [
+        {
+          "to": "atrium",
+          "x": -27.8,
+          "y": 10,
+          "z": -29,
+          "range": 4.0
+        },
+        {
+          "to": "upper-floor",
+          "x": -27.8,
+          "y": 5,
+          "z": -29,
+          "range": 4.0
+        },
+        {
+          "to": "floor-4",
+          "x": -27.8,
+          "y": 15,
+          "z": -29,
+          "range": 4.0
+        }
+      ],
+      "colliders": [
+        {
+          "x": 0.0,
+          "z": -60.0,
+          "hx": 42.0,
+          "hz": 12.0,
+          "name": "COL_SURFACE_FLOOR_3_NORTH",
+          "surface": true,
+          "h": 10.0
+        },
+        {
+          "x": 0.0,
+          "z": 2.0,
+          "hx": 42.0,
+          "hz": 12.0,
+          "name": "COL_SURFACE_FLOOR_3_SOUTH",
+          "surface": true,
+          "h": 10.0
+        },
+        {
+          "x": -34.0,
+          "z": -29.0,
+          "hx": 8.0,
+          "hz": 19.0,
+          "name": "COL_SURFACE_FLOOR_3_WEST",
+          "surface": true,
+          "h": 10.0
+        },
+        {
+          "x": 34.0,
+          "z": -29.0,
+          "hx": 8.0,
+          "hz": 19.0,
+          "name": "COL_SURFACE_FLOOR_3_EAST",
+          "surface": true,
+          "h": 10.0
+        },
+        {
+          "x": -41.35,
+          "z": -50.0,
+          "hx": 3.65,
+          "hz": 0.225,
+          "name": "COL_BOX_FLOOR_3_NORTH_ROOM_FRONT_-36_L",
+          "minY": 10.0,
+          "maxY": 15.2
+        },
+        {
+          "x": -30.65,
+          "z": -50.0,
+          "hx": 3.65,
+          "hz": 0.225,
+          "name": "COL_BOX_FLOOR_3_NORTH_ROOM_FRONT_-36_R",
+          "minY": 10.0,
+          "maxY": 15.2
+        },
+        {
+          "x": -36.0,
+          "z": -72.0,
+          "hx": 9.0,
+          "hz": 0.25,
+          "name": "COL_BOX_FLOOR_3_NORTH_ROOM_BACK_-36",
+          "minY": 10.0,
+          "maxY": 15.2
+        },
+        {
+          "x": -45.0,
+          "z": -61.0,
+          "hx": 0.225,
+          "hz": 11.0,
+          "name": "COL_BOX_FLOOR_3_NORTH_ROOM_SIDE_L_-36",
+          "minY": 10.0,
+          "maxY": 15.2
+        },
+        {
+          "x": -27.0,
+          "z": -61.0,
+          "hx": 0.225,
+          "hz": 11.0,
+          "name": "COL_BOX_FLOOR_3_NORTH_ROOM_SIDE_R_-36",
+          "minY": 10.0,
+          "maxY": 15.2
+        },
+        {
+          "x": -23.35,
+          "z": -50.0,
+          "hx": 3.65,
+          "hz": 0.225,
+          "name": "COL_BOX_FLOOR_3_NORTH_ROOM_FRONT_-18_L",
+          "minY": 10.0,
+          "maxY": 15.2
+        },
+        {
+          "x": -12.65,
+          "z": -50.0,
+          "hx": 3.65,
+          "hz": 0.225,
+          "name": "COL_BOX_FLOOR_3_NORTH_ROOM_FRONT_-18_R",
+          "minY": 10.0,
+          "maxY": 15.2
+        },
+        {
+          "x": -18.0,
+          "z": -72.0,
+          "hx": 9.0,
+          "hz": 0.25,
+          "name": "COL_BOX_FLOOR_3_NORTH_ROOM_BACK_-18",
+          "minY": 10.0,
+          "maxY": 15.2
+        },
+        {
+          "x": -27.0,
+          "z": -61.0,
+          "hx": 0.225,
+          "hz": 11.0,
+          "name": "COL_BOX_FLOOR_3_NORTH_ROOM_SIDE_L_-18",
+          "minY": 10.0,
+          "maxY": 15.2
+        },
+        {
+          "x": -9.0,
+          "z": -61.0,
+          "hx": 0.225,
+          "hz": 11.0,
+          "name": "COL_BOX_FLOOR_3_NORTH_ROOM_SIDE_R_-18",
+          "minY": 10.0,
+          "maxY": 15.2
+        },
+        {
+          "x": 12.65,
+          "z": -50.0,
+          "hx": 3.65,
+          "hz": 0.225,
+          "name": "COL_BOX_FLOOR_3_NORTH_ROOM_FRONT_18_L",
+          "minY": 10.0,
+          "maxY": 15.2
+        },
+        {
+          "x": 23.35,
+          "z": -50.0,
+          "hx": 3.65,
+          "hz": 0.225,
+          "name": "COL_BOX_FLOOR_3_NORTH_ROOM_FRONT_18_R",
+          "minY": 10.0,
+          "maxY": 15.2
+        },
+        {
+          "x": 18.0,
+          "z": -72.0,
+          "hx": 9.0,
+          "hz": 0.25,
+          "name": "COL_BOX_FLOOR_3_NORTH_ROOM_BACK_18",
+          "minY": 10.0,
+          "maxY": 15.2
+        },
+        {
+          "x": 9.0,
+          "z": -61.0,
+          "hx": 0.225,
+          "hz": 11.0,
+          "name": "COL_BOX_FLOOR_3_NORTH_ROOM_SIDE_L_18",
+          "minY": 10.0,
+          "maxY": 15.2
+        },
+        {
+          "x": 27.0,
+          "z": -61.0,
+          "hx": 0.225,
+          "hz": 11.0,
+          "name": "COL_BOX_FLOOR_3_NORTH_ROOM_SIDE_R_18",
+          "minY": 10.0,
+          "maxY": 15.2
+        },
+        {
+          "x": 30.65,
+          "z": -50.0,
+          "hx": 3.65,
+          "hz": 0.225,
+          "name": "COL_BOX_FLOOR_3_NORTH_ROOM_FRONT_36_L",
+          "minY": 10.0,
+          "maxY": 15.2
+        },
+        {
+          "x": 41.35,
+          "z": -50.0,
+          "hx": 3.65,
+          "hz": 0.225,
+          "name": "COL_BOX_FLOOR_3_NORTH_ROOM_FRONT_36_R",
+          "minY": 10.0,
+          "maxY": 15.2
+        },
+        {
+          "x": 36.0,
+          "z": -72.0,
+          "hx": 9.0,
+          "hz": 0.25,
+          "name": "COL_BOX_FLOOR_3_NORTH_ROOM_BACK_36",
+          "minY": 10.0,
+          "maxY": 15.2
+        },
+        {
+          "x": 27.0,
+          "z": -61.0,
+          "hx": 0.225,
+          "hz": 11.0,
+          "name": "COL_BOX_FLOOR_3_NORTH_ROOM_SIDE_L_36",
+          "minY": 10.0,
+          "maxY": 15.2
+        },
+        {
+          "x": 45.0,
+          "z": -61.0,
+          "hx": 0.225,
+          "hz": 11.0,
+          "name": "COL_BOX_FLOOR_3_NORTH_ROOM_SIDE_R_36",
+          "minY": 10.0,
+          "maxY": 15.2
+        },
+        {
+          "x": -41.35,
+          "z": -2.0,
+          "hx": 3.65,
+          "hz": 0.225,
+          "name": "COL_BOX_FLOOR_3_SOUTH_ROOM_FRONT_-36_L",
+          "minY": 10.0,
+          "maxY": 15.2
+        },
+        {
+          "x": -30.65,
+          "z": -2.0,
+          "hx": 3.65,
+          "hz": 0.225,
+          "name": "COL_BOX_FLOOR_3_SOUTH_ROOM_FRONT_-36_R",
+          "minY": 10.0,
+          "maxY": 15.2
+        },
+        {
+          "x": -36.0,
+          "z": 18.0,
+          "hx": 9.0,
+          "hz": 0.25,
+          "name": "COL_BOX_FLOOR_3_SOUTH_ROOM_BACK_-36",
+          "minY": 10.0,
+          "maxY": 15.2
+        },
+        {
+          "x": -45.0,
+          "z": 8.0,
+          "hx": 0.225,
+          "hz": 10.0,
+          "name": "COL_BOX_FLOOR_3_SOUTH_ROOM_SIDE_L_-36",
+          "minY": 10.0,
+          "maxY": 15.2
+        },
+        {
+          "x": -27.0,
+          "z": 8.0,
+          "hx": 0.225,
+          "hz": 10.0,
+          "name": "COL_BOX_FLOOR_3_SOUTH_ROOM_SIDE_R_-36",
+          "minY": 10.0,
+          "maxY": 15.2
+        },
+        {
+          "x": -23.35,
+          "z": -2.0,
+          "hx": 3.65,
+          "hz": 0.225,
+          "name": "COL_BOX_FLOOR_3_SOUTH_ROOM_FRONT_-18_L",
+          "minY": 10.0,
+          "maxY": 15.2
+        },
+        {
+          "x": -12.65,
+          "z": -2.0,
+          "hx": 3.65,
+          "hz": 0.225,
+          "name": "COL_BOX_FLOOR_3_SOUTH_ROOM_FRONT_-18_R",
+          "minY": 10.0,
+          "maxY": 15.2
+        },
+        {
+          "x": -18.0,
+          "z": 18.0,
+          "hx": 9.0,
+          "hz": 0.25,
+          "name": "COL_BOX_FLOOR_3_SOUTH_ROOM_BACK_-18",
+          "minY": 10.0,
+          "maxY": 15.2
+        },
+        {
+          "x": -27.0,
+          "z": 8.0,
+          "hx": 0.225,
+          "hz": 10.0,
+          "name": "COL_BOX_FLOOR_3_SOUTH_ROOM_SIDE_L_-18",
+          "minY": 10.0,
+          "maxY": 15.2
+        },
+        {
+          "x": -9.0,
+          "z": 8.0,
+          "hx": 0.225,
+          "hz": 10.0,
+          "name": "COL_BOX_FLOOR_3_SOUTH_ROOM_SIDE_R_-18",
+          "minY": 10.0,
+          "maxY": 15.2
+        },
+        {
+          "x": 12.65,
+          "z": -2.0,
+          "hx": 3.65,
+          "hz": 0.225,
+          "name": "COL_BOX_FLOOR_3_SOUTH_ROOM_FRONT_18_L",
+          "minY": 10.0,
+          "maxY": 15.2
+        },
+        {
+          "x": 23.35,
+          "z": -2.0,
+          "hx": 3.65,
+          "hz": 0.225,
+          "name": "COL_BOX_FLOOR_3_SOUTH_ROOM_FRONT_18_R",
+          "minY": 10.0,
+          "maxY": 15.2
+        },
+        {
+          "x": 18.0,
+          "z": 18.0,
+          "hx": 9.0,
+          "hz": 0.25,
+          "name": "COL_BOX_FLOOR_3_SOUTH_ROOM_BACK_18",
+          "minY": 10.0,
+          "maxY": 15.2
+        },
+        {
+          "x": 9.0,
+          "z": 8.0,
+          "hx": 0.225,
+          "hz": 10.0,
+          "name": "COL_BOX_FLOOR_3_SOUTH_ROOM_SIDE_L_18",
+          "minY": 10.0,
+          "maxY": 15.2
+        },
+        {
+          "x": 27.0,
+          "z": 8.0,
+          "hx": 0.225,
+          "hz": 10.0,
+          "name": "COL_BOX_FLOOR_3_SOUTH_ROOM_SIDE_R_18",
+          "minY": 10.0,
+          "maxY": 15.2
+        },
+        {
+          "x": 30.65,
+          "z": -2.0,
+          "hx": 3.65,
+          "hz": 0.225,
+          "name": "COL_BOX_FLOOR_3_SOUTH_ROOM_FRONT_36_L",
+          "minY": 10.0,
+          "maxY": 15.2
+        },
+        {
+          "x": 41.35,
+          "z": -2.0,
+          "hx": 3.65,
+          "hz": 0.225,
+          "name": "COL_BOX_FLOOR_3_SOUTH_ROOM_FRONT_36_R",
+          "minY": 10.0,
+          "maxY": 15.2
+        },
+        {
+          "x": 36.0,
+          "z": 18.0,
+          "hx": 9.0,
+          "hz": 0.25,
+          "name": "COL_BOX_FLOOR_3_SOUTH_ROOM_BACK_36",
+          "minY": 10.0,
+          "maxY": 15.2
+        },
+        {
+          "x": 27.0,
+          "z": 8.0,
+          "hx": 0.225,
+          "hz": 10.0,
+          "name": "COL_BOX_FLOOR_3_SOUTH_ROOM_SIDE_L_36",
+          "minY": 10.0,
+          "maxY": 15.2
+        },
+        {
+          "x": 45.0,
+          "z": 8.0,
+          "hx": 0.225,
+          "hz": 10.0,
+          "name": "COL_BOX_FLOOR_3_SOUTH_ROOM_SIDE_R_36",
+          "minY": 10.0,
+          "maxY": 15.2
+        },
+        {
+          "x": 0.0,
+          "z": -48.0,
+          "hx": 14.0,
+          "hz": 0.225,
+          "name": "COL_BOX_FLOOR_3_ATRIUM_RAIL_N",
+          "minY": 10.0,
+          "maxY": 11.4
+        },
+        {
+          "x": 0.0,
+          "z": -10.0,
+          "hx": 14.0,
+          "hz": 0.225,
+          "name": "COL_BOX_FLOOR_3_ATRIUM_RAIL_S",
+          "minY": 10.0,
+          "maxY": 11.4
+        },
+        {
+          "x": -14.0,
+          "z": -29.0,
+          "hx": 0.225,
+          "hz": 19.0,
+          "name": "COL_BOX_FLOOR_3_ATRIUM_RAIL_W",
+          "minY": 10.0,
+          "maxY": 11.4
+        },
+        {
+          "x": 14.0,
+          "z": -29.0,
+          "hx": 0.225,
+          "hz": 19.0,
+          "name": "COL_BOX_FLOOR_3_ATRIUM_RAIL_E",
+          "minY": 10.0,
+          "maxY": 11.4
+        },
+        {
+          "x": -50.0,
+          "z": -29.0,
+          "hx": 0.25,
+          "hz": 43.0,
+          "name": "COL_BOX_FLOOR_3_OUTER_WALL_-50",
+          "minY": 10.0,
+          "maxY": 15.6
+        },
+        {
+          "x": 50.0,
+          "z": -29.0,
+          "hx": 0.25,
+          "hz": 43.0,
+          "name": "COL_BOX_FLOOR_3_OUTER_WALL_50",
+          "minY": 10.0,
+          "maxY": 15.6
+        },
+        {
+          "x": 0.0,
+          "z": -78.0,
+          "hx": 50.0,
+          "hz": 0.25,
+          "name": "COL_BOX_FLOOR_3_NORTH_WALL",
+          "minY": 10.0,
+          "maxY": 15.6
+        },
+        {
+          "x": 0.0,
+          "z": 20.0,
+          "hx": 50.0,
+          "hz": 0.25,
+          "name": "COL_BOX_FLOOR_3_SOUTH_WALL",
+          "minY": 10.0,
+          "maxY": 15.6
+        }
+      ],
+      "sockets": {
+        "SOCKET_TORCH_L3_01": {
+          "x": -36.0,
+          "y": 12.2,
+          "z": -52.0
+        },
+        "SOCKET_TORCH_L3_02": {
+          "x": 36.0,
+          "y": 12.2,
+          "z": -52.0
+        },
+        "SOCKET_TORCH_L3_03": {
+          "x": -36.0,
+          "y": 12.2,
+          "z": -6.0
+        },
+        "SOCKET_TORCH_L3_04": {
+          "x": 36.0,
+          "y": 12.2,
+          "z": -6.0
+        },
+        "SOCKET_TORCH_L3_05": {
+          "x": -12.0,
+          "y": 12.2,
+          "z": -48.0
+        },
+        "SOCKET_TORCH_L3_06": {
+          "x": 12.0,
+          "y": 12.2,
+          "z": -10.0
+        }
+      }
+    },
+    "floor-4": {
+      "name": "\u56db\u697c\u89c2\u666f\u5c42",
+      "bounds": {
+        "minX": -50,
+        "maxX": 50,
+        "minZ": -80,
+        "maxZ": 24
+      },
+      "minY": 14.5,
+      "maxY": 20.5,
+      "neighbors": [
+        "atrium",
+        "floor-3",
+        "roof"
+      ],
+      "connectors": [
+        {
+          "to": "atrium",
+          "x": -27.8,
+          "y": 15,
+          "z": -29,
+          "range": 4.0
+        },
+        {
+          "to": "floor-3",
+          "x": -27.8,
+          "y": 10,
+          "z": -29,
+          "range": 4.0
+        },
+        {
+          "to": "roof",
+          "x": 42,
+          "y": 20,
+          "z": 19.2,
+          "range": 4.0
+        }
+      ],
+      "colliders": [
+        {
+          "x": 0.0,
+          "z": -60.0,
+          "hx": 42.0,
+          "hz": 12.0,
+          "name": "COL_SURFACE_FLOOR_4_NORTH",
+          "surface": true,
+          "h": 15.0
+        },
+        {
+          "x": 0.0,
+          "z": 2.0,
+          "hx": 42.0,
+          "hz": 12.0,
+          "name": "COL_SURFACE_FLOOR_4_SOUTH",
+          "surface": true,
+          "h": 15.0
+        },
+        {
+          "x": -34.0,
+          "z": -29.0,
+          "hx": 8.0,
+          "hz": 19.0,
+          "name": "COL_SURFACE_FLOOR_4_WEST",
+          "surface": true,
+          "h": 15.0
+        },
+        {
+          "x": 34.0,
+          "z": -29.0,
+          "hx": 8.0,
+          "hz": 19.0,
+          "name": "COL_SURFACE_FLOOR_4_EAST",
+          "surface": true,
+          "h": 15.0
+        },
+        {
+          "x": -41.35,
+          "z": -50.0,
+          "hx": 3.65,
+          "hz": 0.225,
+          "name": "COL_BOX_FLOOR_4_NORTH_ROOM_FRONT_-36_L",
+          "minY": 15.0,
+          "maxY": 20.2
+        },
+        {
+          "x": -30.65,
+          "z": -50.0,
+          "hx": 3.65,
+          "hz": 0.225,
+          "name": "COL_BOX_FLOOR_4_NORTH_ROOM_FRONT_-36_R",
+          "minY": 15.0,
+          "maxY": 20.2
+        },
+        {
+          "x": -36.0,
+          "z": -72.0,
+          "hx": 9.0,
+          "hz": 0.25,
+          "name": "COL_BOX_FLOOR_4_NORTH_ROOM_BACK_-36",
+          "minY": 15.0,
+          "maxY": 20.2
+        },
+        {
+          "x": -45.0,
+          "z": -61.0,
+          "hx": 0.225,
+          "hz": 11.0,
+          "name": "COL_BOX_FLOOR_4_NORTH_ROOM_SIDE_L_-36",
+          "minY": 15.0,
+          "maxY": 20.2
+        },
+        {
+          "x": -27.0,
+          "z": -61.0,
+          "hx": 0.225,
+          "hz": 11.0,
+          "name": "COL_BOX_FLOOR_4_NORTH_ROOM_SIDE_R_-36",
+          "minY": 15.0,
+          "maxY": 20.2
+        },
+        {
+          "x": -23.35,
+          "z": -50.0,
+          "hx": 3.65,
+          "hz": 0.225,
+          "name": "COL_BOX_FLOOR_4_NORTH_ROOM_FRONT_-18_L",
+          "minY": 15.0,
+          "maxY": 20.2
+        },
+        {
+          "x": -12.65,
+          "z": -50.0,
+          "hx": 3.65,
+          "hz": 0.225,
+          "name": "COL_BOX_FLOOR_4_NORTH_ROOM_FRONT_-18_R",
+          "minY": 15.0,
+          "maxY": 20.2
+        },
+        {
+          "x": -18.0,
+          "z": -72.0,
+          "hx": 9.0,
+          "hz": 0.25,
+          "name": "COL_BOX_FLOOR_4_NORTH_ROOM_BACK_-18",
+          "minY": 15.0,
+          "maxY": 20.2
+        },
+        {
+          "x": -27.0,
+          "z": -61.0,
+          "hx": 0.225,
+          "hz": 11.0,
+          "name": "COL_BOX_FLOOR_4_NORTH_ROOM_SIDE_L_-18",
+          "minY": 15.0,
+          "maxY": 20.2
+        },
+        {
+          "x": -9.0,
+          "z": -61.0,
+          "hx": 0.225,
+          "hz": 11.0,
+          "name": "COL_BOX_FLOOR_4_NORTH_ROOM_SIDE_R_-18",
+          "minY": 15.0,
+          "maxY": 20.2
+        },
+        {
+          "x": 12.65,
+          "z": -50.0,
+          "hx": 3.65,
+          "hz": 0.225,
+          "name": "COL_BOX_FLOOR_4_NORTH_ROOM_FRONT_18_L",
+          "minY": 15.0,
+          "maxY": 20.2
+        },
+        {
+          "x": 23.35,
+          "z": -50.0,
+          "hx": 3.65,
+          "hz": 0.225,
+          "name": "COL_BOX_FLOOR_4_NORTH_ROOM_FRONT_18_R",
+          "minY": 15.0,
+          "maxY": 20.2
+        },
+        {
+          "x": 18.0,
+          "z": -72.0,
+          "hx": 9.0,
+          "hz": 0.25,
+          "name": "COL_BOX_FLOOR_4_NORTH_ROOM_BACK_18",
+          "minY": 15.0,
+          "maxY": 20.2
+        },
+        {
+          "x": 9.0,
+          "z": -61.0,
+          "hx": 0.225,
+          "hz": 11.0,
+          "name": "COL_BOX_FLOOR_4_NORTH_ROOM_SIDE_L_18",
+          "minY": 15.0,
+          "maxY": 20.2
+        },
+        {
+          "x": 27.0,
+          "z": -61.0,
+          "hx": 0.225,
+          "hz": 11.0,
+          "name": "COL_BOX_FLOOR_4_NORTH_ROOM_SIDE_R_18",
+          "minY": 15.0,
+          "maxY": 20.2
+        },
+        {
+          "x": 30.65,
+          "z": -50.0,
+          "hx": 3.65,
+          "hz": 0.225,
+          "name": "COL_BOX_FLOOR_4_NORTH_ROOM_FRONT_36_L",
+          "minY": 15.0,
+          "maxY": 20.2
+        },
+        {
+          "x": 41.35,
+          "z": -50.0,
+          "hx": 3.65,
+          "hz": 0.225,
+          "name": "COL_BOX_FLOOR_4_NORTH_ROOM_FRONT_36_R",
+          "minY": 15.0,
+          "maxY": 20.2
+        },
+        {
+          "x": 36.0,
+          "z": -72.0,
+          "hx": 9.0,
+          "hz": 0.25,
+          "name": "COL_BOX_FLOOR_4_NORTH_ROOM_BACK_36",
+          "minY": 15.0,
+          "maxY": 20.2
+        },
+        {
+          "x": 27.0,
+          "z": -61.0,
+          "hx": 0.225,
+          "hz": 11.0,
+          "name": "COL_BOX_FLOOR_4_NORTH_ROOM_SIDE_L_36",
+          "minY": 15.0,
+          "maxY": 20.2
+        },
+        {
+          "x": 45.0,
+          "z": -61.0,
+          "hx": 0.225,
+          "hz": 11.0,
+          "name": "COL_BOX_FLOOR_4_NORTH_ROOM_SIDE_R_36",
+          "minY": 15.0,
+          "maxY": 20.2
+        },
+        {
+          "x": -41.35,
+          "z": -2.0,
+          "hx": 3.65,
+          "hz": 0.225,
+          "name": "COL_BOX_FLOOR_4_SOUTH_ROOM_FRONT_-36_L",
+          "minY": 15.0,
+          "maxY": 20.2
+        },
+        {
+          "x": -30.65,
+          "z": -2.0,
+          "hx": 3.65,
+          "hz": 0.225,
+          "name": "COL_BOX_FLOOR_4_SOUTH_ROOM_FRONT_-36_R",
+          "minY": 15.0,
+          "maxY": 20.2
+        },
+        {
+          "x": -36.0,
+          "z": 18.0,
+          "hx": 9.0,
+          "hz": 0.25,
+          "name": "COL_BOX_FLOOR_4_SOUTH_ROOM_BACK_-36",
+          "minY": 15.0,
+          "maxY": 20.2
+        },
+        {
+          "x": -45.0,
+          "z": 8.0,
+          "hx": 0.225,
+          "hz": 10.0,
+          "name": "COL_BOX_FLOOR_4_SOUTH_ROOM_SIDE_L_-36",
+          "minY": 15.0,
+          "maxY": 20.2
+        },
+        {
+          "x": -27.0,
+          "z": 8.0,
+          "hx": 0.225,
+          "hz": 10.0,
+          "name": "COL_BOX_FLOOR_4_SOUTH_ROOM_SIDE_R_-36",
+          "minY": 15.0,
+          "maxY": 20.2
+        },
+        {
+          "x": -23.35,
+          "z": -2.0,
+          "hx": 3.65,
+          "hz": 0.225,
+          "name": "COL_BOX_FLOOR_4_SOUTH_ROOM_FRONT_-18_L",
+          "minY": 15.0,
+          "maxY": 20.2
+        },
+        {
+          "x": -12.65,
+          "z": -2.0,
+          "hx": 3.65,
+          "hz": 0.225,
+          "name": "COL_BOX_FLOOR_4_SOUTH_ROOM_FRONT_-18_R",
+          "minY": 15.0,
+          "maxY": 20.2
+        },
+        {
+          "x": -18.0,
+          "z": 18.0,
+          "hx": 9.0,
+          "hz": 0.25,
+          "name": "COL_BOX_FLOOR_4_SOUTH_ROOM_BACK_-18",
+          "minY": 15.0,
+          "maxY": 20.2
+        },
+        {
+          "x": -27.0,
+          "z": 8.0,
+          "hx": 0.225,
+          "hz": 10.0,
+          "name": "COL_BOX_FLOOR_4_SOUTH_ROOM_SIDE_L_-18",
+          "minY": 15.0,
+          "maxY": 20.2
+        },
+        {
+          "x": -9.0,
+          "z": 8.0,
+          "hx": 0.225,
+          "hz": 10.0,
+          "name": "COL_BOX_FLOOR_4_SOUTH_ROOM_SIDE_R_-18",
+          "minY": 15.0,
+          "maxY": 20.2
+        },
+        {
+          "x": 12.65,
+          "z": -2.0,
+          "hx": 3.65,
+          "hz": 0.225,
+          "name": "COL_BOX_FLOOR_4_SOUTH_ROOM_FRONT_18_L",
+          "minY": 15.0,
+          "maxY": 20.2
+        },
+        {
+          "x": 23.35,
+          "z": -2.0,
+          "hx": 3.65,
+          "hz": 0.225,
+          "name": "COL_BOX_FLOOR_4_SOUTH_ROOM_FRONT_18_R",
+          "minY": 15.0,
+          "maxY": 20.2
+        },
+        {
+          "x": 18.0,
+          "z": 18.0,
+          "hx": 9.0,
+          "hz": 0.25,
+          "name": "COL_BOX_FLOOR_4_SOUTH_ROOM_BACK_18",
+          "minY": 15.0,
+          "maxY": 20.2
+        },
+        {
+          "x": 9.0,
+          "z": 8.0,
+          "hx": 0.225,
+          "hz": 10.0,
+          "name": "COL_BOX_FLOOR_4_SOUTH_ROOM_SIDE_L_18",
+          "minY": 15.0,
+          "maxY": 20.2
+        },
+        {
+          "x": 27.0,
+          "z": 8.0,
+          "hx": 0.225,
+          "hz": 10.0,
+          "name": "COL_BOX_FLOOR_4_SOUTH_ROOM_SIDE_R_18",
+          "minY": 15.0,
+          "maxY": 20.2
+        },
+        {
+          "x": 30.65,
+          "z": -2.0,
+          "hx": 3.65,
+          "hz": 0.225,
+          "name": "COL_BOX_FLOOR_4_SOUTH_ROOM_FRONT_36_L",
+          "minY": 15.0,
+          "maxY": 20.2
+        },
+        {
+          "x": 41.35,
+          "z": -2.0,
+          "hx": 3.65,
+          "hz": 0.225,
+          "name": "COL_BOX_FLOOR_4_SOUTH_ROOM_FRONT_36_R",
+          "minY": 15.0,
+          "maxY": 20.2
+        },
+        {
+          "x": 36.0,
+          "z": 18.0,
+          "hx": 9.0,
+          "hz": 0.25,
+          "name": "COL_BOX_FLOOR_4_SOUTH_ROOM_BACK_36",
+          "minY": 15.0,
+          "maxY": 20.2
+        },
+        {
+          "x": 27.0,
+          "z": 8.0,
+          "hx": 0.225,
+          "hz": 10.0,
+          "name": "COL_BOX_FLOOR_4_SOUTH_ROOM_SIDE_L_36",
+          "minY": 15.0,
+          "maxY": 20.2
+        },
+        {
+          "x": 45.0,
+          "z": 8.0,
+          "hx": 0.225,
+          "hz": 10.0,
+          "name": "COL_BOX_FLOOR_4_SOUTH_ROOM_SIDE_R_36",
+          "minY": 15.0,
+          "maxY": 20.2
+        },
+        {
+          "x": 0.0,
+          "z": -48.0,
+          "hx": 14.0,
+          "hz": 0.225,
+          "name": "COL_BOX_FLOOR_4_ATRIUM_RAIL_N",
+          "minY": 15.0,
+          "maxY": 16.4
+        },
+        {
+          "x": 0.0,
+          "z": -10.0,
+          "hx": 14.0,
+          "hz": 0.225,
+          "name": "COL_BOX_FLOOR_4_ATRIUM_RAIL_S",
+          "minY": 15.0,
+          "maxY": 16.4
+        },
+        {
+          "x": -14.0,
+          "z": -29.0,
+          "hx": 0.225,
+          "hz": 19.0,
+          "name": "COL_BOX_FLOOR_4_ATRIUM_RAIL_W",
+          "minY": 15.0,
+          "maxY": 16.4
+        },
+        {
+          "x": 14.0,
+          "z": -29.0,
+          "hx": 0.225,
+          "hz": 19.0,
+          "name": "COL_BOX_FLOOR_4_ATRIUM_RAIL_E",
+          "minY": 15.0,
+          "maxY": 16.4
+        },
+        {
+          "x": -50.0,
+          "z": -29.0,
+          "hx": 0.25,
+          "hz": 43.0,
+          "name": "COL_BOX_FLOOR_4_OUTER_WALL_-50",
+          "minY": 15.0,
+          "maxY": 20.6
+        },
+        {
+          "x": 50.0,
+          "z": -29.0,
+          "hx": 0.25,
+          "hz": 43.0,
+          "name": "COL_BOX_FLOOR_4_OUTER_WALL_50",
+          "minY": 15.0,
+          "maxY": 20.6
+        },
+        {
+          "x": 0.0,
+          "z": -78.0,
+          "hx": 50.0,
+          "hz": 0.25,
+          "name": "COL_BOX_FLOOR_4_NORTH_WALL",
+          "minY": 15.0,
+          "maxY": 20.6
+        },
+        {
+          "x": 0.0,
+          "z": 20.0,
+          "hx": 50.0,
+          "hz": 0.25,
+          "name": "COL_BOX_FLOOR_4_SOUTH_WALL",
+          "minY": 15.0,
+          "maxY": 20.6
+        },
+        {
+          "x": 42.0,
+          "z": 12.0,
+          "hx": 1.6,
+          "hz": 8.0,
+          "name": "COL_RAMP_ROOF_SECRET_STAIR",
+          "type": "ramp",
+          "axis": "z",
+          "h0": 15.0,
+          "h1": 20.0,
+          "reverse": false,
+          "surface": true
+        },
+        {
+          "x": 40.2,
+          "z": 12.0,
+          "hx": 0.175,
+          "hz": 8.0,
+          "name": "COL_BOX_ROOF_SECRET_RAIL_L",
+          "minY": 15.0,
+          "maxY": 21.0
+        },
+        {
+          "x": 43.8,
+          "z": 12.0,
+          "hx": 0.175,
+          "hz": 8.0,
+          "name": "COL_BOX_ROOF_SECRET_RAIL_R",
+          "minY": 15.0,
+          "maxY": 21.0
+        }
+      ],
+      "sockets": {
+        "SOCKET_TORCH_L4_01": {
+          "x": -36.0,
+          "y": 17.2,
+          "z": -52.0
+        },
+        "SOCKET_TORCH_L4_02": {
+          "x": 36.0,
+          "y": 17.2,
+          "z": -52.0
+        },
+        "SOCKET_TORCH_L4_03": {
+          "x": -36.0,
+          "y": 17.2,
+          "z": -6.0
+        },
+        "SOCKET_TORCH_L4_04": {
+          "x": 36.0,
+          "y": 17.2,
+          "z": -6.0
+        },
+        "SOCKET_TORCH_L4_05": {
+          "x": -12.0,
+          "y": 17.2,
+          "z": -48.0
+        },
+        "SOCKET_TORCH_L4_06": {
+          "x": 12.0,
+          "y": 17.2,
+          "z": -10.0
+        }
+      }
+    },
+    "roof": {
+      "name": "\u5c4b\u9876\u579b\u53e3",
+      "bounds": {
+        "minX": -54,
+        "maxX": 54,
+        "minZ": -84,
+        "maxZ": 26
+      },
+      "minY": 19.5,
+      "maxY": 28,
+      "neighbors": [
+        "floor-4"
+      ],
+      "connectors": [
+        {
+          "to": "floor-4",
+          "x": 42,
+          "y": 20,
+          "z": 19.2,
+          "range": 4.0
+        }
+      ],
+      "colliders": [
+        {
+          "x": 0.0,
+          "z": -60.0,
+          "hx": 42.0,
+          "hz": 12.0,
+          "name": "COL_SURFACE_ROOF_NORTH",
+          "surface": true,
+          "h": 20.0
+        },
+        {
+          "x": 0.0,
+          "z": 2.0,
+          "hx": 42.0,
+          "hz": 12.0,
+          "name": "COL_SURFACE_ROOF_SOUTH",
+          "surface": true,
+          "h": 20.0
+        },
+        {
+          "x": -34.0,
+          "z": -29.0,
+          "hx": 8.0,
+          "hz": 19.0,
+          "name": "COL_SURFACE_ROOF_WEST",
+          "surface": true,
+          "h": 20.0
+        },
+        {
+          "x": 34.0,
+          "z": -29.0,
+          "hx": 8.0,
+          "hz": 19.0,
+          "name": "COL_SURFACE_ROOF_EAST",
+          "surface": true,
+          "h": 20.0
+        },
+        {
+          "x": 0.0,
+          "z": -48.0,
+          "hx": 14.0,
+          "hz": 0.225,
+          "name": "COL_BOX_ROOF_ATRIUM_RAIL_N",
+          "minY": 20.0,
+          "maxY": 21.4
+        },
+        {
+          "x": 0.0,
+          "z": -10.0,
+          "hx": 14.0,
+          "hz": 0.225,
+          "name": "COL_BOX_ROOF_ATRIUM_RAIL_S",
+          "minY": 20.0,
+          "maxY": 21.4
+        },
+        {
+          "x": -14.0,
+          "z": -29.0,
+          "hx": 0.225,
+          "hz": 19.0,
+          "name": "COL_BOX_ROOF_ATRIUM_RAIL_W",
+          "minY": 20.0,
+          "maxY": 21.4
+        },
+        {
+          "x": 14.0,
+          "z": -29.0,
+          "hx": 0.225,
+          "hz": 19.0,
+          "name": "COL_BOX_ROOF_ATRIUM_RAIL_E",
+          "minY": 20.0,
+          "maxY": 21.4
+        },
+        {
+          "x": 0.0,
+          "z": -78.0,
+          "hx": 50.0,
+          "hz": 0.35,
+          "name": "COL_BOX_ROOF_NORTH_PARAPET",
+          "minY": 20.0,
+          "maxY": 22.0
+        },
+        {
+          "x": -28.0,
+          "z": 20.0,
+          "hx": 22.0,
+          "hz": 0.35,
+          "name": "COL_BOX_ROOF_SOUTH_PARAPET_L",
+          "minY": 20.0,
+          "maxY": 22.0
+        },
+        {
+          "x": 28.0,
+          "z": 20.0,
+          "hx": 22.0,
+          "hz": 0.35,
+          "name": "COL_BOX_ROOF_SOUTH_PARAPET_R",
+          "minY": 20.0,
+          "maxY": 22.0
+        },
+        {
+          "x": -50.0,
+          "z": -29.0,
+          "hx": 0.35,
+          "hz": 49.0,
+          "name": "COL_BOX_ROOF_WEST_PARAPET",
+          "minY": 20.0,
+          "maxY": 22.0
+        },
+        {
+          "x": 50.0,
+          "z": -29.0,
+          "hx": 0.35,
+          "hz": 49.0,
+          "name": "COL_BOX_ROOF_EAST_PARAPET",
+          "minY": 20.0,
+          "maxY": 22.0
+        }
+      ],
+      "sockets": {
+        "SOCKET_ROOF_EXIT": {
+          "x": 0.0,
+          "y": 21.0,
+          "z": 21.5
+        },
+        "SOCKET_TORCH_ROOF_01": {
+          "x": -36.0,
+          "y": 22.2,
+          "z": -52.0
+        },
+        "SOCKET_TORCH_ROOF_02": {
+          "x": 36.0,
+          "y": 22.2,
+          "z": -52.0
+        },
+        "SOCKET_TORCH_ROOF_03": {
+          "x": -36.0,
+          "y": 22.2,
+          "z": -6.0
+        },
+        "SOCKET_TORCH_ROOF_04": {
+          "x": 36.0,
+          "y": 22.2,
+          "z": -6.0
+        },
+        "SOCKET_TORCH_ROOF_05": {
+          "x": -12.0,
+          "y": 22.2,
+          "z": -48.0
+        },
+        "SOCKET_TORCH_ROOF_06": {
+          "x": 12.0,
+          "y": 22.2,
+          "z": -10.0
+        }
+      }
+    }
+  },
+  "exterior": {
+    "sockets": {
+      "SOCKET_FOG_GATE": {
+        "x": -64.1,
+        "y": 2.3,
+        "z": -5.0
+      },
+      "SOCKET_ENTRY": {
+        "x": -64.4,
+        "y": 1.0,
+        "z": -5.0
+      },
+      "SOCKET_OUTDOOR_EXIT": {
+        "x": -64.4,
+        "y": 1.0,
+        "z": -5.0
+      }
+    },
+    "colliders": []
+  },
+  "elevator": {
+    "platform": {
+      "x": 0.0,
+      "y": 0.2,
+      "z": -32.0
+    },
+    "stops": [
+      {
+        "x": 0.0,
+        "y": 0.0,
+        "z": -32.0
+      },
+      {
+        "x": 0.0,
+        "y": 5.0,
+        "z": -32.0
+      },
+      {
+        "x": 0.0,
+        "y": 10.0,
+        "z": -32.0
+      },
+      {
+        "x": 0.0,
+        "y": 15.0,
+        "z": -32.0
+      }
+    ],
+    "levers": [
+      {
+        "x": 4.2,
+        "y": 1.0,
+        "z": -25.8,
+        "floorIndex": 0
+      },
+      {
+        "x": 4.2,
+        "y": 6.0,
+        "z": -25.8,
+        "floorIndex": 1
+      },
+      {
+        "x": 4.2,
+        "y": 11.0,
+        "z": -25.8,
+        "floorIndex": 2
+      },
+      {
+        "x": 4.2,
+        "y": 16.0,
+        "z": -25.8,
+        "floorIndex": 3
+      }
+    ]
+  },
+  "roofExit": {
+    "x": 0.0,
+    "y": 21.0,
+    "z": 21.5
+  }
+}

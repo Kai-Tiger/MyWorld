@@ -1,12 +1,18 @@
 import * as THREE from 'three'
+import { OUTDOOR_LIGHTING } from '../config/lighting.js'
 
 export function createLighting(scene) {
+  const cfg = OUTDOOR_LIGHTING
   // 环境光（PBR 用 PMREMGenerator 效果最好，这里用半球光近似天空/地面反射）
-  const hemi = new THREE.HemisphereLight(0x95cfff, 0x3f5a35, 0.62)
+  const hemi = new THREE.HemisphereLight(
+    cfg.hemisphere.skyColor,
+    cfg.hemisphere.groundColor,
+    cfg.hemisphere.dayIntensity,
+  )
   scene.add(hemi)
 
   // 主方向光（太阳）
-  const sun = new THREE.DirectionalLight(0xfff1d4, 2.2)
+  const sun = new THREE.DirectionalLight(cfg.sun.color, cfg.sun.dayIntensity)
   sun.position.set(15, 25, 10)
   sun.castShadow = true
   sun.shadow.mapSize.set(1536, 1536)
@@ -23,11 +29,11 @@ export function createLighting(scene) {
   scene.add(sun.target)
 
   // 补光
-  const fill = new THREE.DirectionalLight(0x9fc0ff, 0.34)
+  const fill = new THREE.DirectionalLight(cfg.fill.color, cfg.fill.dayIntensity)
   fill.position.set(-10, 10, -10)
   scene.add(fill)
 
-  const moon = new THREE.DirectionalLight(0xc7d8ff, 0.0)
+  const moon = new THREE.DirectionalLight(cfg.moon.color, cfg.moon.dayIntensity)
   moon.position.set(-15, 25, -10)
   moon.castShadow = false
   moon.shadow.mapSize.set(1536, 1536)

@@ -15,6 +15,31 @@ export class CollisionSystem {
     this.collidables.push(obj)
   }
 
+  _heightApplies(o, playerY) {
+    const minY = o.minY ?? -Infinity
+    const maxY = o.maxY ?? Infinity
+    return playerY >= minY - 0.2 && playerY <= maxY + 0.2
+  }
+
+  _surfaceHeightAt(o, x, z) {
+    if (o.type === 'ramp') {
+      if (Math.abs(x - o.x) > o.hx || Math.abs(z - o.z) > o.hz) return null
+      const axisValue = o.axis === 'x' ? x : z
+      const center = o.axis === 'x' ? o.x : o.z
+      const half = o.axis === 'x' ? o.hx : o.hz
+      let t = (axisValue - (center - half)) / (half * 2)
+      if (o.reverse) t = 1 - t
+      return o.h0 + Math.min(1, Math.max(0, t)) * (o.h1 - o.h0)
+    }
+    if (o.h === undefined) return null
+    if (o.hx !== undefined && o.hz !== undefined) {
+      return Math.abs(x - o.x) < o.hx && Math.abs(z - o.z) < o.hz ? o.h : null
+    }
+    const dx = x - o.x
+    const dz = z - o.z
+    return dx * dx + dz * dz < (o.r * 0.75) ** 2 ? o.h : null
+  }
+
   /**
    * 返回 (nx, nz) 位置的阻挡碰撞体，无则返回 null
    */
@@ -22,6 +47,8 @@ export class CollisionSystem {
     if (Math.abs(nx) > this.xBound || Math.abs(nz) > this.zBound) return { x: 0, z: 0, r: 0 }
     for (const o of this.collidables) {
       if (o === self) continue
+      if (!this._heightApplies(o, playerY)) continue
+      if (o.surface || o.type === 'ramp') continue
       if (o.h !== undefined && playerY >= o.h - 0.2) continue
       if (o.hx !== undefined && o.hz !== undefined) {
         const closestX = Math.max(o.x - o.hx, Math.min(nx, o.x + o.hx))
@@ -52,6 +79,8 @@ export class CollisionSystem {
 
     for (const o of this.collidables) {
       if (o === self) continue  // 跳过自身，防止 NPC 自碰
+      if (!this._heightApplies(o, playerY)) continue
+      if (o.surface || o.type === 'ramp') continue
       // 有顶面且玩家在顶面附近，不再水平拦截（留 0.2 缓冲防止刚落边缘时被卡住）
       if (o.h !== undefined && playerY >= o.h - 0.2) continue
       if (o.hx !== undefined && o.hz !== undefined) {
@@ -71,22 +100,15 @@ export class CollisionSystem {
   }
 
   // 返回玩家脚下最高的可登陆表面高度，无则 0
-  getSurfaceHeight(nx, nz) {
-    let maxH = 0
+  getSurfaceHeight(nx, nz, playerY = 0, maxStep = 0.55) {
+    let bestBelow = 0
+    let bestReachable = -Infinity
     for (const o of this.collidables) {
-      if (o.h === undefined) continue
-      if (o.hx !== undefined && o.hz !== undefined) {
-        if (Math.abs(nx - o.x) < o.hx && Math.abs(nz - o.z) < o.hz) {
-          maxH = Math.max(maxH, o.h)
-        }
-        continue
-      }
-      const dx = nx - o.x
-      const dz = nz - o.z
-      if (dx * dx + dz * dz < (o.r * 0.75) ** 2) {
-        maxH = Math.max(maxH, o.h)
-      }
+      const h = this._surfaceHeightAt(o, nx, nz)
+      if (h === null) continue
+      if (h <= playerY + maxStep) bestReachable = Math.max(bestReachable, h)
+      if (h <= playerY + 0.05) bestBelow = Math.max(bestBelow, h)
     }
-    return maxH
+    return bestReachable > -Infinity ? bestReachable : bestBelow
   }
 }

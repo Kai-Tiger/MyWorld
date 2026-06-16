@@ -1,0 +1,8 @@
+Asset: PavingStones150
+Source: https://ambientcg.com/a/PavingStones150
+Downloaded package: PavingStones150_1K-JPG.zip
+Used maps:
+- PavingStones150_1K-JPG_Color.jpg
+- PavingStones150_1K-JPG_AmbientOcclusion.jpg
+- PavingStones150_1K-JPG_NormalGL.jpg
+- PavingStones150_1K-JPG_Roughness.jpg

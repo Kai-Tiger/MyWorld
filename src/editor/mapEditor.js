@@ -1,11 +1,9 @@
 import * as THREE from 'three'
-import { makeHouse, cloneTreeForEditor, cloneRockForEditor, makeCampfire, buildRockInstances, snapObjectToGround } from '../scene/map.js'
+import { cloneTreeForEditor, cloneRockForEditor, makeCampfire, buildRockInstances, snapObjectToGround } from '../scene/map.js'
 import { createNPC } from '../entities/npc.js'
 
 export function applyLayoutToScene(scene, layout) {
   const d = typeof layout === 'string' ? JSON.parse(layout) : layout
-  for (const { x, z, rotY = 0 } of d.houses ?? [])
-    makeHouse(scene, x, z, rotY)
   for (const { x, z, rotY = 0, scale = 1 } of d.trees ?? []) {
     const g = cloneTreeForEditor(scene, x, z, scale)
     g.rotation.y = rotY
@@ -120,15 +118,6 @@ export function createMapEditor(scene, camera, renderer, initialLookAt) {
     clearGhost()
     ghostGroup = new THREE.Group()
     switch (type) {
-      case 'house': {
-        const wall = new THREE.Mesh(new THREE.BoxGeometry(3.2, 2.8, 2.7), makeGhostMat(0xf0dbb0))
-        wall.position.y = 1.4
-        const roof = new THREE.Mesh(new THREE.ConeGeometry(2.4, 1.2, 4), makeGhostMat(0xb03020))
-        roof.position.y = 3.4
-        roof.rotation.y = Math.PI / 4
-        ghostGroup.add(wall, roof)
-        break
-      }
       case 'tree': {
         const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.15, 0.25, 2.0, 6), makeGhostMat(0x8B5E3C))
         trunk.position.y = 1.0
@@ -177,11 +166,6 @@ export function createMapEditor(scene, camera, renderer, initialLookAt) {
   // 放置对象
   function placeObject(x, z) {
     switch (placingType) {
-      case 'house': {
-        const group = makeHouse(scene, x, z, ghostRotY)
-        placedObjects.push({ type: 'house', group, x, z, rotY: ghostRotY })
-        break
-      }
       case 'tree': {
         const scale = 0.85 + Math.random() * 0.25
         const group = cloneTreeForEditor(scene, x, z, scale)
@@ -418,8 +402,7 @@ export function createMapEditor(scene, camera, renderer, initialLookAt) {
       const out = { houses: [], trees: [], rocks: [], campfires: [], npcs: [] }
       for (const o of placedObjects) {
         const { type, scale = 1, color } = o
-        if      (type === 'house')    out.houses.push({ x: o.group.position.x, z: o.group.position.z, rotY: o.group.rotation.y })
-        else if (type === 'tree')     out.trees.push({ x: o.group.position.x, z: o.group.position.z, rotY: o.group.rotation.y, scale })
+        if      (type === 'tree')     out.trees.push({ x: o.group.position.x, z: o.group.position.z, rotY: o.group.rotation.y, scale })
         else if (type === 'rock')     out.rocks.push({ x: o.group.position.x, z: o.group.position.z, scale })
         else if (type === 'campfire') out.campfires.push({ x: o.group.position.x, z: o.group.position.z })
         else if (type === 'npc')      out.npcs.push({ x: o.group.position.x, z: o.group.position.z, color: color ?? 0xff6b6b })
@@ -435,10 +418,6 @@ export function createMapEditor(scene, camera, renderer, initialLookAt) {
       hideRing(); selectedObj = null
 
       const d = JSON.parse(jsonStr)
-      for (const { x, z, rotY = 0 } of d.houses ?? []) {
-        const group = makeHouse(scene, x, z, rotY)
-        placedObjects.push({ type: 'house', group, x, z, rotY })
-      }
       for (const { x, z, rotY = 0, scale = 1 } of d.trees ?? []) {
         const group = cloneTreeForEditor(scene, x, z, scale)
         group.rotation.y = rotY

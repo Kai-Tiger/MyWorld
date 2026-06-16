@@ -1,4 +1,5 @@
 import * as THREE from 'three'
+import { HOUSE_INDOOR_LIGHTING } from '../config/lighting.js'
 
 // ── 贴图生成 ──────────────────────────────────────────
 
@@ -199,15 +200,20 @@ function makeSmallTable(scene) {
 // ── 主函数 ────────────────────────────────────────────
 
 export function createIndoorScene() {
+  const lighting = HOUSE_INDOOR_LIGHTING
   const scene = new THREE.Scene()
-  scene.background = new THREE.Color(0xfff0e0)
+  scene.background = new THREE.Color(lighting.background)
 
   // 灯光
-  scene.add(new THREE.AmbientLight(0xfff5e0, 1.0))
-  const pointLight = new THREE.PointLight(0xffddaa, 2.5, 18)
+  scene.add(new THREE.AmbientLight(lighting.ambient.color, lighting.ambient.intensity))
+  const pointLight = new THREE.PointLight(
+    lighting.ceiling.color,
+    lighting.ceiling.intensity,
+    lighting.ceiling.distance,
+  )
   pointLight.position.set(0, 2.4, 0)
   scene.add(pointLight)
-  const fillLight = new THREE.DirectionalLight(0xffeedd, 0.4)
+  const fillLight = new THREE.DirectionalLight(lighting.fill.color, lighting.fill.intensity)
   fillLight.position.set(-5, 8, 5)
   scene.add(fillLight)
 

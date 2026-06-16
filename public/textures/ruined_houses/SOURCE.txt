@@ -1,0 +1,12 @@
+Wood texture:
+  Asset: Wood061
+  Source: https://ambientcg.com/a/Wood061
+  Download: https://ambientcg.com/get?file=Wood061_1K-JPG.zip
+
+Thatch roof base texture:
+  Asset: Grass005
+  Source: https://ambientcg.com/a/Grass005
+  Download: https://ambientcg.com/get?file=Grass005_1K-JPG.zip
+  Derived color map: Thatch_Dry_Color.jpg, recolored locally from Grass005_1K-JPG_Color.jpg for a dry straw look.
+
+Both assets are from ambientCG and are used as PBR texture sources for the Blender-generated ruined houses.

@@ -10,6 +10,27 @@ import hurtFbxUrl from '../characters/enemy/hurt.fbx?url'
 import deathFbxUrl from '../characters/enemy/death.fbx?url'
 
 const _toPlayer = new THREE.Vector2()
+let _nextEnemyInstanceId = 1
+const _activePursuerIds = new Set()
+
+function getTrackTargetName(trackName) {
+  const dot = trackName.lastIndexOf('.')
+  if (dot <= 0) return null
+  return trackName.slice(0, dot)
+}
+
+function getTrackPropertyName(trackName) {
+  const dot = trackName.lastIndexOf('.')
+  if (dot <= 0) return ''
+  return trackName.slice(dot)
+}
+
+function normalizeRigNodeName(name) {
+  return String(name)
+    .replace(/[:|_\-\s]/g, '')
+    .replace(/^mixamorig\d*/i, '')
+    .toLowerCase()
+}
 
 function freezeRootXZ(clip) {
   const hipsPos = clip.tracks.find(t => /hips.*position/i.test(t.name))
@@ -27,6 +48,7 @@ export function createEnemyNpcFBX(scene, {
   z = 0,
   rotY = 0,
   name = 'Enemy',
+  modelPath = mainFbxUrl,
   getTerrainHeight = null,
   maxHp = BALANCE.npc.fbx.maxHp,
   triggerRange = BALANCE.combat.enemy.triggerRange,
@@ -42,6 +64,8 @@ export function createEnemyNpcFBX(scene, {
   alertDuration = BALANCE.combat.enemy.alertDuration,
   attackEndGrace = BALANCE.combat.enemy.attackEndGrace,
 } = {}) {
+  const instanceId = _nextEnemyInstanceId++
+  const pursuitPhase = instanceId * 1.73
   const group = new THREE.Group()
   group.position.set(x, 0, z)
   group.rotation.y = rotY
@@ -113,8 +137,11 @@ export function createEnemyNpcFBX(scene, {
   let hurtAction = null
   let deathAction = null
   let currentAction = null
+  let rigNodeNameMap = null
+  const retargetedClipCache = new WeakMap()
 
   let attackCdRemain = 0
+  let pursuitTime = 0
   let attacking = false
   const normalizedAttackWindows = Array.isArray(attackWindows) ? attackWindows
     .map((w) => ({
@@ -177,6 +204,7 @@ export function createEnemyNpcFBX(scene, {
 
   function triggerDeath() {
     if (dying) return
+    _activePursuerIds.delete(instanceId)
     hp = 0
     alive = false
     applyLockVisualState('hidden')
@@ -239,15 +267,42 @@ export function createEnemyNpcFBX(scene, {
     currentAction = next
   }
 
+  function getRigNodeNameMap() {
+    if (rigNodeNameMap) return rigNodeNameMap
+    rigNodeNameMap = new Map()
+    rootModel?.traverse((node) => {
+      const key = normalizeRigNodeName(node.name)
+      if (key && !rigNodeNameMap.has(key)) rigNodeNameMap.set(key, node.name)
+    })
+    return rigNodeNameMap
+  }
+
+  function retargetClipToModel(clip) {
+    if (!clip || !rootModel) return clip
+    if (retargetedClipCache.has(clip)) return retargetedClipCache.get(clip)
+    const nodeMap = getRigNodeNameMap()
+    const clone = clip.clone()
+    clone.tracks.forEach((track) => {
+      const targetName = getTrackTargetName(track.name)
+      if (!targetName || rootModel.getObjectByName(targetName)) return
+      const mappedName = nodeMap.get(normalizeRigNodeName(targetName))
+      if (mappedName) track.name = `${mappedName}${getTrackPropertyName(track.name)}`
+    })
+    retargetedClipCache.set(clip, clone)
+    return clone
+  }
+
   function tryBuildActions() {
     if (!mixer) return
     if (idleClip && !idleAction) {
+      idleClip = retargetClipToModel(idleClip)
       freezeRootXZ(idleClip)
       idleAction = mixer.clipAction(idleClip)
       idleAction.enabled = true
       if (!engaged && !alerting && !attacking) setSeatedPose()
     }
     if (sitClip && !sitAction) {
+      sitClip = retargetClipToModel(sitClip)
       freezeRootXZ(sitClip)
       sitAction = mixer.clipAction(sitClip)
       sitAction.enabled = true
@@ -256,6 +311,7 @@ export function createEnemyNpcFBX(scene, {
       if (!engaged && !alerting && !attacking) setSeatedPose()
     }
     if (standClip && !standAction) {
+      standClip = retargetClipToModel(standClip)
       freezeRootXZ(standClip)
       standAction = mixer.clipAction(standClip)
       standAction.enabled = true
@@ -263,11 +319,13 @@ export function createEnemyNpcFBX(scene, {
       standAction.clampWhenFinished = false
     }
     if (runClip && !runAction) {
+      runClip = retargetClipToModel(runClip)
       freezeRootXZ(runClip)
       runAction = mixer.clipAction(runClip)
       runAction.timeScale = 1.15
     }
     if (attackClip && !attackAction) {
+      attackClip = retargetClipToModel(attackClip)
       freezeRootXZ(attackClip)
       attackAction = mixer.clipAction(attackClip)
       attackAction.setLoop(THREE.LoopOnce, 1)
@@ -275,6 +333,7 @@ export function createEnemyNpcFBX(scene, {
       attackAction.timeScale = 1.0
     }
     if (hurtClip && !hurtAction) {
+      hurtClip = retargetClipToModel(hurtClip)
       freezeRootXZ(hurtClip)
       hurtAction = mixer.clipAction(hurtClip)
       hurtAction.setLoop(THREE.LoopOnce, 1)
@@ -286,6 +345,7 @@ export function createEnemyNpcFBX(scene, {
       }
     }
     if (deathClip && !deathAction) {
+      deathClip = retargetClipToModel(deathClip)
       freezeRootXZ(deathClip)
       deathAction = mixer.clipAction(deathClip)
       deathAction.setLoop(THREE.LoopOnce, 1)
@@ -377,7 +437,7 @@ export function createEnemyNpcFBX(scene, {
   }
 
   const loader = new FBXLoader()
-  loader.load(mainFbxUrl, (fbx) => {
+  loader.load(modelPath, (fbx) => {
     rootModel = fbx
     rootModel.scale.setScalar(0.01)
     const _lights = []
@@ -520,6 +580,8 @@ export function createEnemyNpcFBX(scene, {
         engaged = false
         aggroByHit = false
       }
+      if (engaged && alive && !dying) _activePursuerIds.add(instanceId)
+      else _activePursuerIds.delete(instanceId)
 
       if (!prevEngaged && engaged) {
         alerting = true
@@ -562,8 +624,16 @@ export function createEnemyNpcFBX(scene, {
       } else {
         if (!attacking) {
           playRunLoop()
-          const nx = group.position.x + _toPlayer.x * moveSpeed * dt
-          const nz = group.position.z + _toPlayer.y * moveSpeed * dt
+          pursuitTime += dt
+          const pursuerCount = _activePursuerIds.size
+          const weave = pursuerCount > 1
+            ? Math.sin(pursuitTime * 3.15 + pursuitPhase) * THREE.MathUtils.clamp(0.22 + pursuerCount * 0.08, 0.28, 0.52)
+            : 0
+          const moveX = _toPlayer.x - _toPlayer.y * weave
+          const moveZ = _toPlayer.y + _toPlayer.x * weave
+          const moveLen = Math.hypot(moveX, moveZ) || 1
+          const nx = group.position.x + (moveX / moveLen) * moveSpeed * dt
+          const nz = group.position.z + (moveZ / moveLen) * moveSpeed * dt
           if (!collision.check(nx, nz, 0.32, 0, collidable)) {
             group.position.x = nx
             group.position.z = nz

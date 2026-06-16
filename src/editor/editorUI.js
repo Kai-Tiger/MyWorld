@@ -23,7 +23,6 @@ export function createEditorUI(app, { onSelectType, onExport, onLoad, onExit }) 
 
   // 类别按钮
   const ITEMS = [
-    { type: 'house',    label: '🏠 房屋' },
     { type: 'tree',     label: '🌲 树木' },
     { type: 'rock',     label: '🪨 岩石' },
     { type: 'campfire', label: '🔥 火堆' },

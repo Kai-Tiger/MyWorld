@@ -7,10 +7,11 @@ export class InputSystem {
   constructor() {
     this._keys = new Set()
     this._virtual = { up: false, down: false, left: false, right: false }
+    this._movePressed = false
     this._blockedCodes = new Set([
       'KeyW', 'KeyA', 'KeyS', 'KeyD',
       'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight',
-      'Space', 'KeyQ', 'KeyJ', 'KeyK',
+      'Space', 'KeyQ', 'KeyE', 'KeyJ', 'KeyK',
     ])
 
     const shouldIgnoreKeyCapture = (e) => {
@@ -22,10 +23,15 @@ export class InputSystem {
       if (el.isContentEditable) return true
       return false
     }
+    const isMoveCode = (code) => (
+      code === 'KeyW' || code === 'KeyA' || code === 'KeyS' || code === 'KeyD' ||
+      code === 'ArrowUp' || code === 'ArrowDown' || code === 'ArrowLeft' || code === 'ArrowRight'
+    )
 
     // 键盘
     window.addEventListener('keydown', e => {
       if (shouldIgnoreKeyCapture(e)) return
+      if (isMoveCode(e.code)) this._movePressed = true
       this._keys.add(e.code)
       if (this._blockedCodes.has(e.code)) {
         e.preventDefault()
@@ -52,6 +58,9 @@ export class InputSystem {
         const action = btn.dataset.action
         btn.addEventListener('pointerdown', e => {
           this._virtual[action] = true
+          if (action === 'up' || action === 'down' || action === 'left' || action === 'right') {
+            this._movePressed = true
+          }
           btn.classList.add('active')
           e.preventDefault()
         }, { passive: false })
@@ -81,5 +90,11 @@ export class InputSystem {
   isMoving() {
     return this.isPressed('up') || this.isPressed('down') ||
            this.isPressed('left') || this.isPressed('right')
+  }
+
+  consumeMovePressed() {
+    const pressed = this._movePressed || this.isMoving()
+    this._movePressed = false
+    return pressed
   }
 }

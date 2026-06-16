@@ -72,4 +72,20 @@ export const BALANCE = {
       spawnHeight: 1.15,
     },
   },
+
+  spells: {
+    fireball: {
+      key: 'KeyE',
+      cooldown: 0.72,
+      damage: 32,
+      radius: 0.34,
+      speed: 15.5,
+      lifeTime: 2.4,
+      spawnForward: 0.72,
+      spawnHeight: 1.18,
+      hitRadiusBonus: 0.18,
+      trailParticles: 96,
+      burstParticles: 54,
+    },
+  },
 }

@@ -1,3 +1,15 @@
+export const WORLD_SIZE = 1152
+export const WORLD_HALF_SIZE = WORLD_SIZE * 0.5
+
+export const CANYON = {
+  startX: -34,
+  endX: -320,
+  centerZ: -8,
+  walkHalfWidth: 6.8,
+  wallHalfGap: 13.5,
+  wallThickness: 26,
+}
+
 // ════════════════════════════════════════════════════
 //  世界布局配置 — 直接编辑这里调整地图元素位置
 // ════════════════════════════════════════════════════
@@ -5,20 +17,6 @@
 // ── 房屋 ─────────────────────────────────────────────
 // rotY 单位：弧度（0 = 朝北，Math.PI = 朝南，Math.PI/2 = 朝东）
 export const houses = [
-  { x:  -6, z:  -6, rotY: 0 },
-  { x:   6, z:   6, rotY: Math.PI },
-  { x:  -6, z:   6, rotY: Math.PI * 0.5 },
-  { x:  16, z: -12, rotY: Math.PI * 0.25 },
-  { x: -16, z:  12, rotY: Math.PI * 1.25 },
-  { x:  14, z:  16, rotY: Math.PI * 0.75 },
-  { x: -14, z: -14, rotY: Math.PI * 1.75 },
-  { x:  20, z:   4, rotY: Math.PI * 0.5 },
-  { x:  32, z: -20, rotY: Math.PI * 0.125 },
-  { x: -30, z:  28, rotY: Math.PI * 1.125 },
-  { x:  28, z:  32, rotY: Math.PI * 0.625 },
-  { x: -32, z: -28, rotY: Math.PI * 1.625 },
-  { x:  40, z:  10, rotY: Math.PI * 0.375 },
-  { x: -38, z: -15, rotY: Math.PI * 0.875 },
 ]
 
 // ── 石头 [x, z] ──────────────────────────────────────
@@ -45,17 +43,7 @@ export const campfires = [
 ]
 
 // ── 水池 { x, z, r } — r 为水面半径 ─────────────────
-export const ponds = [
-  { x:   8, z:  -7, r: 1.8 },
-  { x: -12, z:  16, r: 1.8 },
-  { x:  18, z:  14, r: 1.8 },
-]
-
-// ── 苹果树位置 ────────────────────────────────────────
-export const appleTree = { x: 10, z: -5 }
-
-// ── 钓鱼水池（专用，半径更大）────────────────────────
-export const fishingLake = { x: -22, z: -8, r: 5.5 }
+export const ponds = []
 
 // ── 台阶山丘 { x, z } ────────────────────────────────
 export const hills = [
@@ -64,4 +52,7 @@ export const hills = [
 ]
 
 // ── 敌对 NPC（追击/攻击）──────────────────────────────
-export const enemyNpc = { x: -18, z: 6, rotY: Math.PI * 0.5 }
+export const enemyNpcs = [
+  { x: -20.2, z: -4.0, rotY: Math.PI * 0.35, name: '篝火巡守', model: 'e1' },
+  { x: -15.8, z: -2.4, rotY: -Math.PI * 0.65, name: '篝火伏击者', model: 'e2' },
+]

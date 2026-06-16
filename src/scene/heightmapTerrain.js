@@ -32,6 +32,8 @@ export function createHeightmapTerrain(scene, {
   maxHeight = 8,
   sharpenMix = 0.7,
   sharpenPower = 1.75,
+  flatAreas = [],
+  heightModifiers = [],
   heightmapUrl = '/heightmaps/main_height_1024.png',
   onReady = null,
 } = {}) {
@@ -50,11 +52,38 @@ export function createHeightmapTerrain(scene, {
     return THREE.MathUtils.lerp(hNorm, curved, sharpenMix)
   }
 
-  function getHeightAt(x, z) {
-    if (!hmData) return 0
+  function sampleBaseHeight(x, z) {
     const u = x / size + 0.5
     const v = 0.5 - z / size
     return shapeHeight(sampleBilinear(hmData, hmW, hmH, u, v)) * maxHeight
+  }
+
+  function applyFlatAreas(x, z, height) {
+    let result = height
+    for (const area of flatAreas) {
+      const feather = Math.max(0.001, area.feather ?? 6)
+      const edgeX = Math.max(0, Math.abs(x - area.x) - area.halfWidth)
+      const edgeZ = Math.max(0, Math.abs(z - area.z) - area.halfDepth)
+      const edgeDistance = Math.hypot(edgeX, edgeZ)
+      if (edgeDistance >= feather) continue
+      const targetHeight = area.height ?? sampleBaseHeight(area.x, area.z)
+      const blend = 1 - THREE.MathUtils.smoothstep(edgeDistance, 0, feather)
+      result = THREE.MathUtils.lerp(result, targetHeight, blend)
+    }
+    return result
+  }
+
+  function getHeightAt(x, z) {
+    if (!hmData) return 0
+    return applyFlatAreas(x, z, applyHeightModifiers(x, z, sampleBaseHeight(x, z)))
+  }
+
+  function applyHeightModifiers(x, z, height) {
+    let result = height
+    for (const modifier of heightModifiers) {
+      result = modifier(x, z, result, sampleBaseHeight)
+    }
+    return result
   }
 
   const img = new Image()
@@ -74,10 +103,10 @@ export function createHeightmapTerrain(scene, {
     }
 
     const pos = geometry.attributes.position
-    const uv = geometry.attributes.uv
     for (let i = 0; i < pos.count; i++) {
-      const hNorm = shapeHeight(sampleBilinear(hmData, hmW, hmH, uv.getX(i), uv.getY(i)))
-      pos.setZ(i, hNorm * maxHeight)
+      const x = pos.getX(i)
+      const z = -pos.getY(i)
+      pos.setZ(i, applyFlatAreas(x, z, applyHeightModifiers(x, z, sampleBaseHeight(x, z))))
     }
     pos.needsUpdate = true
     geometry.computeVertexNormals()

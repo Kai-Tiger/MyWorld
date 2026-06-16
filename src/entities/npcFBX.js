@@ -2,14 +2,6 @@ import * as THREE from 'three'
 import { FBXLoader } from 'three/addons/loaders/FBXLoader.js'
 import { BALANCE } from '../config/balance.js'
 
-let _canvas = null
-let _canvasRect = null
-window.addEventListener('resize', () => { _canvasRect = null })
-function getCachedRect() {
-  if (!_canvas) _canvas = document.querySelector('canvas')
-  return _canvasRect ??= _canvas.getBoundingClientRect()
-}
-
 /**
  * createFBXNPC
  * 与 createNPC 接口完全一致，但用 FBX 模型替换程序几何体。
@@ -19,13 +11,18 @@ export function createFBXNPC(scene, {
   x = 0, z = 0,
   name       = 'NPC',
   modelPath  = '/models/npc1.fbx',
+  rotY       = 0,
   speed      = 1.0,
   wanderRadius = 3.0,
+  canWander = true,
   getTerrainHeight = null,
   maxHp = BALANCE.npc.fbx.maxHp,
+  dialogueLines = [],
+  repeatDialogueLine = '你怎么还在这里',
 } = {}) {
   const group = new THREE.Group()
   group.position.set(x, 0, z)
+  group.rotation.y = rotY
   scene.add(group)
 
   if (getTerrainHeight) {
@@ -90,24 +87,6 @@ export function createFBXNPC(scene, {
     }
   })
 
-  // 名字标签（与现有 NPC 保持一致）
-  const label = document.createElement('div')
-  label.textContent = name
-  label.style.cssText = `
-    position: absolute;
-    color: white;
-    font-size: 11px;
-    font-family: monospace;
-    background: rgba(0,0,0,0.55);
-    padding: 2px 6px;
-    border-radius: 4px;
-    pointer-events: none;
-    white-space: nowrap;
-    transform: translateX(-50%);
-    display: none;
-  `
-  document.getElementById('app').appendChild(label)
-
   // 动态碰撞体
   const collidable = { x, z, r: 0.4 }
 
@@ -125,6 +104,11 @@ export function createFBXNPC(scene, {
   const HIT_SHAKE_DURATION = 0.22
   let lockVisualState = 'hidden'
   let lockPulseTime = 0
+  const homeYaw = rotY
+  let dialogueCompleted = false
+  const initialDialogueLines = Array.isArray(dialogueLines)
+    ? dialogueLines.filter(line => typeof line === 'string' && line.trim().length > 0)
+    : []
 
   function applyLockVisualState(state) {
     lockVisualState = state
@@ -175,22 +159,26 @@ export function createFBXNPC(scene, {
       const distToPlayer = group.position.distanceTo(playerPos)
       if (talking || distToPlayer < TALK_DISTANCE || focused) {
         if (distToPlayer < TALK_DISTANCE || talking) {
-          const toPlayer = new THREE.Vector2(
-            playerPos.x - group.position.x,
-            playerPos.z - group.position.z
-          ).normalize()
-          group.rotation.y = Math.atan2(toPlayer.x, toPlayer.y) + shakeYaw
-          if (!talking) {
-            const rect = getCachedRect()
-            label.style.left = (rect.left + rect.width  * 0.5) + 'px'
-            label.style.top  = (rect.top  + rect.height * 0.3) + 'px'
-            label.style.display = 'block'
+          if (talking || canWander) {
+            const toPlayer = new THREE.Vector2(
+              playerPos.x - group.position.x,
+              playerPos.z - group.position.z
+            ).normalize()
+            group.rotation.y = Math.atan2(toPlayer.x, toPlayer.y) + shakeYaw
+          } else {
+            group.rotation.y = homeYaw + shakeYaw
           }
           focused = true
         } else {
-          label.style.display = 'none'
           focused = false
         }
+        return
+      }
+
+      if (!canWander) {
+        collidable.x = group.position.x
+        collidable.z = group.position.z
+        group.rotation.y = homeYaw + shakeYaw
         return
       }
 
@@ -228,6 +216,15 @@ export function createFBXNPC(scene, {
 
     getColor() { return 0xffd700 },
 
+    getDialogueLines() {
+      if (dialogueCompleted || initialDialogueLines.length === 0) return [repeatDialogueLine]
+      return initialDialogueLines
+    },
+
+    completeDialogue() {
+      dialogueCompleted = true
+    },
+
     getHeadWorldPos() {
       const p = group.position
       return { x: p.x, y: p.y + 1.6, z: p.z }
@@ -259,7 +256,6 @@ export function createFBXNPC(scene, {
         alive = false
         talking = false
         focused = false
-        label.style.display = 'none'
         applyLockVisualState('hidden')
         group.visible = false
       }
@@ -277,7 +273,6 @@ export function createFBXNPC(scene, {
       alive = false
       talking = false
       focused = false
-      label.style.display = 'none'
       applyLockVisualState('hidden')
       group.visible = false
     },
@@ -297,7 +292,6 @@ export function createFBXNPC(scene, {
         group.rotation.y = Math.atan2(dx, dz)
       }
       talking = true
-      label.style.display = 'none'
     },
 
     endTalk() { talking = false },

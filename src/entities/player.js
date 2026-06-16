@@ -7,6 +7,7 @@ import runFbxUrl from '../characters/player/run.fbx?url'
 import attackFbxUrl from '../characters/player/attack.fbx?url'
 import defenseFbxUrl from '../characters/player/defense.fbx?url'
 import hurtFbxUrl from '../characters/player/hurt.fbx?url'
+import sitFbxUrl from '../characters/player/sit.fbx?url'
 
 function lerpAngle(a, b, t) {
   const d = THREE.MathUtils.euclideanModulo(b - a + Math.PI, Math.PI * 2) - Math.PI
@@ -15,6 +16,8 @@ function lerpAngle(a, b, t) {
 
 export function createPlayer(scene) {
   const SPEED = 5.0
+  const BONFIRE_SIT_SECONDS = 2.8
+  const BONFIRE_STAND_SECONDS = 2.2
 
   const group = new THREE.Group()
   scene.add(group)
@@ -27,12 +30,14 @@ export function createPlayer(scene) {
   let attackClip = null
   let defenseClip = null
   let hurtClip = null
+  let sitClip = null
   let idleAction = null
   let walkAction = null
   let runAction = null
   let attackAction = null
   let defenseAction = null
   let hurtAction = null
+  let sitAction = null
   let currentAction = null
   let attacking = false
   let attackHitConsumed = false
@@ -40,8 +45,15 @@ export function createPlayer(scene) {
   let attackPrevNorm = 0
   let defending = false
   let hurting = false
+  let bonfireResting = false
+  let bonfireRestComplete = false
+  let bonfireStandingUp = false
+  let bonfireStandComplete = false
+  let bonfireRestTimer = 0
+  let bonfireStandTimer = 0
   let jWasPressed = false
   let locomotionState = 'idle'
+  let forcedLocomotion = null
   let moveHoldTime = 0
   let runToWalkTimer = 0
   let runToWalkDriftRemain = 0
@@ -80,6 +92,31 @@ export function createPlayer(scene) {
       if (!best || clip.duration > best.duration) best = clip
     }
     return best || animations[0]
+  }
+
+  function completeBonfireRest() {
+    if (!bonfireResting || !sitAction) return
+    if (sitAction.time > 0.001 && bonfireRestTimer < BONFIRE_SIT_SECONDS + 0.1) return
+    sitAction.time = 0
+    sitAction.paused = true
+    bonfireResting = false
+    bonfireRestComplete = true
+  }
+
+  function completeBonfireStandUp() {
+    if (!bonfireStandingUp || !sitAction) return
+    const duration = sitAction.getClip()?.duration ?? 0
+    if (duration > 0 && sitAction.time < duration - 0.001 && bonfireStandTimer < BONFIRE_STAND_SECONDS + 0.1) return
+    sitAction.time = duration
+    sitAction.paused = true
+    bonfireStandingUp = false
+    bonfireStandComplete = true
+    if (idleAction) switchAction(idleAction, true)
+  }
+
+  function getScaledTimeScale(action, targetSeconds, direction = 1) {
+    const duration = action?.getClip?.()?.duration ?? targetSeconds
+    return direction * Math.max(0.01, duration / targetSeconds)
   }
 
   function switchAction(next, reset = false) {
@@ -193,6 +230,7 @@ export function createPlayer(scene) {
       walkAction.timeScale = 1.0
       walkAction.enabled = true
       runToWalkDuration = THREE.MathUtils.clamp(walkClip.duration * 1, 0.4, 0.6)
+      if (forcedLocomotion === 'walk') switchAction(walkAction, true)
     }
     if (runClip && !runAction) {
       freezeRootXZ(runClip)
@@ -226,6 +264,14 @@ export function createPlayer(scene) {
       hurtAction.timeScale = 1.0
       hurtAction.enabled = true
     }
+    if (sitClip && !sitAction) {
+      freezeRootXZ(sitClip)
+      sitAction = mixer.clipAction(sitClip, rootModel)
+      sitAction.setLoop(THREE.LoopOnce, 1)
+      sitAction.clampWhenFinished = true
+      sitAction.timeScale = -1.0
+      sitAction.enabled = true
+    }
   }
 
   const loader = new FBXLoader()
@@ -252,6 +298,11 @@ export function createPlayer(scene) {
       }
       if (e.action === hurtAction) {
         hurting = false
+        return
+      }
+      if (e.action === sitAction) {
+        completeBonfireRest()
+        completeBonfireStandUp()
       }
     })
 
@@ -281,6 +332,11 @@ export function createPlayer(scene) {
 
   loader.load(hurtFbxUrl, (fbx) => {
     hurtClip = pickPrimaryClip(fbx.animations)
+    tryBuildActions()
+  })
+
+  loader.load(sitFbxUrl, (fbx) => {
+    sitClip = pickPrimaryClip(fbx.animations)
     tryBuildActions()
   })
 
@@ -387,7 +443,10 @@ export function createPlayer(scene) {
         let moved = false
 
         const tryMove = (nx, nz) => {
-          const targetTerrainH = getTerrainHeight ? getTerrainHeight(nx, nz) : 0
+          const targetTerrainH = Math.max(
+            getTerrainHeight ? getTerrainHeight(nx, nz) : 0,
+            collision.getSurfaceHeight(nx, nz, group.position.y, AUTO_STEP),
+          )
           const heightDiff = targetTerrainH - group.position.y
           const blocker = collision.getBlockingCollidable(nx, nz, 0.4, group.position.y, selfCollidable)
           if (blocker && !(blocker.h !== undefined && heightDiff > 0 && heightDiff <= AUTO_STEP)) return false
@@ -463,7 +522,10 @@ export function createPlayer(scene) {
 
       // 重力
       const terrainH = getTerrainHeight ? getTerrainHeight(group.position.x, group.position.z) : 0
-      const surfaceH = Math.max(collision.getSurfaceHeight(group.position.x, group.position.z), terrainH)
+      const surfaceH = Math.max(
+        collision.getSurfaceHeight(group.position.x, group.position.z, group.position.y, AUTO_STEP),
+        terrainH,
+      )
 
       // 走到岩石边缘时开始下落
       if (onGround && group.position.y > surfaceH + 0.05) {
@@ -502,7 +564,13 @@ export function createPlayer(scene) {
         _smoothGroundY = group.position.y
       }
 
-      if (mixer) mixer.update(dt)
+      if (mixer) {
+        mixer.update(dt)
+        if (bonfireResting) bonfireRestTimer += dt
+        if (bonfireStandingUp) bonfireStandTimer += dt
+        completeBonfireRest()
+        completeBonfireStandUp()
+      }
 
       if (attacking && attackAction && !attackHitConsumed) {
         const clip = attackAction.getClip?.()
@@ -572,14 +640,112 @@ export function createPlayer(scene) {
     },
 
     playIdle() {
+      forcedLocomotion = null
       if (!idleAction) return
       defending = false
       hurting = false
+      bonfireResting = false
+      bonfireRestComplete = false
+      bonfireStandingUp = false
+      bonfireStandComplete = false
+      bonfireRestTimer = 0
+      bonfireStandTimer = 0
       moveHoldTime = 0
       runToWalkTimer = 0
       runToWalkDriftRemain = 0
       locomotionState = 'idle'
       switchAction(idleAction)
+    },
+
+    playWalk() {
+      forcedLocomotion = 'walk'
+      defending = false
+      hurting = false
+      attacking = false
+      locomotionState = 'walk'
+      if (walkAction) switchAction(walkAction, true)
+    },
+
+    playBonfireRestReverse() {
+      if (!sitAction) return false
+      forcedLocomotion = null
+      attacking = false
+      attackHitConsumed = false
+      attackHitPending = false
+      attackPrevNorm = 0
+      defending = false
+      hurting = false
+      bonfireResting = true
+      bonfireRestComplete = false
+      bonfireStandingUp = false
+      bonfireStandComplete = false
+      bonfireRestTimer = 0
+      bonfireStandTimer = 0
+      moveHoldTime = 0
+      runToWalkTimer = 0
+      runToWalkDriftRemain = 0
+      locomotionState = 'idle'
+
+      sitAction.stop()
+      sitAction.reset()
+      sitAction.enabled = true
+      sitAction.paused = false
+      sitAction.setLoop(THREE.LoopOnce, 1)
+      sitAction.clampWhenFinished = true
+      sitAction.timeScale = getScaledTimeScale(sitAction, BONFIRE_SIT_SECONDS, -1)
+      sitAction.time = Math.max(0, sitAction.getClip()?.duration ?? 0)
+      switchAction(sitAction)
+      if (!sitAction.isRunning()) sitAction.play()
+      return true
+    },
+
+    playBonfireStandUp() {
+      if (!sitAction || !bonfireRestComplete || bonfireStandingUp) return false
+      forcedLocomotion = null
+      attacking = false
+      attackHitConsumed = false
+      attackHitPending = false
+      attackPrevNorm = 0
+      defending = false
+      hurting = false
+      bonfireResting = false
+      bonfireRestComplete = false
+      bonfireStandingUp = true
+      bonfireStandComplete = false
+      bonfireRestTimer = 0
+      bonfireStandTimer = 0
+      moveHoldTime = 0
+      runToWalkTimer = 0
+      runToWalkDriftRemain = 0
+      locomotionState = 'idle'
+
+      sitAction.stop()
+      sitAction.reset()
+      sitAction.enabled = true
+      sitAction.paused = false
+      sitAction.setLoop(THREE.LoopOnce, 1)
+      sitAction.clampWhenFinished = true
+      sitAction.timeScale = getScaledTimeScale(sitAction, BONFIRE_STAND_SECONDS, 1)
+      sitAction.time = 0
+      switchAction(sitAction)
+      if (!sitAction.isRunning()) sitAction.play()
+      return true
+    },
+
+    isBonfireResting() {
+      return bonfireResting
+    },
+
+    isBonfireRestComplete() {
+      return bonfireRestComplete
+    },
+
+    isBonfireStandingUp() {
+      return bonfireStandingUp
+    },
+
+    isBonfireStandComplete() {
+      return bonfireStandComplete
     },
 
     startAttack() {
@@ -664,7 +830,24 @@ export function createPlayer(scene) {
     },
 
     updateAnimation(dt) {
-      if (mixer) mixer.update(dt)
+      if (forcedLocomotion === 'walk' && walkAction) {
+        walkAction.paused = false
+        walkAction.enabled = true
+        walkAction.setLoop(THREE.LoopRepeat, Infinity)
+        walkAction.clampWhenFinished = false
+        if (currentAction !== walkAction) {
+          switchAction(walkAction, true)
+        } else if (!walkAction.isRunning()) {
+          walkAction.reset().play()
+        }
+      }
+      if (mixer) {
+        mixer.update(dt)
+        if (bonfireResting) bonfireRestTimer += dt
+        if (bonfireStandingUp) bonfireStandTimer += dt
+        completeBonfireRest()
+        completeBonfireStandUp()
+      }
     },
   }
 }

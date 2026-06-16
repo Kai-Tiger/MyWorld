@@ -1,15 +1,6 @@
 import * as THREE from 'three'
 import { BALANCE } from '../config/balance.js'
 
-// 模块级缓存：所有 NPC 共享同一个 canvas 引用和 DOMRect
-let _canvas = null
-let _canvasRect = null
-window.addEventListener('resize', () => { _canvasRect = null })
-function getCachedRect() {
-  if (!_canvas) _canvas = document.querySelector('canvas')
-  return _canvasRect ??= _canvas.getBoundingClientRect()
-}
-
 // 预分配复用向量，避免每帧每个 NPC 创建临时对象
 const _toOrigin = new THREE.Vector2()
 
@@ -96,24 +87,6 @@ export function createNPC(scene, { x = 0, z = 0, color = 0xff6b6b, name = 'NPC',
   // 动态碰撞体，位置每帧同步，由外部注册到 CollisionSystem
   const collidable = { x, z, r: 0.32 }
 
-  // ── 名字标签（HTML Overlay，简单实现）────────────
-  const label = document.createElement('div')
-  label.textContent = name
-  label.style.cssText = `
-    position: absolute;
-    color: white;
-    font-size: 11px;
-    font-family: monospace;
-    background: rgba(0,0,0,0.55);
-    padding: 2px 6px;
-    border-radius: 4px;
-    pointer-events: none;
-    white-space: nowrap;
-    transform: translateX(-50%);
-    display: none;
-  `
-  document.getElementById('app').appendChild(label)
-
   // ── 内部状态 ──────────────────────────────────────
   const origin = new THREE.Vector3(x, 0, z)
   let walkTime  = 0
@@ -182,15 +155,8 @@ export function createNPC(scene, { x = 0, z = 0, color = 0xff6b6b, name = 'NPC',
         if (distToPlayer < TALK_DISTANCE || talking) {
           _toOrigin.set(playerPos.x - group.position.x, playerPos.z - group.position.z).normalize()
           group.rotation.y = Math.atan2(_toOrigin.x, _toOrigin.y) + shakeYaw
-          if (!talking) {
-            const rect = getCachedRect()
-            label.style.left = (rect.left + rect.width  * 0.5) + 'px'
-            label.style.top  = (rect.top  + rect.height * 0.3) + 'px'
-            label.style.display = 'block'
-          }
           focused = true
         } else {
-          label.style.display = 'none'
           focused = false
         }
         if (!talking) {
@@ -276,7 +242,6 @@ export function createNPC(scene, { x = 0, z = 0, color = 0xff6b6b, name = 'NPC',
         alive = false
         talking = false
         focused = false
-        label.style.display = 'none'
         applyLockVisualState('hidden')
         group.visible = false
       }
@@ -294,7 +259,6 @@ export function createNPC(scene, { x = 0, z = 0, color = 0xff6b6b, name = 'NPC',
       alive = false
       talking = false
       focused = false
-      label.style.display = 'none'
       applyLockVisualState('hidden')
       group.visible = false
     },
@@ -314,7 +278,6 @@ export function createNPC(scene, { x = 0, z = 0, color = 0xff6b6b, name = 'NPC',
         group.rotation.y = Math.atan2(dx, dz)
       }
       talking = true
-      label.style.display = 'none'
     },
 
     endTalk() {

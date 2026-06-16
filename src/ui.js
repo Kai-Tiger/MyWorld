@@ -6,6 +6,17 @@ import * as THREE from 'three'
  * 返回 { update(player) } 供主循环调用。
  */
 export function createUI(container) {
+  const sceneFade = document.createElement('div')
+  sceneFade.style.cssText = `
+    position: absolute;
+    inset: 0;
+    z-index: 1000;
+    background: #050608;
+    opacity: 0;
+    pointer-events: none;
+  `
+  container.appendChild(sceneFade)
+
   // ── 信息面板 ──────────────────────────────────────
   const hud = document.createElement('div')
   hud.style.cssText = `
@@ -136,6 +147,76 @@ export function createUI(container) {
       background: rgba(255,184,198,0.95);
       color: white;
     }
+    #castle-action-btn {
+      position: absolute;
+      background: rgba(235,238,244,0.95);
+      border: 2px solid #9aa8bd;
+      border-radius: 12px;
+      padding: 6px 14px;
+      font-size: 13px;
+      color: #28313d;
+      font-family: sans-serif;
+      pointer-events: auto;
+      transform: translateX(-50%);
+      cursor: pointer;
+      z-index: 100;
+      box-shadow: 0 4px 16px rgba(0,0,0,0.25);
+    }
+    #castle-action-btn:hover {
+      background: rgba(180,194,215,0.95);
+      color: white;
+    }
+    #bonfire-menu {
+      position: absolute;
+      transform: translateX(-50%);
+      width: min(260px, calc(100vw - 24px));
+      padding: 12px;
+      box-sizing: border-box;
+      z-index: 190;
+      pointer-events: auto;
+      background:
+        linear-gradient(180deg, rgba(8,7,6,0.96), rgba(24,19,12,0.94)),
+        radial-gradient(circle at 50% 0%, rgba(205,105,35,0.22), transparent 58%);
+      border: 1px solid rgba(176,145,82,0.82);
+      border-radius: 2px;
+      box-shadow:
+        inset 0 0 0 1px rgba(255,230,160,0.08),
+        0 12px 32px rgba(0,0,0,0.68);
+      font-family: Georgia, 'Times New Roman', serif;
+    }
+    #bonfire-menu-title {
+      color: #d8c89b;
+      font-size: 13px;
+      letter-spacing: 0.12em;
+      margin: 0 0 10px;
+      text-align: center;
+      text-shadow: 0 1px 2px rgba(0,0,0,0.95);
+    }
+    .bonfire-menu-option {
+      width: 100%;
+      height: 34px;
+      margin: 5px 0;
+      border: 1px solid rgba(176,145,82,0.74);
+      border-radius: 1px;
+      background: linear-gradient(90deg, rgba(7,7,6,0.96), rgba(34,28,18,0.90), rgba(7,7,6,0.96));
+      color: #d8c89b;
+      font-family: inherit;
+      font-size: 13px;
+      letter-spacing: 0.08em;
+      cursor: pointer;
+      text-shadow: 0 1px 2px rgba(0,0,0,0.95);
+      box-shadow: inset 0 0 0 1px rgba(255,230,160,0.06);
+    }
+    .bonfire-menu-option:hover {
+      border-color: #d7b46a;
+      color: #fff0bd;
+      filter: brightness(1.14);
+    }
+    .bonfire-menu-option:disabled {
+      opacity: 0.48;
+      cursor: default;
+      filter: none;
+    }
     #talk-btn {
       position: absolute;
       background: rgba(255,245,235,0.95);
@@ -180,7 +261,9 @@ export function createUI(container) {
       gap: 10px;
       z-index: 200;
       font-family: sans-serif;
-      max-width: min(320px, calc(100vw - 24px));
+      box-sizing: border-box;
+      width: min(440px, calc(100vw - 24px));
+      height: 172px;
       box-shadow: 0 8px 24px rgba(0,0,0,0.35);
     }
     #dialogue-panel::after {
@@ -203,6 +286,10 @@ export function createUI(container) {
     }
     #dialogue-body {
       flex: 1;
+      min-width: 0;
+      height: 100%;
+      display: flex;
+      flex-direction: column;
     }
     #dialogue-name {
       font-size: 13px;
@@ -214,9 +301,13 @@ export function createUI(container) {
       font-size: 13px;
       color: #f0e8f4;
       line-height: 1.6;
+      flex: 1;
+      overflow-y: auto;
+      padding-right: 4px;
     }
     #dialogue-end-btn {
       align-self: center;
+      flex: 0 0 auto;
       padding: 5px 12px;
       border: 2px solid #ffb8c6;
       border-radius: 20px;
@@ -388,6 +479,122 @@ export function createUI(container) {
       background: #4fc3f7;
       color: #0a1222;
     }
+    #enter-prompt,
+    #talk-btn,
+    #pick-btn,
+    #fish-btn,
+    #castle-action-btn,
+    #exit-btn {
+      min-width: 138px;
+      padding: 7px 18px;
+      border: 1px solid rgba(176, 145, 82, 0.86);
+      border-radius: 2px;
+      background:
+        linear-gradient(90deg, rgba(7, 7, 6, 0.96), rgba(30, 26, 19, 0.88) 52%, rgba(7, 7, 6, 0.96)),
+        radial-gradient(circle at 50% 0%, rgba(176,145,82,0.22), transparent 55%);
+      color: #d8c89b;
+      font-family: Georgia, 'Times New Roman', serif;
+      font-size: 13px;
+      letter-spacing: 0.08em;
+      text-shadow: 0 1px 2px rgba(0,0,0,0.95);
+      box-shadow:
+        inset 0 0 0 1px rgba(255, 230, 160, 0.08),
+        inset 0 -14px 22px rgba(0,0,0,0.42),
+        0 8px 22px rgba(0,0,0,0.56);
+      white-space: nowrap;
+      pointer-events: auto;
+      cursor: pointer;
+      z-index: 100;
+      transition: border-color 0.16s, color 0.16s, filter 0.16s, transform 0.16s;
+    }
+    #enter-prompt {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      color: #a99a74;
+      transform: translateX(-50%);
+    }
+    #enter-prompt::before,
+    #talk-btn::before,
+    #pick-btn::before,
+    #fish-btn::before,
+    #castle-action-btn::before,
+    #exit-btn::before {
+      content: '✦';
+      margin-right: 9px;
+      color: #8e7644;
+      font-size: 10px;
+      vertical-align: 1px;
+    }
+    #enter-prompt::after,
+    #talk-btn::after,
+    #pick-btn::after,
+    #fish-btn::after {
+      display: none;
+    }
+    #enter-prompt button {
+      margin-left: 0;
+      padding: 2px 10px;
+      border: 1px solid rgba(176, 145, 82, 0.7);
+      border-radius: 1px;
+      background: rgba(0, 0, 0, 0.38);
+      color: #efe1b6;
+      font-family: inherit;
+      font-size: 12px;
+      letter-spacing: 0.1em;
+    }
+    #enter-prompt:hover,
+    #talk-btn:hover,
+    #pick-btn:hover,
+    #fish-btn:hover,
+    #castle-action-btn:hover,
+    #exit-btn:hover,
+    #enter-prompt button:hover {
+      border-color: #d7b46a;
+      color: #fff0bd;
+      filter: brightness(1.14);
+      background:
+        linear-gradient(90deg, rgba(12, 11, 9, 0.98), rgba(48, 39, 25, 0.92) 52%, rgba(12, 11, 9, 0.98));
+    }
+    #dialogue-panel {
+      background:
+        linear-gradient(180deg, rgba(8,7,6,0.95), rgba(22,18,13,0.94)),
+        radial-gradient(circle at 50% 0%, rgba(176,145,82,0.18), transparent 55%);
+      border: 1px solid rgba(176,145,82,0.78);
+      border-radius: 2px;
+      box-shadow:
+        inset 0 0 0 1px rgba(255,230,160,0.08),
+        0 10px 30px rgba(0,0,0,0.68);
+      font-family: Georgia, 'Times New Roman', serif;
+    }
+    #dialogue-panel::after {
+      display: none;
+    }
+    #dialogue-avatar {
+      border: 1px solid rgba(176,145,82,0.72);
+      border-radius: 2px;
+      background: rgba(0,0,0,0.25);
+      color: #d8c89b;
+    }
+    #dialogue-name {
+      color: #d8c89b;
+      letter-spacing: 0.08em;
+      font-weight: normal;
+    }
+    #dialogue-text {
+      color: #d8d0bd;
+    }
+    #dialogue-end-btn {
+      border: 1px solid rgba(176,145,82,0.78);
+      border-radius: 1px;
+      color: #d8c89b;
+      font-family: Georgia, 'Times New Roman', serif;
+      letter-spacing: 0.08em;
+    }
+    #dialogue-end-btn:hover {
+      background: rgba(176,145,82,0.18);
+      color: #fff0bd;
+    }
     .npc-hp {
       position: absolute;
       width: 46px;
@@ -424,6 +631,24 @@ export function createUI(container) {
 
   let promptEl = null
   let exitBtn = null
+  let actionBtn = null
+  let bonfireMenu = null
+  const interactionPromptRadius = 110
+
+  function cleanInteractionLabel(label) {
+    return String(label).replace(/[^\p{L}\p{N}\s\-_/：:]/gu, '').trim()
+  }
+
+  function positionAtCharacterUpperRight(el, worldPos, camera, renderer) {
+    const v = new THREE.Vector3(worldPos.x, worldPos.y, worldPos.z).project(camera)
+    const w = renderer.domElement.clientWidth
+    const h = renderer.domElement.clientHeight
+    const angle = THREE.MathUtils.degToRad(30)
+    const sx = (v.x * 0.5 + 0.5) * w
+    const sy = (-v.y * 0.5 + 0.5) * h
+    el.style.left = `${sx + Math.cos(angle) * interactionPromptRadius}px`
+    el.style.top = `${sy - Math.sin(angle) * interactionPromptRadius}px`
+  }
   let talkBtn = null
   let pickBtn = null
   let fishBtn = null
@@ -683,22 +908,44 @@ export function createUI(container) {
       lockEl.textContent = `LOCK: ${name}`
     },
 
-    showEnterPrompt(worldPos, camera, renderer, onEnter, label = '进入房屋') {
-      const v = worldPos.clone().project(camera)
-      const w = renderer.domElement.clientWidth
-      const h = renderer.domElement.clientHeight
-      const sx = (v.x * 0.5 + 0.5) * w
-      const sy = (-v.y * 0.5 + 0.5) * h
+    setSceneFade(opacity) {
+      sceneFade.style.opacity = Math.min(1, Math.max(0, opacity)).toFixed(3)
+    },
 
+    setTransitionUiVisible(visible) {
+      hud.style.display = visible ? '' : 'none'
+      dpad.style.display = visible ? '' : 'none'
+      if (!visible) {
+        this.hideEnterPrompt()
+        this.hideExitButton()
+        this.hideTalkButton()
+        this.hidePickButton()
+        this.hideFishButton()
+        this.hideActionPrompt()
+        this.hideBonfireMenu(false)
+      }
+    },
+
+    showEnterPrompt(worldPos, camera, renderer, onEnter, label = '进入房屋', characterAngle = false) {
+      const promptLabel = cleanInteractionLabel(label)
       if (!promptEl) {
         promptEl = document.createElement('div')
         promptEl.id = 'enter-prompt'
-        promptEl.innerHTML = `${label} <button>进门 🚪</button>`
+        promptEl.innerHTML = `<span>${promptLabel}</span><button>进入</button>`
         container.appendChild(promptEl)
         promptEl.querySelector('button').addEventListener('click', onEnter)
+      } else {
+        promptEl.querySelector('span').textContent = promptLabel
       }
-      promptEl.style.left = `${sx + 60}px`
-      promptEl.style.top  = `${sy - 80}px`
+      if (characterAngle) {
+        positionAtCharacterUpperRight(promptEl, worldPos, camera, renderer)
+      } else {
+        const v = worldPos.clone().project(camera)
+        const w = renderer.domElement.clientWidth
+        const h = renderer.domElement.clientHeight
+        promptEl.style.left = `${(v.x * 0.5 + 0.5) * w + 60}px`
+        promptEl.style.top = `${(-v.y * 0.5 + 0.5) * h - 80}px`
+      }
     },
 
     hideEnterPrompt() {
@@ -708,15 +955,22 @@ export function createUI(container) {
       }
     },
 
-    showExitButton(onExit) {
-      if (exitBtn) return
-      exitBtn = document.createElement('button')
-      exitBtn.id = 'exit-btn'
-      exitBtn.textContent = '离开 🚪'
-      container.appendChild(exitBtn)
-      exitBtn.addEventListener('click', onExit)
-      hud.style.display = 'none'
-      dpad.style.display = 'none'
+    showExitButton(onExit, label = '离开 🚪', worldPos = null, camera = null, renderer = null) {
+      if (!exitBtn) {
+        exitBtn = document.createElement('button')
+        exitBtn.id = 'exit-btn'
+        container.appendChild(exitBtn)
+        exitBtn.addEventListener('click', onExit)
+        hud.style.display = 'none'
+        dpad.style.display = 'none'
+      }
+      exitBtn.textContent = cleanInteractionLabel(label)
+      if (worldPos && camera && renderer) {
+        exitBtn.style.bottom = 'auto'
+        exitBtn.style.right = 'auto'
+        exitBtn.style.transform = 'translate(-50%, -50%)'
+        positionAtCharacterUpperRight(exitBtn, worldPos, camera, renderer)
+      }
     },
 
     hideExitButton() {
@@ -726,6 +980,62 @@ export function createUI(container) {
       }
       hud.style.display = ''
       dpad.style.display = ''
+    },
+
+    showActionPrompt(worldPos, camera, renderer, onAction, label = '操作') {
+      if (!actionBtn) {
+        actionBtn = document.createElement('button')
+        actionBtn.id = 'castle-action-btn'
+        container.appendChild(actionBtn)
+      }
+      actionBtn.textContent = cleanInteractionLabel(label)
+      actionBtn.onclick = onAction
+      positionAtCharacterUpperRight(actionBtn, worldPos, camera, renderer)
+    },
+
+    hideActionPrompt() {
+      if (actionBtn) {
+        actionBtn.remove()
+        actionBtn = null
+      }
+    },
+
+    showBonfireMenu(worldPos, camera, renderer, handlers = {}, options = {}) {
+      if (!bonfireMenu) {
+        bonfireMenu = document.createElement('div')
+        bonfireMenu.id = 'bonfire-menu'
+        bonfireMenu.innerHTML = `
+          <div id="bonfire-menu-title">篝火</div>
+          <button class="bonfire-menu-option" data-bonfire-action="rest">休息</button>
+          <button class="bonfire-menu-option" data-bonfire-action="memorize">记忆法术</button>
+          <button class="bonfire-menu-option" data-bonfire-action="leave">离开</button>
+        `
+        container.appendChild(bonfireMenu)
+      }
+
+      const restBtn = bonfireMenu.querySelector('[data-bonfire-action="rest"]')
+      const memorizeBtn = bonfireMenu.querySelector('[data-bonfire-action="memorize"]')
+      const leaveBtn = bonfireMenu.querySelector('[data-bonfire-action="leave"]')
+      restBtn.disabled = Boolean(options.restDisabled)
+      memorizeBtn.disabled = Boolean(options.memorizeDisabled)
+      restBtn.onclick = restBtn.disabled ? null : handlers.onRest
+      memorizeBtn.onclick = memorizeBtn.disabled ? null : handlers.onMemorize
+      leaveBtn.onclick = handlers.onLeave
+
+      positionAtCharacterUpperRight(bonfireMenu, worldPos, camera, renderer)
+      hud.style.display = 'none'
+      dpad.style.display = 'none'
+    },
+
+    hideBonfireMenu(restoreHud = true) {
+      if (bonfireMenu) {
+        bonfireMenu.remove()
+        bonfireMenu = null
+      }
+      if (restoreHud) {
+        hud.style.display = ''
+        dpad.style.display = ''
+      }
     },
 
     showTalkButton(worldPos, camera, renderer, onTalk) {
@@ -738,7 +1048,7 @@ export function createUI(container) {
       if (!talkBtn) {
         talkBtn = document.createElement('button')
         talkBtn.id = 'talk-btn'
-        talkBtn.textContent = '对话 💬'
+        talkBtn.textContent = '对话'
         container.appendChild(talkBtn)
         talkBtn.addEventListener('click', onTalk)
       }
@@ -753,30 +1063,42 @@ export function createUI(container) {
       }
     },
 
-    showDialoguePanel(npcName, npcColor, onEnd) {
+    showDialoguePanel(npcName, npcColor, onEnd, dialogueLines = []) {
       if (dialoguePanel) return
-      const lines = [
-        '今天天气真不错呢！',
-        '你好呀，旅行者～',
-        '我最近在研究星座，你是什么座的？',
-        '听说村子的东边新开了一家点心铺～',
-        '有时间的话，来我家坐坐吧！',
-      ]
-      const line = lines[Math.floor(Math.random() * lines.length)]
+      const lines = Array.isArray(dialogueLines) && dialogueLines.length > 0
+        ? dialogueLines
+        : ['你怎么还在这里']
       const hex = '#' + npcColor.toString(16).padStart(6, '0')
+      let lineIndex = 0
 
       dialoguePanel = document.createElement('div')
       dialoguePanel.id = 'dialogue-panel'
       dialoguePanel.innerHTML = `
         <div id="dialogue-avatar" style="background:${hex}">🐾</div>
         <div id="dialogue-body">
-          <div id="dialogue-name">${npcName}</div>
-          <div id="dialogue-text">${line}</div>
+          <div id="dialogue-name"></div>
+          <div id="dialogue-text"></div>
         </div>
-        <button id="dialogue-end-btn">结束对话</button>
+        <button id="dialogue-end-btn"></button>
       `
       container.appendChild(dialoguePanel)
-      dialoguePanel.querySelector('#dialogue-end-btn').addEventListener('click', onEnd)
+      const nameEl = dialoguePanel.querySelector('#dialogue-name')
+      const textEl = dialoguePanel.querySelector('#dialogue-text')
+      const endBtn = dialoguePanel.querySelector('#dialogue-end-btn')
+      const renderLine = () => {
+        nameEl.textContent = npcName
+        textEl.textContent = lines[lineIndex]
+        endBtn.textContent = lineIndex < lines.length - 1 ? '下一句' : '结束对话'
+      }
+      endBtn.addEventListener('click', () => {
+        if (lineIndex < lines.length - 1) {
+          lineIndex += 1
+          renderLine()
+          return
+        }
+        onEnd?.()
+      })
+      renderLine()
       hud.style.display = 'none'
       dpad.style.display = 'none'
     },
@@ -825,7 +1147,7 @@ export function createUI(container) {
       if (!pickBtn) {
         pickBtn = document.createElement('button')
         pickBtn.id = 'pick-btn'
-        pickBtn.textContent = '摘苹果 🍎'
+        pickBtn.textContent = '拾取'
         container.appendChild(pickBtn)
         pickBtn.addEventListener('click', onPick)
       }
@@ -855,7 +1177,7 @@ export function createUI(container) {
       if (!fishBtn) {
         fishBtn = document.createElement('button')
         fishBtn.id = 'fish-btn'
-        fishBtn.textContent = '钓鱼 🎣'
+        fishBtn.textContent = '钓鱼'
         container.appendChild(fishBtn)
         fishBtn.addEventListener('click', onFish)
       }
