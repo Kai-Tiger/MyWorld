@@ -5,6 +5,7 @@ import mainFbxUrl from '../characters/enemy/main.fbx?url'
 import sitFbxUrl from '../characters/enemy/sit.fbx?url'
 import standFbxUrl from '../characters/enemy/Stand.fbx?url'
 import runFbxUrl from '../characters/enemy/run.fbx?url'
+import walkFbxUrl from '../characters/enemy/walk.fbx?url'
 import attackFbxUrl from '../characters/enemy/attack.fbx?url'
 import hurtFbxUrl from '../characters/enemy/hurt.fbx?url'
 import deathFbxUrl from '../characters/enemy/death.fbx?url'
@@ -12,6 +13,13 @@ import deathFbxUrl from '../characters/enemy/death.fbx?url'
 const _toPlayer = new THREE.Vector2()
 let _nextEnemyInstanceId = 1
 const _activePursuerIds = new Set()
+const AVOIDANCE_ANGLES = [
+  THREE.MathUtils.degToRad(35),
+  THREE.MathUtils.degToRad(70),
+  THREE.MathUtils.degToRad(110),
+]
+const HIT_AGGRO_MEMORY_SECONDS = 6
+const HIT_AGGRO_LEASH_BUFFER_SECONDS = 3
 
 function getTrackTargetName(trackName) {
   const dot = trackName.lastIndexOf('.')
@@ -54,6 +62,9 @@ export function createEnemyNpcFBX(scene, {
   triggerRange = BALANCE.combat.enemy.triggerRange,
   attackRange = BALANCE.combat.enemy.attackRange,
   disengageRange = BALANCE.combat.enemy.disengageRange,
+  leashRadius = BALANCE.combat.enemy.leashRadius,
+  returnSpeed = BALANCE.combat.enemy.returnSpeed,
+  returnArriveDistance = BALANCE.combat.enemy.returnArriveDistance,
   moveSpeed = BALANCE.combat.enemy.moveSpeed,
   attackCooldown = BALANCE.combat.enemy.attackCooldown,
   attackDamage = BALANCE.combat.enemy.attackDamage,
@@ -66,6 +77,10 @@ export function createEnemyNpcFBX(scene, {
 } = {}) {
   const instanceId = _nextEnemyInstanceId++
   const pursuitPhase = instanceId * 1.73
+  let avoidanceSide = instanceId % 2 === 0 ? 1 : -1
+  const homeX = x
+  const homeZ = z
+  const homeRotY = rotY
   const group = new THREE.Group()
   group.position.set(x, 0, z)
   group.rotation.y = rotY
@@ -126,6 +141,7 @@ export function createEnemyNpcFBX(scene, {
   let sitClip = null
   let standClip = null
   let runClip = null
+  let walkClip = null
   let attackClip = null
   let hurtClip = null
   let deathClip = null
@@ -133,6 +149,7 @@ export function createEnemyNpcFBX(scene, {
   let sitAction = null
   let standAction = null
   let runAction = null
+  let walkAction = null
   let attackAction = null
   let hurtAction = null
   let deathAction = null
@@ -142,6 +159,8 @@ export function createEnemyNpcFBX(scene, {
 
   let attackCdRemain = 0
   let pursuitTime = 0
+  let blockedTime = 0
+  let avoidanceLockTime = 0
   let attacking = false
   const normalizedAttackWindows = Array.isArray(attackWindows) ? attackWindows
     .map((w) => ({
@@ -157,8 +176,10 @@ export function createEnemyNpcFBX(scene, {
   let prevAttackNorm = 0
   let engaged = false
   let aggroByHit = false
+  let aggroMemoryTimer = 0
   let alerting = false
   let alertTimer = 0
+  let returningHome = false
   let _attackFinishGrace = 0
   let hurting = false
   let preHurtAction = null
@@ -187,11 +208,14 @@ export function createEnemyNpcFBX(scene, {
     alertTimer = 0
     engaged = false
     aggroByHit = false
+    aggroMemoryTimer = 0
+    returningHome = false
     attacking = false
     attackCdRemain = 0
     if (hurtAction) hurtAction.stop()
     if (attackAction) attackAction.stop()
     if (runAction) runAction.stop()
+    if (walkAction) walkAction.stop()
     if (standAction) standAction.stop()
     if (sitAction) sitAction.stop()
     if (idleAction) idleAction.stop()
@@ -209,6 +233,25 @@ export function createEnemyNpcFBX(scene, {
     alive = false
     applyLockVisualState('hidden')
     if (!playDeathOnce()) deathPending = true
+  }
+
+  function stopCombatStateForReturn() {
+    engaged = false
+    aggroByHit = false
+    aggroMemoryTimer = 0
+    alerting = false
+    alertTimer = 0
+    attacking = false
+    attackWindowDone.fill(false)
+    prevAttackNorm = 0
+    _attackFinishGrace = 0
+    _activePursuerIds.delete(instanceId)
+    if (attackAction) attackAction.stop()
+    if (runAction) runAction.stop()
+    if (standAction) standAction.stop()
+    if (hurtAction) hurtAction.stop()
+    hurting = false
+    preHurtAction = null
   }
 
   function resumeAfterHurt() {
@@ -324,6 +367,12 @@ export function createEnemyNpcFBX(scene, {
       runAction = mixer.clipAction(runClip)
       runAction.timeScale = 1.15
     }
+    if (walkClip && !walkAction) {
+      walkClip = retargetClipToModel(walkClip)
+      freezeRootXZ(walkClip)
+      walkAction = mixer.clipAction(walkClip)
+      walkAction.timeScale = 1.0
+    }
     if (attackClip && !attackAction) {
       attackClip = retargetClipToModel(attackClip)
       freezeRootXZ(attackClip)
@@ -375,6 +424,17 @@ export function createEnemyNpcFBX(scene, {
     if (currentAction !== runAction) switchAction(runAction, true)
   }
 
+  function playWalkLoop() {
+    if (dying) return
+    const action = walkAction ?? runAction
+    if (!action) return
+    action.paused = false
+    action.setLoop(THREE.LoopRepeat, Infinity)
+    action.clampWhenFinished = false
+    if (action === runAction) action.timeScale = 0.62
+    if (currentAction !== action) switchAction(action, true)
+  }
+
   function playStandLoop() {
     if (dying) return
     if (!standAction) {
@@ -395,6 +455,7 @@ export function createEnemyNpcFBX(scene, {
     if (hurtAction) hurtAction.stop()
     if (standAction) standAction.stop()
     if (runAction) runAction.stop()
+    if (walkAction) walkAction.stop()
     if (attackAction) attackAction.stop()
 
     if (sitAction) {
@@ -477,6 +538,11 @@ export function createEnemyNpcFBX(scene, {
     tryBuildActions()
   })
 
+  loader.load(walkFbxUrl, (fbx) => {
+    if (fbx.animations.length > 0) walkClip = fbx.animations[0]
+    tryBuildActions()
+  })
+
   loader.load(attackFbxUrl, (fbx) => {
     if (fbx.animations.length > 0) attackClip = fbx.animations[0]
     tryBuildActions()
@@ -505,6 +571,141 @@ export function createEnemyNpcFBX(scene, {
     const facingZ = Math.cos(group.rotation.y)
     const dot = facingX * toPlayerNormX + facingZ * toPlayerNormZ
     return dot > 0
+  }
+
+  function rotateMoveDir(x, z, angle) {
+    const c = Math.cos(angle)
+    const s = Math.sin(angle)
+    return { x: x * c - z * s, z: x * s + z * c }
+  }
+
+  function makeStepCandidate(dirX, dirZ, dt, collision, speedScale = 1, baseSpeed = moveSpeed) {
+    const len = Math.hypot(dirX, dirZ)
+    if (len <= 0.0001) return null
+    const step = baseSpeed * dt * speedScale
+    const nx = group.position.x + (dirX / len) * step
+    const nz = group.position.z + (dirZ / len) * step
+    if (collision.check(nx, nz, 0.32, group.position.y, collidable)) return null
+    return { x: nx, z: nz, dirX: dirX / len, dirZ: dirZ / len }
+  }
+
+  function scoreStepCandidate(candidate, playerPos) {
+    const dx = playerPos.x - candidate.x
+    const dz = playerPos.z - candidate.z
+    return dx * dx + dz * dz
+  }
+
+  function pickAvoidanceMove(baseX, baseZ, dt, collision, targetPos, baseSpeed = moveSpeed) {
+    avoidanceLockTime = Math.max(0, avoidanceLockTime - dt)
+
+    const direct = makeStepCandidate(baseX, baseZ, dt, collision, 1, baseSpeed)
+    if (direct) {
+      blockedTime = Math.max(0, blockedTime - dt * 2)
+      return direct
+    }
+
+    blockedTime += dt
+    if (blockedTime > 0.4 && avoidanceLockTime <= 0) {
+      avoidanceSide *= -1
+      avoidanceLockTime = 0.7
+      blockedTime = 0.12
+    }
+
+    const blocker = collision.getBlockingCollidable?.(
+      group.position.x + baseX * moveSpeed * dt,
+      group.position.z + baseZ * moveSpeed * dt,
+      0.32,
+      group.position.y,
+      collidable,
+    )
+    const candidates = []
+
+    if (blocker?.r !== undefined) {
+      const awayX = group.position.x - blocker.x
+      const awayZ = group.position.z - blocker.z
+      const awayLen = Math.hypot(awayX, awayZ)
+      if (awayLen > 0.0001) {
+        const tangentX = (-awayZ / awayLen) * avoidanceSide
+        const tangentZ = (awayX / awayLen) * avoidanceSide
+        candidates.push(
+          { x: baseX * 0.35 + tangentX, z: baseZ * 0.35 + tangentZ, scale: 0.94 },
+          { x: baseX * 0.25 - tangentX, z: baseZ * 0.25 - tangentZ, scale: 0.82 },
+        )
+      }
+    }
+
+    for (const angle of AVOIDANCE_ANGLES) {
+      const preferred = rotateMoveDir(baseX, baseZ, angle * avoidanceSide)
+      const opposite = rotateMoveDir(baseX, baseZ, -angle * avoidanceSide)
+      candidates.push(
+        { x: preferred.x, z: preferred.z, scale: angle > 1.4 ? 0.78 : 0.92 },
+        { x: opposite.x, z: opposite.z, scale: angle > 1.4 ? 0.72 : 0.86 },
+      )
+    }
+
+    let best = null
+    let bestScore = Infinity
+    for (const candidateDir of candidates) {
+      const candidate = makeStepCandidate(candidateDir.x, candidateDir.z, dt, collision, candidateDir.scale, baseSpeed)
+      if (!candidate) continue
+      const score = scoreStepCandidate(candidate, targetPos)
+      if (score < bestScore) {
+        best = candidate
+        bestScore = score
+      }
+    }
+
+    if (best) return best
+
+    const slideX = makeStepCandidate(baseX, 0, dt, collision, 0.65, baseSpeed)
+    const slideZ = makeStepCandidate(0, baseZ, dt, collision, 0.65, baseSpeed)
+    if (slideX && slideZ) return scoreStepCandidate(slideX, targetPos) < scoreStepCandidate(slideZ, targetPos) ? slideX : slideZ
+    return slideX ?? slideZ
+  }
+
+  function distanceFromHome() {
+    return Math.hypot(group.position.x - homeX, group.position.z - homeZ)
+  }
+
+  function startReturnHome() {
+    if (dying || returningHome) return
+    stopCombatStateForReturn()
+    returningHome = true
+    blockedTime = 0
+    avoidanceLockTime = 0
+    playWalkLoop()
+  }
+
+  function finishReturnHome() {
+    returningHome = false
+    group.position.x = homeX
+    group.position.z = homeZ
+    group.rotation.y = homeRotY
+    collidable.x = homeX
+    collidable.z = homeZ
+    if (getTerrainHeight) group.position.y = getTerrainHeight(homeX, homeZ)
+    setSeatedPose()
+  }
+
+  function updateReturnHome(dt, collision) {
+    const dx = homeX - group.position.x
+    const dz = homeZ - group.position.z
+    const distHome = Math.hypot(dx, dz)
+    if (distHome <= returnArriveDistance) {
+      finishReturnHome()
+      return
+    }
+
+    playWalkLoop()
+    const target = { x: homeX, z: homeZ }
+    const move = pickAvoidanceMove(dx / distHome, dz / distHome, dt, collision, target, returnSpeed)
+    if (move) {
+      group.position.x = move.x
+      group.position.z = move.z
+      const moveYaw = Math.atan2(move.dirX, move.dirZ)
+      const moveTurn = THREE.MathUtils.euclideanModulo(moveYaw - group.rotation.y + Math.PI, Math.PI * 2) - Math.PI
+      group.rotation.y += moveTurn * Math.min(1, dt * turnSpeed * 0.45)
+    }
   }
 
   return {
@@ -575,10 +776,23 @@ export function createEnemyNpcFBX(scene, {
 
       const prevEngaged = engaged
       const inSightTrigger = hasToPlayerDir && dist <= triggerRange && isPlayerInFront(toPlayerX, toPlayerZ)
-      if (inSightTrigger || aggroByHit) engaged = true
-      if (dist > disengageRange) {
-        engaged = false
+      if (aggroByHit) {
+        returningHome = false
+        const leashTravelTime = leashRadius / Math.max(0.001, moveSpeed)
+        aggroMemoryTimer = Math.max(
+          aggroMemoryTimer,
+          HIT_AGGRO_MEMORY_SECONDS,
+          leashTravelTime + HIT_AGGRO_LEASH_BUFFER_SECONDS,
+        )
         aggroByHit = false
+      } else {
+        aggroMemoryTimer = Math.max(0, aggroMemoryTimer - dt)
+      }
+      if (!returningHome && (inSightTrigger || aggroMemoryTimer > 0)) engaged = true
+      if (engaged && distanceFromHome() > leashRadius) startReturnHome()
+      if (returningHome) engaged = false
+      if (dist > disengageRange && aggroMemoryTimer <= 0) {
+        engaged = false
       }
       if (engaged && alive && !dying) _activePursuerIds.add(instanceId)
       else _activePursuerIds.delete(instanceId)
@@ -593,7 +807,14 @@ export function createEnemyNpcFBX(scene, {
         alerting = false
         alertTimer = 0
         if (attacking) endAttack()
-        setSeatedPose()
+        if (!returningHome) setSeatedPose()
+      }
+
+      if (returningHome) {
+        updateReturnHome(dt, collision)
+        collidable.x = group.position.x
+        collidable.z = group.position.z
+        return
       }
 
       if (engaged && hasToPlayerDir) {
@@ -632,11 +853,15 @@ export function createEnemyNpcFBX(scene, {
           const moveX = _toPlayer.x - _toPlayer.y * weave
           const moveZ = _toPlayer.y + _toPlayer.x * weave
           const moveLen = Math.hypot(moveX, moveZ) || 1
-          const nx = group.position.x + (moveX / moveLen) * moveSpeed * dt
-          const nz = group.position.z + (moveZ / moveLen) * moveSpeed * dt
-          if (!collision.check(nx, nz, 0.32, 0, collidable)) {
-            group.position.x = nx
-            group.position.z = nz
+          const move = pickAvoidanceMove(moveX / moveLen, moveZ / moveLen, dt, collision, playerPos)
+          if (move) {
+            group.position.x = move.x
+            group.position.z = move.z
+            if (dist > attackRange + 0.8) {
+              const moveYaw = Math.atan2(move.dirX, move.dirZ)
+              const moveTurn = THREE.MathUtils.euclideanModulo(moveYaw - group.rotation.y + Math.PI, Math.PI * 2) - Math.PI
+              group.rotation.y += moveTurn * Math.min(1, dt * turnSpeed * 0.55)
+            }
           }
         }
       }
@@ -674,7 +899,7 @@ export function createEnemyNpcFBX(scene, {
 
     onHit(amount) {
       hitShakeTime = HIT_SHAKE_DURATION
-      if (!engaged) aggroByHit = true
+      aggroByHit = true
       return this.takeDamage(amount)
     },
 

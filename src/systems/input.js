@@ -6,12 +6,13 @@
 export class InputSystem {
   constructor() {
     this._keys = new Set()
+    this._pressed = new Set()
     this._virtual = { up: false, down: false, left: false, right: false }
     this._movePressed = false
     this._blockedCodes = new Set([
       'KeyW', 'KeyA', 'KeyS', 'KeyD',
       'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight',
-      'Space', 'KeyQ', 'KeyE', 'KeyJ', 'KeyK',
+      'Space', 'KeyQ', 'KeyE', 'KeyJ', 'KeyK', 'KeyZ',
     ])
 
     const shouldIgnoreKeyCapture = (e) => {
@@ -32,6 +33,7 @@ export class InputSystem {
     window.addEventListener('keydown', e => {
       if (shouldIgnoreKeyCapture(e)) return
       if (isMoveCode(e.code)) this._movePressed = true
+      if (!this._keys.has(e.code)) this._pressed.add(e.code)
       this._keys.add(e.code)
       if (this._blockedCodes.has(e.code)) {
         e.preventDefault()
@@ -95,6 +97,12 @@ export class InputSystem {
   consumeMovePressed() {
     const pressed = this._movePressed || this.isMoving()
     this._movePressed = false
+    return pressed
+  }
+
+  consumePressed(action) {
+    const pressed = this._pressed.has(action)
+    this._pressed.delete(action)
     return pressed
   }
 }

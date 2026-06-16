@@ -253,7 +253,31 @@ function _applyLayoutCollidables(layout) {
 _applyLayoutCollidables(_layoutData)
 
 // ── UI ───────────────────────────────────────────────
-const ui = createUI(app)
+let ui = null
+let zWasPressed = false
+
+function cyclePlayerWeapon() {
+  player.cycleWeapon?.()
+  const state = player.getEquipmentState?.()
+  ui?.updateEquipmentState?.(state)
+  return state
+}
+
+function updateWeaponCycleInput() {
+  if (input.consumePressed?.('KeyZ')) {
+    zWasPressed = input.isPressed('KeyZ')
+    cyclePlayerWeapon()
+    return
+  }
+  const zNow = input.isPressed('KeyZ')
+  if (zNow && !zWasPressed) cyclePlayerWeapon()
+  zWasPressed = zNow
+}
+
+ui = createUI(app, {
+  onCycleWeapon: cyclePlayerWeapon,
+})
+ui.updateEquipmentState?.(player.getEquipmentState?.())
 
 // ── 编辑器入口按钮 ────────────────────────────────────
 const _editBtn = document.createElement('button')
@@ -324,6 +348,7 @@ const _toCandidate    = new THREE.Vector3()
 const _meleeForward   = new THREE.Vector3()
 const _toMeleeTarget  = new THREE.Vector3()
 const _spellForward   = new THREE.Vector3()
+let pendingFireballCast = null
 
 const lockState = {
   targetNpc: null,
@@ -342,7 +367,7 @@ let activeBonfire = null
 let dismissedBonfire = null
 let bonfireRestState = null
 const BONFIRE_INTERACTION_RANGE = 2.7
-const BONFIRE_SIT_SECONDS = 2.8
+const BONFIRE_SIT_SECONDS = 4.2
 const BONFIRE_STAND_SECONDS = 2.2
 
 function requestHitstop(duration) {
@@ -561,6 +586,22 @@ function processPlayerMeleeAttack() {
 }
 
 function updatePlayerSpellCasting(dt, playerPos) {
+  if (pendingFireballCast) {
+    pendingFireballCast.timer -= dt
+    if (pendingFireballCast.timer <= 0) {
+      const cfg = BALANCE.spells.fireball
+      const origin = new THREE.Vector3(
+        playerPos.x + pendingFireballCast.direction.x * cfg.spawnForward,
+        playerPos.y + cfg.spawnHeight,
+        playerPos.z + pendingFireballCast.direction.z * cfg.spawnForward,
+      )
+      spells.release('fireball', origin, pendingFireballCast.direction, pendingFireballCast.damage)
+      pendingFireballCast = null
+    }
+  }
+
+  if (pendingFireballCast) return
+
   const lockTarget = lockState.targetNpc
   if (lockTarget?.isAlive?.()) {
     _spellForward.subVectors(lockTarget.getPosition(), playerPos).setY(0)
@@ -570,8 +611,16 @@ function updatePlayerSpellCasting(dt, playerPos) {
   if (_spellForward.lengthSq() <= 0.0001) return
   _spellForward.normalize()
 
-  const casted = spells.tryCast('fireball', input, playerPos, _spellForward, player.getAtk?.() ?? BALANCE.player.atk)
-  if (casted && lockTarget?.isAlive?.()) {
+  if (!spells.consumeCastRequest('fireball', input)) return
+  if (!spells.beginCast('fireball')) return
+
+  pendingFireballCast = {
+    timer: 0.8,
+    direction: _spellForward.clone(),
+    damage: player.getAtk?.() ?? BALANCE.player.atk,
+  }
+  player.playThrowMagic?.()
+  if (lockTarget?.isAlive?.()) {
     player.faceToward(lockTarget.getPosition().x, lockTarget.getPosition().z)
   }
 }
@@ -766,6 +815,7 @@ function gameLoop() {
   }
 
   if (activeScene === 'indoor') {
+    updateWeaponCycleInput()
     player.update(dt, input, indoorCollision)
     ui.clearCombatOverlays?.()
     clearNpcCombatUi()
@@ -779,6 +829,7 @@ function gameLoop() {
   }
 
   if (activeScene === 'castle') {
+    updateWeaponCycleInput()
     clearNpcCombatUi()
     clearLock()
     lockState.qWasPressed = input.isPressed('KeyQ')
@@ -937,8 +988,8 @@ function gameLoop() {
         bonfireRestState.startedAt = performance.now()
         bonfireRestState.time = 0
       }
-      if (bonfireRestState.phase === 'sitting' && input.consumeMovePressed?.()) {
-        player.playBonfireStandUp?.()
+      const shouldStandUp = input.consumeMovePressed?.() || input.isMoving?.()
+      if ((bonfireRestState.phase === 'sitting-down' || bonfireRestState.phase === 'sitting') && shouldStandUp && player.requestBonfireStandUp?.()) {
         bonfireRestState.phase = 'standing-up'
         bonfireRestState.startedAt = performance.now()
         bonfireRestState.time = 0
@@ -960,6 +1011,7 @@ function gameLoop() {
   castle.updateOutdoor(dt)
 
   // 更新玩家
+  updateWeaponCycleInput()
   updateLockToggle(input, player.getPosition())
   validateLock(player.getPosition())
   const moveIntent = getThirdPersonMoveIntent(input)

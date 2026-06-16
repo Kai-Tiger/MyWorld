@@ -1,23 +1,40 @@
 import * as THREE from 'three'
 import { FBXLoader } from 'three/addons/loaders/FBXLoader.js'
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js'
 import { BALANCE } from '../config/balance.js'
 import standFbxUrl from '../characters/player/stand.fbx?url'
 import walkFbxUrl from '../characters/player/walk.fbx?url'
 import runFbxUrl from '../characters/player/run.fbx?url'
 import attackFbxUrl from '../characters/player/attack.fbx?url'
+import throwMagicFbxUrl from '../characters/player/throwMagic.fbx?url'
 import defenseFbxUrl from '../characters/player/defense.fbx?url'
 import hurtFbxUrl from '../characters/player/hurt.fbx?url'
 import sitFbxUrl from '../characters/player/sit.fbx?url'
+import hammerGlbUrl from '../weapons/hammer.glb?url'
 
 function lerpAngle(a, b, t) {
   const d = THREE.MathUtils.euclideanModulo(b - a + Math.PI, Math.PI * 2) - Math.PI
   return a + d * t
 }
 
+function normalizeObjectName(name) {
+  return String(name ?? '').replace(/[^a-z0-9]/gi, '').toLowerCase()
+}
+
+function findObjectByNormalizedName(root, names) {
+  const targets = new Set(names.map(normalizeObjectName))
+  let found = null
+  root.traverse(obj => {
+    if (!found && targets.has(normalizeObjectName(obj.name))) found = obj
+  })
+  return found
+}
+
 export function createPlayer(scene) {
   const SPEED = 5.0
-  const BONFIRE_SIT_SECONDS = 2.8
+  const BONFIRE_SIT_SECONDS = 4.2
   const BONFIRE_STAND_SECONDS = 2.2
+  const BONFIRE_STAND_SKIP_SECONDS = 0.8
 
   const group = new THREE.Group()
   scene.add(group)
@@ -28,6 +45,7 @@ export function createPlayer(scene) {
   let walkClip = null
   let runClip = null
   let attackClip = null
+  let throwMagicClip = null
   let defenseClip = null
   let hurtClip = null
   let sitClip = null
@@ -35,11 +53,13 @@ export function createPlayer(scene) {
   let walkAction = null
   let runAction = null
   let attackAction = null
+  let throwMagicAction = null
   let defenseAction = null
   let hurtAction = null
   let sitAction = null
   let currentAction = null
   let attacking = false
+  let throwMagicPlaying = false
   let attackHitConsumed = false
   let attackHitPending = false
   let attackPrevNorm = 0
@@ -62,6 +82,7 @@ export function createPlayer(scene) {
   let runToWalkDuration = 0.24
   const RUN_TRIGGER_SECONDS = 1.0
   const RUN_TO_WALK_DRIFT_DISTANCE = 0.8
+  const THROW_MAGIC_END_NORM = 0.88
   const _attackWindowCfg = BALANCE.combat.playerAttack?.hitWindow ?? { start: 0.30, end: 0.52 }
   const ATTACK_HIT_WINDOW_START = THREE.MathUtils.clamp(_attackWindowCfg.start ?? 0.30, 0, 1)
   const ATTACK_HIT_WINDOW_END = THREE.MathUtils.clamp(_attackWindowCfg.end ?? 0.52, ATTACK_HIT_WINDOW_START, 1)
@@ -69,9 +90,18 @@ export function createPlayer(scene) {
   const BLOCK_SHAKE_AMPLITUDE = 0.08
   const BLOCK_RECOIL_DISTANCE = 0.24
   const BLOCK_RECOIL_SPEED = 2.8
+  const HAMMER_SOCKET_OFFSET = new THREE.Vector3(0, -33, 0)
+  const HAMMER_SOCKET_ROTATION = new THREE.Euler(0, Math.PI, 0)
+  const HAMMER_MODEL_SCALE = 126
   let blockShakeTime = 0
   let blockRecoilRemain = 0
   let blockImpactCount = 0
+  let weaponSocket = null
+  let builtInSword = null
+  const playerMeshes = []
+  let hammerModel = null
+  let hammerLoadStarted = false
+  let weaponId = 'sword'
 
   function freezeRootXZ(clip) {
     const hipsPos = clip.tracks.find(t => /hips.*position/i.test(t.name))
@@ -119,6 +149,84 @@ export function createPlayer(scene) {
     return direction * Math.max(0.01, duration / targetSeconds)
   }
 
+  function applyWeaponVisibility() {
+    playerMeshes.forEach(mesh => {
+      if (mesh !== builtInSword) mesh.visible = true
+    })
+    if (builtInSword) builtInSword.visible = weaponId !== 'hammer'
+    if (hammerModel) hammerModel.visible = weaponId === 'hammer'
+  }
+
+  function loadHammerWeapon() {
+    if (!weaponSocket || hammerLoadStarted) return
+    hammerLoadStarted = true
+    const gltfLoader = new GLTFLoader()
+    gltfLoader.load(hammerGlbUrl, (gltf) => {
+      hammerModel = gltf.scene
+      hammerModel.name = 'EquippedHammer'
+      hammerModel.traverse((c) => {
+        c.name = `EquippedHammer:${c.name || c.type}`
+      })
+      const weaponAnchor = new THREE.Group()
+      weaponAnchor.name = 'EquippedHammerAnchor'
+      weaponAnchor.position.copy(HAMMER_SOCKET_OFFSET)
+      weaponAnchor.rotation.copy(HAMMER_SOCKET_ROTATION)
+      hammerModel.scale.setScalar(HAMMER_MODEL_SCALE)
+      hammerModel.position.set(0, HAMMER_MODEL_SCALE * 0.2, -40)
+      hammerModel.traverse(c => {
+        if (c.isMesh) c.castShadow = true
+        c.userData.cameraIgnore = true
+      })
+      weaponAnchor.add(hammerModel)
+      hammerModel = weaponAnchor
+      weaponSocket.add(hammerModel)
+      applyWeaponVisibility()
+    }, undefined, (err) => {
+      console.error('Failed to load hammer weapon', err)
+    })
+  }
+
+  function setupWeaponSockets() {
+    if (!rootModel) return
+    weaponSocket = findObjectByNormalizedName(rootModel, ['mixamorig:Sword_joint', 'mixamorigSword_joint', 'mixamorigSwordjoint'])
+      || findObjectByNormalizedName(rootModel, ['mixamorig:RightHand', 'mixamorigRightHand'])
+    playerMeshes.length = 0
+    rootModel.traverse(c => {
+      if (c.isMesh) playerMeshes.push(c)
+    })
+    builtInSword = playerMeshes.find(mesh => (
+      mesh.skeleton?.bones?.some(bone => normalizeObjectName(bone.name) === 'mixamorigswordjoint')
+      && !mesh.skeleton?.bones?.some(bone => normalizeObjectName(bone.name) === 'mixamorighips')
+    )) || rootModel.getObjectByName('Paladin_J_Nordstrom')
+    applyWeaponVisibility()
+    loadHammerWeapon()
+  }
+
+  function finishThrowMagic() {
+    if (!throwMagicPlaying) return
+    throwMagicPlaying = false
+    if (throwMagicAction) {
+      throwMagicAction.stop()
+      throwMagicAction.enabled = false
+    }
+    if (idleAction) {
+      idleAction.reset()
+      idleAction.enabled = true
+      idleAction.paused = false
+      idleAction.setLoop(THREE.LoopRepeat, Infinity)
+      idleAction.clampWhenFinished = false
+      idleAction.fadeIn(0.04).play()
+      currentAction = idleAction
+    }
+  }
+
+  function updateThrowMagicCutoff() {
+    if (!throwMagicPlaying || !throwMagicAction) return
+    const duration = throwMagicAction.getClip?.()?.duration ?? 0
+    if (duration <= 0) return
+    if (throwMagicAction.time / duration >= THROW_MAGIC_END_NORM) finishThrowMagic()
+  }
+
   function switchAction(next, reset = false) {
     if (!next || next === currentAction) return
     if (currentAction) currentAction.fadeOut(0.16)
@@ -147,6 +255,18 @@ export function createPlayer(scene) {
         switchAction(attackAction, true)
       } else if (!attackAction.isRunning()) {
         attackAction.reset().play()
+      }
+      return
+    }
+    if (throwMagicPlaying && throwMagicAction) {
+      throwMagicAction.paused = false
+      throwMagicAction.enabled = true
+      throwMagicAction.setLoop(THREE.LoopOnce, 1)
+      throwMagicAction.clampWhenFinished = false
+      if (currentAction !== throwMagicAction) {
+        switchAction(throwMagicAction, true)
+      } else if (!throwMagicAction.isRunning()) {
+        throwMagicAction.reset().play()
       }
       return
     }
@@ -248,6 +368,14 @@ export function createPlayer(scene) {
       attackAction.timeScale = 1.5
       attackAction.enabled = true
     }
+    if (throwMagicClip && !throwMagicAction) {
+      freezeRootXZ(throwMagicClip)
+      throwMagicAction = mixer.clipAction(throwMagicClip, rootModel)
+      throwMagicAction.setLoop(THREE.LoopOnce, 1)
+      throwMagicAction.clampWhenFinished = false
+      throwMagicAction.timeScale = 1.2
+      throwMagicAction.enabled = true
+    }
     if (defenseClip && !defenseAction) {
       freezeRootXZ(defenseClip)
       defenseAction = mixer.clipAction(defenseClip, rootModel)
@@ -286,6 +414,7 @@ export function createPlayer(scene) {
     })
     _pLights.forEach(l => l.removeFromParent())
     group.add(rootModel)
+    setupWeaponSockets()
 
     mixer = new THREE.AnimationMixer(rootModel)
     mixer.addEventListener('finished', (e) => {
@@ -294,6 +423,10 @@ export function createPlayer(scene) {
         attackHitConsumed = false
         attackHitPending = false
         attackPrevNorm = 0
+        return
+      }
+      if (e.action === throwMagicAction) {
+        finishThrowMagic()
         return
       }
       if (e.action === hurtAction) {
@@ -322,6 +455,11 @@ export function createPlayer(scene) {
 
   loader.load(attackFbxUrl, (fbx) => {
     attackClip = pickPrimaryClip(fbx.animations)
+    tryBuildActions()
+  })
+
+  loader.load(throwMagicFbxUrl, (fbx) => {
+    throwMagicClip = pickPrimaryClip(fbx.animations)
     tryBuildActions()
   })
 
@@ -379,10 +517,10 @@ export function createPlayer(scene) {
       const jNow = input.isPressed('KeyJ')
       const kNow = input.isPressed('KeyK')
 
-      if (kNow && !attacking) defending = true
+      if (kNow && !attacking && !throwMagicPlaying) defending = true
       if (!kNow) defending = false
 
-      if (jNow && !jWasPressed && !attacking && !defending && attackAction) {
+      if (jNow && !jWasPressed && !attacking && !throwMagicPlaying && !defending && attackAction) {
         attacking = true
         attackHitConsumed = false
         attackHitPending = false
@@ -398,7 +536,7 @@ export function createPlayer(scene) {
         attackPrevNorm = 0
       }
 
-      const canLocomotion = !defending && !attacking && !hurting
+      const canLocomotion = !defending && !attacking && !throwMagicPlaying && !hurting
       if (canLocomotion) {
         if (moving) {
           moveHoldTime = suppressRun ? 0 : moveHoldTime + locomotionDt
@@ -429,7 +567,7 @@ export function createPlayer(scene) {
         }
       }
 
-      if (moving && !defending && !attacking && !hurting) {
+      if (moving && !defending && !attacking && !throwMagicPlaying && !hurting) {
         const len = Math.sqrt(dx * dx + dz * dz)
         dx /= len
         dz /= len
@@ -510,11 +648,11 @@ export function createPlayer(scene) {
         blockRecoilRemain = Math.max(0, blockRecoilRemain - recoilDist)
       }
 
-      chooseLocomotionAction(moving && !defending && !attacking && !hurting, suppressRun)
+      chooseLocomotionAction(moving && !defending && !attacking && !throwMagicPlaying && !hurting, suppressRun)
 
       // 跳跃
       const spaceNow = input.isPressed('Space')
-      if (spaceNow && !spaceWasPressed && onGround && !attacking) {
+      if (spaceNow && !spaceWasPressed && onGround && !attacking && !throwMagicPlaying) {
         vy = JUMP_SPEED
         onGround = false
       }
@@ -566,6 +704,7 @@ export function createPlayer(scene) {
 
       if (mixer) {
         mixer.update(dt)
+        updateThrowMagicCutoff()
         if (bonfireResting) bonfireRestTimer += dt
         if (bonfireStandingUp) bonfireStandTimer += dt
         completeBonfireRest()
@@ -626,6 +765,25 @@ export function createPlayer(scene) {
 
     getGroup() {
       return group
+    },
+
+    cycleWeapon() {
+      weaponId = weaponId === 'hammer' ? 'sword' : 'hammer'
+      applyWeaponVisibility()
+      return weaponId
+    },
+
+    getWeaponId() {
+      return weaponId
+    },
+
+    getEquipmentState() {
+      return {
+        spell: 'fireball',
+        shield: 'shield',
+        weapon: weaponId,
+        item: 'bag',
+      }
     },
 
     setPosition(x, z, y = 0) {
@@ -699,8 +857,11 @@ export function createPlayer(scene) {
       return true
     },
 
-    playBonfireStandUp() {
-      if (!sitAction || !bonfireRestComplete || bonfireStandingUp) return false
+    requestBonfireStandUp() {
+      if (!sitAction || (!bonfireRestComplete && !bonfireResting) || bonfireStandingUp) return false
+      const duration = sitAction.getClip?.()?.duration ?? 0
+      const skipTime = Math.max(0, Math.min(BONFIRE_STAND_SKIP_SECONDS, duration - 0.05))
+      const resumeTime = bonfireResting ? Math.max(sitAction.time, skipTime) : skipTime
       forcedLocomotion = null
       attacking = false
       attackHitConsumed = false
@@ -719,17 +880,19 @@ export function createPlayer(scene) {
       runToWalkDriftRemain = 0
       locomotionState = 'idle'
 
-      sitAction.stop()
-      sitAction.reset()
       sitAction.enabled = true
       sitAction.paused = false
       sitAction.setLoop(THREE.LoopOnce, 1)
       sitAction.clampWhenFinished = true
       sitAction.timeScale = getScaledTimeScale(sitAction, BONFIRE_STAND_SECONDS, 1)
-      sitAction.time = 0
+      sitAction.time = resumeTime
       switchAction(sitAction)
       if (!sitAction.isRunning()) sitAction.play()
       return true
+    },
+
+    playBonfireStandUp() {
+      return this.requestBonfireStandUp()
     },
 
     isBonfireResting() {
@@ -749,7 +912,7 @@ export function createPlayer(scene) {
     },
 
     startAttack() {
-      if (!attackAction || attacking || defending || hurting) return false
+      if (!attackAction || attacking || throwMagicPlaying || defending || hurting) return false
       attacking = true
       attackHitConsumed = false
       attackHitPending = false
@@ -758,8 +921,24 @@ export function createPlayer(scene) {
       return true
     },
 
+    playThrowMagic() {
+      if (!throwMagicAction) return false
+      throwMagicPlaying = true
+      if (currentAction && currentAction !== throwMagicAction) currentAction.fadeOut(0.08)
+      throwMagicAction.stop()
+      throwMagicAction.reset()
+      throwMagicAction.enabled = true
+      throwMagicAction.paused = false
+      throwMagicAction.setLoop(THREE.LoopOnce, 1)
+      throwMagicAction.clampWhenFinished = false
+      throwMagicAction.timeScale = 1.2
+      throwMagicAction.fadeIn(0.08).play()
+      currentAction = throwMagicAction
+      return true
+    },
+
     startDefense() {
-      if (!defenseAction || attacking || hurting) return false
+      if (!defenseAction || attacking || throwMagicPlaying || hurting) return false
       defending = true
       switchAction(defenseAction, true)
       return true
@@ -843,6 +1022,7 @@ export function createPlayer(scene) {
       }
       if (mixer) {
         mixer.update(dt)
+        updateThrowMagicCutoff()
         if (bonfireResting) bonfireRestTimer += dt
         if (bonfireStandingUp) bonfireStandTimer += dt
         completeBonfireRest()

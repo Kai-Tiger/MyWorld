@@ -5,7 +5,7 @@ import * as THREE from 'three'
  * 创建游戏 HUD：左上角信息面板 + 移动端虚拟方向键。
  * 返回 { update(player) } 供主循环调用。
  */
-export function createUI(container) {
+export function createUI(container, handlers = {}) {
   const sceneFade = document.createElement('div')
   sceneFade.style.cssText = `
     position: absolute;
@@ -352,26 +352,80 @@ export function createUI(container) {
       background: rgba(106,191,105,0.95);
       color: white;
     }
-    #bag-btn {
+    #equipment-bar {
       position: absolute;
-      bottom: 20px; left: 20px;
-      width: 48px; height: 48px;
-      border: 2px solid rgba(255,255,255,0.3);
-      border-radius: 12px;
-      background: rgba(0,0,0,0.45);
-      color: white;
-      font-size: 22px;
-      cursor: pointer;
+      bottom: 24px; left: 24px;
+      width: 168px; height: 168px;
       z-index: 100;
-      display: flex; align-items: center; justify-content: center;
-      transition: background 0.15s;
+      pointer-events: auto;
+      font-family: Georgia, 'Times New Roman', serif;
     }
-    #bag-btn:hover {
-      background: rgba(60,60,60,0.7);
+    .equipment-slot {
+      position: absolute;
+      width: 62px; height: 62px;
+      border: 1px solid rgba(176,145,82,0.76);
+      border-radius: 2px;
+      background:
+        linear-gradient(180deg, rgba(8,7,6,0.82), rgba(25,21,15,0.78)),
+        radial-gradient(circle at 50% 80%, rgba(176,145,82,0.22), transparent 60%);
+      color: #d8c89b;
+      box-shadow:
+        inset 0 0 0 1px rgba(255,230,160,0.08),
+        inset 0 -16px 22px rgba(0,0,0,0.46),
+        0 8px 22px rgba(0,0,0,0.44);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 4px;
+      cursor: default;
+      user-select: none;
+      touch-action: manipulation;
+    }
+    .equipment-slot[data-clickable="true"] {
+      cursor: pointer;
+    }
+    .equipment-slot[data-clickable="true"]:hover {
+      border-color: #d7b46a;
+      color: #fff0bd;
+      filter: brightness(1.14);
+    }
+    .equipment-slot-icon {
+      font-size: 22px;
+      line-height: 1;
+    }
+    .equipment-slot-name {
+      max-width: 56px;
+      overflow: hidden;
+      color: currentColor;
+      font-size: 11px;
+      line-height: 1.1;
+      text-align: center;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .equipment-slot-key {
+      position: absolute;
+      top: 4px; right: 5px;
+      color: rgba(216,200,155,0.56);
+      font-size: 10px;
+      line-height: 1;
+    }
+    .equipment-slot-top {
+      top: 0; left: 53px;
+    }
+    .equipment-slot-left {
+      top: 53px; left: 0;
+    }
+    .equipment-slot-right {
+      top: 53px; right: 0;
+    }
+    .equipment-slot-bottom {
+      bottom: 0; left: 53px;
     }
     #bag-panel {
       position: absolute;
-      bottom: 78px; left: 20px;
+      bottom: 198px; left: 24px;
       min-width: 160px;
       background: rgba(16,10,24,0.90);
       border: 1px solid rgba(255,255,255,0.18);
@@ -657,26 +711,70 @@ export function createUI(container) {
   const npcHpBars = new Map()
   const damageFloats = []
 
-  // ── 背包按钮（固定，常驻）────────────────────────
-  const bagBtn = document.createElement('button')
-  bagBtn.id = 'bag-btn'
-  bagBtn.textContent = '🎒'
-  container.appendChild(bagBtn)
+  // ── 装备栏（固定，常驻）──────────────────────────
+  const equipmentBar = document.createElement('div')
+  equipmentBar.id = 'equipment-bar'
+  equipmentBar.innerHTML = `
+    <button class="equipment-slot equipment-slot-top" data-equipment-slot="spell" type="button">
+      <span class="equipment-slot-icon">火</span>
+      <span class="equipment-slot-name">火球</span>
+    </button>
+    <button class="equipment-slot equipment-slot-left" data-equipment-slot="shield" type="button">
+      <span class="equipment-slot-icon">盾</span>
+      <span class="equipment-slot-name">盾牌</span>
+    </button>
+    <button class="equipment-slot equipment-slot-right" data-equipment-slot="weapon" data-clickable="true" type="button">
+      <span class="equipment-slot-key">Z</span>
+      <span class="equipment-slot-icon">剑</span>
+      <span class="equipment-slot-name">长剑</span>
+    </button>
+    <button class="equipment-slot equipment-slot-bottom" data-equipment-slot="item" data-clickable="true" type="button">
+      <span class="equipment-slot-icon">包</span>
+      <span class="equipment-slot-name">背包</span>
+    </button>
+  `
+  container.appendChild(equipmentBar)
 
+  const equipmentLabels = {
+    fireball: { icon: '火', name: '火球' },
+    shield: { icon: '盾', name: '盾牌' },
+    sword: { icon: '剑', name: '长剑' },
+    hammer: { icon: '锤', name: '锤子' },
+    bag: { icon: '包', name: '背包' },
+  }
   let bagPanel = null
   let bagItems = []
 
-  bagBtn.addEventListener('click', () => {
+  function toggleBagPanel() {
     if (bagPanel) {
-      bagPanel.remove()
-      bagPanel = null
+      closeBagPanel()
     } else {
       bagPanel = document.createElement('div')
       bagPanel.id = 'bag-panel'
       renderBagPanel()
       container.appendChild(bagPanel)
     }
+  }
+
+  function closeBagPanel() {
+    if (!bagPanel) return
+    bagPanel.remove()
+    bagPanel = null
+  }
+
+  function updateEquipmentSlot(slot, itemId) {
+    const slotEl = equipmentBar.querySelector(`[data-equipment-slot="${slot}"]`)
+    const label = equipmentLabels[itemId] ?? equipmentLabels.bag
+    if (!slotEl) return
+    slotEl.querySelector('.equipment-slot-icon').textContent = label.icon
+    slotEl.querySelector('.equipment-slot-name').textContent = label.name
+  }
+
+  equipmentBar.querySelector('[data-equipment-slot="weapon"]').addEventListener('click', () => {
+    const state = handlers.onCycleWeapon?.()
+    if (state) updateEquipmentState(state)
   })
+  equipmentBar.querySelector('[data-equipment-slot="item"]').addEventListener('click', toggleBagPanel)
 
   function renderBagPanel() {
     if (!bagPanel) return
@@ -688,6 +786,13 @@ export function createUI(container) {
       ).join('')
       bagPanel.innerHTML = `<h4>背包</h4>${rows}`
     }
+  }
+
+  function updateEquipmentState(state = {}) {
+    updateEquipmentSlot('spell', state.spell ?? 'fireball')
+    updateEquipmentSlot('shield', state.shield ?? 'shield')
+    updateEquipmentSlot('weapon', state.weapon ?? 'sword')
+    updateEquipmentSlot('item', state.item ?? 'bag')
   }
 
   function projectToScreen(worldPos, camera, renderer) {
@@ -825,6 +930,8 @@ export function createUI(container) {
       if (sunPhase !== undefined) drawSunDial(sunPhase)
     },
 
+    updateEquipmentState,
+
     showNpcHpBar(npc, worldPos, ratio, camera, renderer) {
       if (!npc) return
       const projected = projectToScreen(worldPos, camera, renderer)
@@ -915,7 +1022,9 @@ export function createUI(container) {
     setTransitionUiVisible(visible) {
       hud.style.display = visible ? '' : 'none'
       dpad.style.display = visible ? '' : 'none'
+      equipmentBar.style.display = visible ? '' : 'none'
       if (!visible) {
+        closeBagPanel()
         this.hideEnterPrompt()
         this.hideExitButton()
         this.hideTalkButton()
@@ -963,6 +1072,8 @@ export function createUI(container) {
         exitBtn.addEventListener('click', onExit)
         hud.style.display = 'none'
         dpad.style.display = 'none'
+        equipmentBar.style.display = 'none'
+        closeBagPanel()
       }
       exitBtn.textContent = cleanInteractionLabel(label)
       if (worldPos && camera && renderer) {
@@ -980,6 +1091,7 @@ export function createUI(container) {
       }
       hud.style.display = ''
       dpad.style.display = ''
+      equipmentBar.style.display = ''
     },
 
     showActionPrompt(worldPos, camera, renderer, onAction, label = '操作') {
@@ -1025,6 +1137,8 @@ export function createUI(container) {
       positionAtCharacterUpperRight(bonfireMenu, worldPos, camera, renderer)
       hud.style.display = 'none'
       dpad.style.display = 'none'
+      equipmentBar.style.display = 'none'
+      closeBagPanel()
     },
 
     hideBonfireMenu(restoreHud = true) {
@@ -1035,6 +1149,7 @@ export function createUI(container) {
       if (restoreHud) {
         hud.style.display = ''
         dpad.style.display = ''
+        equipmentBar.style.display = ''
       }
     },
 
@@ -1101,6 +1216,8 @@ export function createUI(container) {
       renderLine()
       hud.style.display = 'none'
       dpad.style.display = 'none'
+      equipmentBar.style.display = 'none'
+      closeBagPanel()
     },
 
     updateDialoguePanelPosition(worldPos, camera, renderer) {
@@ -1135,6 +1252,7 @@ export function createUI(container) {
       }
       hud.style.display = ''
       dpad.style.display = ''
+      equipmentBar.style.display = ''
     },
 
     showPickButton(worldPos, camera, renderer, onPick) {
@@ -1215,6 +1333,8 @@ export function createUI(container) {
       fishResultEl.querySelector('button').addEventListener('click', onClose)
       hud.style.display = 'none'
       dpad.style.display = 'none'
+      equipmentBar.style.display = 'none'
+      closeBagPanel()
     },
 
     hideFishResult() {
@@ -1224,6 +1344,7 @@ export function createUI(container) {
       }
       hud.style.display = ''
       dpad.style.display = ''
+      equipmentBar.style.display = ''
     },
   }
 }
