@@ -20,6 +20,7 @@ const AVOIDANCE_ANGLES = [
 ]
 const HIT_AGGRO_MEMORY_SECONDS = 6
 const HIT_AGGRO_LEASH_BUFFER_SECONDS = 3
+const ENEMY_MODEL_SCALE = 0.015
 
 function getTrackTargetName(trackName) {
   const dot = trackName.lastIndexOf('.')
@@ -500,7 +501,7 @@ export function createEnemyNpcFBX(scene, {
   const loader = new FBXLoader()
   loader.load(modelPath, (fbx) => {
     rootModel = fbx
-    rootModel.scale.setScalar(0.01)
+    rootModel.scale.setScalar(ENEMY_MODEL_SCALE)
     const _lights = []
     rootModel.traverse(c => {
       if (c.isMesh) { c.castShadow = true; c.receiveShadow = true }

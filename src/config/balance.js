@@ -24,9 +24,9 @@ export const BALANCE = {
       attackCooldown: 1.0,
       attackDamage: 14,
       attackWindows: [
-        { start: 0.13, end: 0.20, range: 2.1, angleDeg: 95, damageMul: 0.8 },
-        { start: 0.30, end: 0.40, range: 2.3, angleDeg: 105, damageMul: 1.0 },
-        { start: 0.70, end: 0.85, range: 2.5, angleDeg: 115, damageMul: 1.2 },
+        { start: 0.13, end: 0.20, range: 2.6, angleDeg: 95, damageMul: 0.8 },
+        { start: 0.30, end: 0.40, range: 2.8, angleDeg: 105, damageMul: 1.0 },
+        { start: 0.70, end: 0.85, range: 3.1, angleDeg: 115, damageMul: 1.2 },
       ],
       turnSpeed: 10,
       attackTurnScale: 0.1,

@@ -354,48 +354,150 @@ export function createUI(container, handlers = {}) {
     }
     #equipment-bar {
       position: absolute;
-      bottom: 24px; left: 24px;
-      width: 168px; height: 168px;
+      bottom: 28px; left: 28px;
+      width: 214px; height: 214px;
       z-index: 100;
       pointer-events: auto;
-      font-family: Georgia, 'Times New Roman', serif;
+      --ui-gold: #d8b66a;
+      --ui-gold-bright: #ffe3a0;
+      --ui-iron: #171410;
+      --ui-shadow: rgba(0,0,0,0.72);
+      font-family: Cinzel, Georgia, 'Times New Roman', serif;
+      filter: drop-shadow(0 18px 24px rgba(0,0,0,0.52));
+    }
+    #equipment-bar::before {
+      content: '';
+      position: absolute;
+      inset: 24px;
+      border-radius: 50%;
+      background:
+        radial-gradient(circle at 50% 50%, rgba(255,214,124,0.20), transparent 18%),
+        conic-gradient(from 45deg, transparent 0 10%, rgba(216,182,106,0.18) 10% 13%, transparent 13% 25%),
+        radial-gradient(circle at 50% 50%, rgba(8,7,6,0.56), rgba(8,7,6,0.06) 62%, transparent 64%);
+      border: 1px solid rgba(216,182,106,0.28);
+      box-shadow:
+        inset 0 0 24px rgba(0,0,0,0.78),
+        0 0 34px rgba(216,124,38,0.08);
+      pointer-events: none;
+      animation: equipment-ember-breathe 4.8s ease-in-out infinite;
+    }
+    #equipment-bar::after {
+      content: '';
+      position: absolute;
+      left: 50%; top: 50%;
+      width: 44px; height: 44px;
+      transform: translate(-50%, -50%) rotate(45deg);
+      border: 1px solid rgba(216,182,106,0.46);
+      background:
+        linear-gradient(135deg, rgba(255,227,160,0.10), rgba(0,0,0,0.20)),
+        radial-gradient(circle at 50% 50%, rgba(216,182,106,0.16), rgba(11,9,7,0.82) 62%);
+      box-shadow:
+        inset 0 0 0 1px rgba(255,238,190,0.07),
+        inset 0 -12px 18px rgba(0,0,0,0.62),
+        0 0 18px rgba(216,124,38,0.16);
+      pointer-events: none;
+    }
+    @keyframes equipment-ember-breathe {
+      0%, 100% { opacity: 0.68; transform: scale(0.985); }
+      50% { opacity: 1; transform: scale(1.015); }
     }
     .equipment-slot {
       position: absolute;
-      width: 62px; height: 62px;
-      border: 1px solid rgba(176,145,82,0.76);
-      border-radius: 2px;
+      width: 76px; height: 76px;
+      border: 1px solid rgba(216,182,106,0.58);
+      border-radius: 6px;
       background:
-        linear-gradient(180deg, rgba(8,7,6,0.82), rgba(25,21,15,0.78)),
-        radial-gradient(circle at 50% 80%, rgba(176,145,82,0.22), transparent 60%);
-      color: #d8c89b;
+        linear-gradient(145deg, rgba(255,236,180,0.10), rgba(255,236,180,0.02) 24%, rgba(0,0,0,0.44) 80%),
+        radial-gradient(circle at 42% 30%, rgba(216,124,38,0.22), transparent 46%),
+        linear-gradient(180deg, rgba(24,21,17,0.94), rgba(6,6,5,0.92));
+      color: var(--ui-gold);
       box-shadow:
-        inset 0 0 0 1px rgba(255,230,160,0.08),
-        inset 0 -16px 22px rgba(0,0,0,0.46),
-        0 8px 22px rgba(0,0,0,0.44);
+        inset 0 0 0 1px rgba(255,236,180,0.07),
+        inset 0 -22px 28px rgba(0,0,0,0.58),
+        0 10px 24px var(--ui-shadow);
       display: flex;
       flex-direction: column;
       align-items: center;
       justify-content: center;
-      gap: 4px;
+      gap: 5px;
       cursor: default;
       user-select: none;
       touch-action: manipulation;
+      overflow: hidden;
+      transform: rotate(45deg);
+      transition:
+        border-color 0.18s ease,
+        color 0.18s ease,
+        filter 0.18s ease,
+        box-shadow 0.18s ease,
+        transform 0.18s ease;
+    }
+    .equipment-slot::before {
+      content: '';
+      position: absolute;
+      inset: 7px;
+      border: 1px solid rgba(216,182,106,0.22);
+      border-radius: 3px;
+      background:
+        linear-gradient(135deg, rgba(255,255,255,0.08), transparent 34%),
+        radial-gradient(circle at 50% 96%, rgba(216,124,38,0.18), transparent 55%);
+      pointer-events: none;
+    }
+    .equipment-slot::after {
+      content: '';
+      position: absolute;
+      left: -55%; top: -110%;
+      width: 48%; height: 260%;
+      background: linear-gradient(90deg, transparent, rgba(255,236,180,0.18), transparent);
+      transform: rotate(18deg);
+      opacity: 0;
+      transition: left 0.36s ease, opacity 0.18s ease;
     }
     .equipment-slot[data-clickable="true"] {
       cursor: pointer;
     }
     .equipment-slot[data-clickable="true"]:hover {
-      border-color: #d7b46a;
-      color: #fff0bd;
-      filter: brightness(1.14);
+      border-color: var(--ui-gold-bright);
+      color: var(--ui-gold-bright);
+      filter: brightness(1.16) saturate(1.12);
+      box-shadow:
+        inset 0 0 0 1px rgba(255,236,180,0.16),
+        inset 0 -22px 28px rgba(0,0,0,0.52),
+        0 12px 28px rgba(0,0,0,0.68),
+        0 0 22px rgba(216,124,38,0.22);
+      transform: rotate(45deg) scale(1.055);
+    }
+    .equipment-slot[data-clickable="true"]:hover::after {
+      left: 110%;
+      opacity: 1;
+    }
+    .equipment-slot > span {
+      position: relative;
+      z-index: 1;
+      transform: rotate(-45deg);
     }
     .equipment-slot-icon {
-      font-size: 22px;
-      line-height: 1;
+      width: 58px;
+      height: 58px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      text-shadow:
+        0 0 12px rgba(216,124,38,0.34),
+        0 2px 3px rgba(0,0,0,0.9);
+    }
+    .equipment-slot-image {
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+      display: block;
+      filter:
+        drop-shadow(0 4px 5px rgba(0,0,0,0.74))
+        drop-shadow(0 0 9px rgba(216,124,38,0.16));
+      pointer-events: none;
     }
     .equipment-slot-name {
-      max-width: 56px;
+      max-width: 68px;
       overflow: hidden;
       color: currentColor;
       font-size: 11px;
@@ -403,61 +505,85 @@ export function createUI(container, handlers = {}) {
       text-align: center;
       text-overflow: ellipsis;
       white-space: nowrap;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      opacity: 0.82;
+      display: none;
     }
     .equipment-slot-key {
       position: absolute;
-      top: 4px; right: 5px;
-      color: rgba(216,200,155,0.56);
+      top: 8px; right: 9px;
+      color: rgba(255,227,160,0.62);
       font-size: 10px;
       line-height: 1;
+      transform: rotate(-45deg);
+      text-shadow: 0 1px 2px rgba(0,0,0,0.9);
     }
     .equipment-slot-top {
-      top: 0; left: 53px;
+      top: 0; left: 69px;
     }
     .equipment-slot-left {
-      top: 53px; left: 0;
+      top: 69px; left: 0;
     }
     .equipment-slot-right {
-      top: 53px; right: 0;
+      top: 69px; right: 0;
     }
     .equipment-slot-bottom {
-      bottom: 0; left: 53px;
+      bottom: 0; left: 69px;
     }
     #bag-panel {
       position: absolute;
-      bottom: 198px; left: 24px;
-      min-width: 160px;
-      background: rgba(16,10,24,0.90);
-      border: 1px solid rgba(255,255,255,0.18);
-      border-radius: 12px;
-      padding: 12px 16px;
-      font-family: sans-serif;
+      bottom: 252px; left: 28px;
+      min-width: 204px;
+      background:
+        linear-gradient(180deg, rgba(13,11,9,0.96), rgba(23,17,11,0.94)),
+        radial-gradient(circle at 18% 0%, rgba(216,124,38,0.16), transparent 48%);
+      border: 1px solid rgba(216,182,106,0.58);
+      border-radius: 4px;
+      padding: 14px 16px;
+      font-family: Georgia, 'Times New Roman', serif;
       z-index: 101;
-      box-shadow: 0 4px 20px rgba(0,0,0,0.4);
+      box-shadow:
+        inset 0 0 0 1px rgba(255,236,180,0.06),
+        0 18px 36px rgba(0,0,0,0.62);
     }
     #bag-panel h4 {
-      margin: 0 0 8px;
+      margin: 0 0 10px;
       font-size: 13px;
-      color: rgba(255,255,255,0.6);
+      color: var(--ui-gold);
       font-weight: normal;
-      letter-spacing: 1px;
+      letter-spacing: 0.16em;
     }
     .bag-item {
       display: flex;
       align-items: center;
       gap: 8px;
       font-size: 14px;
-      color: #f0e8f4;
-      padding: 3px 0;
+      color: #d8d0bd;
+      padding: 6px 0;
+      border-top: 1px solid rgba(216,182,106,0.12);
     }
     .bag-item .bag-count {
       margin-left: auto;
-      color: #aaa;
+      color: rgba(255,227,160,0.72);
       font-size: 13px;
     }
     #bag-empty {
       font-size: 13px;
-      color: rgba(255,255,255,0.35);
+      color: rgba(216,208,189,0.44);
+      letter-spacing: 0.06em;
+    }
+    @media (max-width: 720px) {
+      #equipment-bar {
+        left: 16px;
+        bottom: 18px;
+        transform: scale(0.84);
+        transform-origin: left bottom;
+      }
+      #bag-panel {
+        left: 16px;
+        bottom: 206px;
+      }
     }
     #fish-btn {
       position: absolute;
@@ -716,31 +842,121 @@ export function createUI(container, handlers = {}) {
   equipmentBar.id = 'equipment-bar'
   equipmentBar.innerHTML = `
     <button class="equipment-slot equipment-slot-top" data-equipment-slot="spell" type="button">
-      <span class="equipment-slot-icon">火</span>
+      <span class="equipment-slot-icon"></span>
       <span class="equipment-slot-name">火球</span>
     </button>
     <button class="equipment-slot equipment-slot-left" data-equipment-slot="shield" type="button">
-      <span class="equipment-slot-icon">盾</span>
+      <span class="equipment-slot-icon"></span>
       <span class="equipment-slot-name">盾牌</span>
     </button>
     <button class="equipment-slot equipment-slot-right" data-equipment-slot="weapon" data-clickable="true" type="button">
       <span class="equipment-slot-key">Z</span>
-      <span class="equipment-slot-icon">剑</span>
+      <span class="equipment-slot-icon"></span>
       <span class="equipment-slot-name">长剑</span>
     </button>
     <button class="equipment-slot equipment-slot-bottom" data-equipment-slot="item" data-clickable="true" type="button">
-      <span class="equipment-slot-icon">包</span>
+      <span class="equipment-slot-icon"></span>
       <span class="equipment-slot-name">背包</span>
     </button>
   `
   container.appendChild(equipmentBar)
 
+  function equipmentImage(svg) {
+    return `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg)}`
+  }
+
   const equipmentLabels = {
-    fireball: { icon: '火', name: '火球' },
-    shield: { icon: '盾', name: '盾牌' },
-    sword: { icon: '剑', name: '长剑' },
-    hammer: { icon: '锤', name: '锤子' },
-    bag: { icon: '包', name: '背包' },
+    fireball: {
+      name: '火球',
+      image: equipmentImage(`
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96">
+          <defs>
+            <radialGradient id="core" cx="48%" cy="50%" r="44%">
+              <stop offset="0" stop-color="#fff5bf"/>
+              <stop offset=".32" stop-color="#ffbc42"/>
+              <stop offset=".68" stop-color="#d94a1f"/>
+              <stop offset="1" stop-color="#3a0b06" stop-opacity=".15"/>
+            </radialGradient>
+            <filter id="glow" x="-40%" y="-40%" width="180%" height="180%">
+              <feGaussianBlur stdDeviation="3.5" result="b"/>
+              <feColorMatrix in="b" values="1 0 0 0 1 0 .56 0 0 .25 0 0 .12 0 0 0 0 0 1 0"/>
+              <feMerge><feMergeNode/><feMergeNode in="SourceGraphic"/></feMerge>
+            </filter>
+          </defs>
+          <path d="M50 6c10 17-5 23 7 35 4-10 13-15 22-17-3 10-1 18 5 27 8 13 2 31-15 38-17 7-39 2-50-12C7 60 15 40 30 29c10-7 14-13 20-23Z" fill="#8f210d" opacity=".78"/>
+          <path d="M36 19c6 13-7 21 6 33 2-9 8-16 17-21-2 12 8 17 11 27 5 16-9 27-24 27-17 0-29-11-28-27 .8-14 12-24 18-39Z" fill="url(#core)" filter="url(#glow)"/>
+          <path d="M45 45c5 8-2 13 5 19 2-5 5-8 10-10 0 9 5 12 3 18-2 7-10 11-18 8-8-3-13-10-10-19 2-6 7-10 10-16Z" fill="#fff1a6" opacity=".88"/>
+        </svg>
+      `),
+    },
+    shield: {
+      name: '盾牌',
+      image: equipmentImage(`
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96">
+          <defs>
+            <linearGradient id="steel" x1="18" x2="78" y1="10" y2="86">
+              <stop offset="0" stop-color="#f2e3b7"/>
+              <stop offset=".25" stop-color="#9f8c61"/>
+              <stop offset=".55" stop-color="#34302a"/>
+              <stop offset="1" stop-color="#d5b469"/>
+            </linearGradient>
+            <linearGradient id="blood" x1="20" x2="75" y1="20" y2="80">
+              <stop offset="0" stop-color="#702018"/>
+              <stop offset="1" stop-color="#1a0806"/>
+            </linearGradient>
+          </defs>
+          <path d="M48 7 78 18v28c0 22-12 36-30 44C30 82 18 68 18 46V18L48 7Z" fill="url(#steel)" stroke="#f0d58d" stroke-width="3"/>
+          <path d="M48 16 68 23v23c0 16-7 27-20 34-13-7-20-18-20-34V23l20-7Z" fill="url(#blood)" opacity=".86"/>
+          <path d="M48 15v66" stroke="#d5b469" stroke-width="4" opacity=".75"/>
+          <path d="M29 38h38" stroke="#d5b469" stroke-width="4" opacity=".65"/>
+          <path d="M31 24c14 3 23 3 34 0" fill="none" stroke="#fff0bd" stroke-width="2" opacity=".52"/>
+        </svg>
+      `),
+    },
+    sword: {
+      name: '长剑',
+      image: equipmentImage(`
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96">
+          <defs>
+            <linearGradient id="blade" x1="25" x2="72" y1="14" y2="79">
+              <stop offset="0" stop-color="#fff4cf"/>
+              <stop offset=".34" stop-color="#b7b4aa"/>
+              <stop offset=".66" stop-color="#4f514f"/>
+              <stop offset="1" stop-color="#e6c46f"/>
+            </linearGradient>
+          </defs>
+          <path d="M70 8 58 57 48 67 38 57 50 22 70 8Z" fill="url(#blade)" stroke="#f2daa0" stroke-width="2"/>
+          <path d="M70 8 48 67" stroke="#ffffff" stroke-width="1.5" opacity=".5"/>
+          <path d="M30 62 39 53 63 77 54 86 30 62Z" fill="#5c321c" stroke="#d8b66a" stroke-width="2"/>
+          <path d="M31 50 46 65" stroke="#d8b66a" stroke-width="8" stroke-linecap="round"/>
+          <path d="M27 46 50 69" stroke="#1b1510" stroke-width="4" stroke-linecap="round"/>
+          <circle cx="57" cy="80" r="5" fill="#d8b66a" stroke="#21170e" stroke-width="2"/>
+        </svg>
+      `),
+    },
+    hammer: {
+      name: '锤子',
+      image: '/icons/equipment/hammer.png',
+    },
+    bag: {
+      name: '背包',
+      image: equipmentImage(`
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96">
+          <defs>
+            <linearGradient id="leather" x1="18" x2="78" y1="10" y2="86">
+              <stop offset="0" stop-color="#a86932"/>
+              <stop offset=".5" stop-color="#4c2611"/>
+              <stop offset="1" stop-color="#c3924f"/>
+            </linearGradient>
+          </defs>
+          <path d="M34 31c1-15 27-15 28 0" fill="none" stroke="#d8b66a" stroke-width="6" stroke-linecap="round"/>
+          <path d="M22 33h52l8 47H14l8-47Z" fill="url(#leather)" stroke="#e0bd72" stroke-width="3"/>
+          <path d="M23 44h50" stroke="#21140b" stroke-width="4" opacity=".55"/>
+          <path d="M48 33v48" stroke="#d8b66a" stroke-width="3" opacity=".58"/>
+          <path d="M36 52h24v13H36z" fill="#20150c" stroke="#d8b66a" stroke-width="2"/>
+        </svg>
+      `),
+    },
   }
   let bagPanel = null
   let bagItems = []
@@ -766,8 +982,16 @@ export function createUI(container, handlers = {}) {
     const slotEl = equipmentBar.querySelector(`[data-equipment-slot="${slot}"]`)
     const label = equipmentLabels[itemId] ?? equipmentLabels.bag
     if (!slotEl) return
-    slotEl.querySelector('.equipment-slot-icon').textContent = label.icon
+    const iconEl = slotEl.querySelector('.equipment-slot-icon')
+    iconEl.innerHTML = ''
+    const img = document.createElement('img')
+    img.className = 'equipment-slot-image'
+    img.src = label.image
+    img.alt = label.name
+    iconEl.appendChild(img)
     slotEl.querySelector('.equipment-slot-name').textContent = label.name
+    slotEl.setAttribute('aria-label', label.name)
+    slotEl.title = label.name
   }
 
   equipmentBar.querySelector('[data-equipment-slot="weapon"]').addEventListener('click', () => {
@@ -794,6 +1018,7 @@ export function createUI(container, handlers = {}) {
     updateEquipmentSlot('weapon', state.weapon ?? 'sword')
     updateEquipmentSlot('item', state.item ?? 'bag')
   }
+  updateEquipmentState()
 
   function projectToScreen(worldPos, camera, renderer) {
     const v = new THREE.Vector3(worldPos.x, worldPos.y, worldPos.z).project(camera)
