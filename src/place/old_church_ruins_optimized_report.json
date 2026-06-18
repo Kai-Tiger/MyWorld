@@ -1,0 +1,20 @@
+{
+  "input": "src/place/old_church_ruins.glb",
+  "output": "src/place/old_church_ruins_optimized.glb",
+  "before": {
+    "objects": 117,
+    "meshes": 60,
+    "vertices": 437545,
+    "triangles": 355661,
+    "materials": 16
+  },
+  "after": {
+    "objects": 73,
+    "meshes": 16,
+    "vertices": 374373,
+    "triangles": 266721,
+    "materials": 16
+  },
+  "output_bytes": 66835300,
+  "output_mb": 63.74
+}

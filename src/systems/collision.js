@@ -40,6 +40,18 @@ export class CollisionSystem {
     return dx * dx + dz * dz < (o.r * 0.75) ** 2 ? o.h : null
   }
 
+  _orientedBoxHit(o, nx, nz, radius) {
+    const dx = nx - o.x
+    const dz = nz - o.z
+    const lx = dx * o.ux + dz * o.uz
+    const lz = dx * o.vx + dz * o.vz
+    const closestX = Math.max(-o.hx, Math.min(lx, o.hx))
+    const closestZ = Math.max(-o.hz, Math.min(lz, o.hz))
+    const ddx = lx - closestX
+    const ddz = lz - closestZ
+    return ddx * ddx + ddz * ddz < radius * radius
+  }
+
   /**
    * 返回 (nx, nz) 位置的阻挡碰撞体，无则返回 null
    */
@@ -51,6 +63,10 @@ export class CollisionSystem {
       if (o.surface || o.type === 'ramp') continue
       if (o.h !== undefined && playerY >= o.h - 0.2) continue
       if (o.hx !== undefined && o.hz !== undefined) {
+        if (o.ux !== undefined && o.uz !== undefined && o.vx !== undefined && o.vz !== undefined) {
+          if (this._orientedBoxHit(o, nx, nz, radius)) return o
+          continue
+        }
         const closestX = Math.max(o.x - o.hx, Math.min(nx, o.x + o.hx))
         const closestZ = Math.max(o.z - o.hz, Math.min(nz, o.z + o.hz))
         const dx = nx - closestX
@@ -84,6 +100,10 @@ export class CollisionSystem {
       // 有顶面且玩家在顶面附近，不再水平拦截（留 0.2 缓冲防止刚落边缘时被卡住）
       if (o.h !== undefined && playerY >= o.h - 0.2) continue
       if (o.hx !== undefined && o.hz !== undefined) {
+        if (o.ux !== undefined && o.uz !== undefined && o.vx !== undefined && o.vz !== undefined) {
+          if (this._orientedBoxHit(o, nx, nz, radius)) return true
+          continue
+        }
         const closestX = Math.max(o.x - o.hx, Math.min(nx, o.x + o.hx))
         const closestZ = Math.max(o.z - o.hz, Math.min(nz, o.z + o.hz))
         const dx = nx - closestX

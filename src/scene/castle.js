@@ -1,13 +1,16 @@
 import * as THREE from 'three'
-import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js'
 import { CollisionSystem } from '../systems/collision.js'
 import { CASTLE_ENTRANCE, CASTLE_EXTERIOR, CASTLE_INTERIOR_EXIT, CASTLE_ZONES } from '../config/castle.js'
 import { CASTLE_INDOOR_LIGHTING } from '../config/lighting.js'
 import { snapObjectToGround } from './map.js'
+import { cloneGLTFScene } from '../systems/modelAssets.js'
 
 const CASTLE_TEXTURE_VERSION = 'v=16'
 const STONE_TILE_SIZE = 3.6
 const GLB_STONE_UV_STABILIZE_SCALE = 0.78
+const ELEVATOR_ROOF_STOP_Y = 20
+const ELEVATOR_PLATFORM_OFFSET_Y = 0.2
+const ELEVATOR_ACTION_RANGE = 2.5
 const _textureLoader = new THREE.TextureLoader()
 const _castleTextureCache = new Map()
 
@@ -67,12 +70,11 @@ const SPARK = new THREE.MeshBasicMaterial({
 const FLAME_GEO = new THREE.SphereGeometry(0.16, 8, 8)
 const SPARK_GEO = new THREE.SphereGeometry(0.025, 5, 5)
 const _torchWorldPos = new THREE.Vector3()
-const _gltfLoader = new GLTFLoader()
-const CASTLE_MANIFEST_URL = '/castle/castle-manifest.json?v=16'
-const FOG_GATE_AREA_SCALE = 3
-const FOG_GATE_LINEAR_SCALE = Math.sqrt(FOG_GATE_AREA_SCALE)
-const FOG_GATE_WIDTH = 1.9 * FOG_GATE_LINEAR_SCALE
-const FOG_GATE_HEIGHT = 3.0 * FOG_GATE_LINEAR_SCALE
+const CASTLE_MANIFEST_URL = '/castle/castle-manifest.json?v=23'
+const FOG_GATE_WIDTH = 16.4
+const FOG_GATE_HEIGHT = 10.6
+const FOG_GATE_CENTER_Y_OFFSET = 3.0
+const OUTDOOR_FACADE_GROUND_OFFSET = -1
 const FALLBACK_ZONE_BY_ID = new Map(CASTLE_ZONES.map(zone => [zone.id, zone]))
 
 function mergeManifestZoneDefs(nextManifest) {
@@ -140,6 +142,10 @@ function stabilizeStoneUvs(geometry) {
 function configureCastleModel(model, { shadows = true, stabilizeFacade = false } = {}) {
   model.traverse(child => {
     if (!child.isMesh) return
+    if (stabilizeFacade && child.name.startsWith('VIS_FOG_ENTRY_')) {
+      child.visible = false
+      return
+    }
     const shadowDisabled = child.name.startsWith('NO_SHADOW_')
     child.receiveShadow = shadows && !shadowDisabled
     child.castShadow = shadows && !shadowDisabled
@@ -163,17 +169,21 @@ function configureCastleModel(model, { shadows = true, stabilizeFacade = false }
 
 function hideDirectGrayboxMeshes(group) {
   group.children.forEach(child => {
+    if (child.isMesh && child.userData.runtimeCastleFloor) {
+      child.visible = false
+      return
+    }
     if (child.isMesh && !child.userData.keepVisible) child.visible = false
   })
 }
 
 function loadVisualModel(url, parent, onReady = null, options = undefined) {
   if (!url) return
-  _gltfLoader.load(url, gltf => {
-    const model = configureCastleModel(gltf.scene, options)
+  cloneGLTFScene(url).then(scene => {
+    const model = configureCastleModel(scene, options)
     parent.add(model)
     if (onReady) onReady(model)
-  }, undefined, error => {
+  }).catch(error => {
     console.warn(`Castle model fallback active: ${url}`, error)
   })
 }
@@ -269,7 +279,7 @@ function createFogGateMaterial(speed, phase, opacity) {
 }
 
 function createFogGate(group, position = CASTLE_EXTERIOR.fogDoor) {
-  const fogPosition = { ...position }
+  const fogPosition = { ...position, y: position.y + FOG_GATE_CENTER_Y_OFFSET }
   const layerDefs = [
     { offset: 0, speed: 0.20, phase: 0.0, opacity: 0.98 },
     { offset: 0, speed: 0.31, phase: 7.4, opacity: 0.84 },
@@ -306,7 +316,7 @@ function createFogGate(group, position = CASTLE_EXTERIOR.fogDoor) {
       glow.intensity = 5.58 + Math.sin(time * 1.3) * 0.405
     },
     setPosition(nextPosition) {
-      Object.assign(fogPosition, nextPosition)
+      Object.assign(fogPosition, nextPosition, { y: nextPosition.y + FOG_GATE_CENTER_Y_OFFSET })
       fogLayers.forEach((layer, index) => {
         layer.mesh.position.x = fogPosition.x + layerDefs[index].offset
         layer.mesh.position.y = fogPosition.y
@@ -325,6 +335,18 @@ function addBox(group, material, x, y, z, sx, sy, sz, castShadow = false) {
   mesh.castShadow = castShadow
   mesh.receiveShadow = true
   group.add(mesh)
+  return mesh
+}
+
+function stabilizeRuntimeFloorMesh(mesh) {
+  mesh.name = mesh.name || 'runtime-castle-floor'
+  mesh.userData.runtimeCastleFloor = true
+  mesh.material = mesh.material.clone()
+  mesh.material.polygonOffset = true
+  mesh.material.polygonOffsetFactor = 2
+  mesh.material.polygonOffsetUnits = 2
+  mesh.material.needsUpdate = true
+  mesh.renderOrder = -1
   return mesh
 }
 
@@ -370,13 +392,13 @@ function addUpperWall(group, colliders, x, z, sx, sz, y = 5, height = 4) {
 }
 
 function addPlatform(group, colliders, x, z, sx, sz, h = 5) {
-  const platform = addBox(group, FLOOR, x, h - 0.12, z, sx, 0.24, sz)
+  const platform = stabilizeRuntimeFloorMesh(addBox(group, FLOOR, x, h - 0.12, z, sx, 0.24, sz))
   platform.receiveShadow = false
   colliders.push({ x, z, hx: sx * 0.5, hz: sz * 0.5, h, surface: true })
 }
 
 function addPersistentPlatform(group, colliders, x, z, sx, sz, h, name) {
-  const platform = addBox(group, FLOOR, x, h - 0.12, z, sx, 0.24, sz)
+  const platform = stabilizeRuntimeFloorMesh(addBox(group, FLOOR, x, h - 0.12, z, sx, 0.24, sz))
   platform.receiveShadow = false
   platform.userData.keepVisible = true
   colliders.push({ name, x, z, hx: sx * 0.5, hz: sz * 0.5, h, surface: true })
@@ -471,7 +493,7 @@ function addBlocker(colliders, x, z, sx, sz, h = undefined) {
 function addFloor(group, bounds, y = -0.12) {
   const sx = bounds.maxX - bounds.minX
   const sz = bounds.maxZ - bounds.minZ
-  addBox(group, FLOOR, (bounds.minX + bounds.maxX) * 0.5, y, (bounds.minZ + bounds.maxZ) * 0.5, sx, 0.24, sz)
+  stabilizeRuntimeFloorMesh(addBox(group, FLOOR, (bounds.minX + bounds.maxX) * 0.5, y, (bounds.minZ + bounds.maxZ) * 0.5, sx, 0.24, sz))
 }
 
 function addTorch(group, torches, x, z, y = 2.2) {
@@ -745,7 +767,7 @@ function createOutdoorFacade(outdoorScene) {
   group.position.set(CASTLE_EXTERIOR.origin.x, CASTLE_EXTERIOR.origin.y, CASTLE_EXTERIOR.origin.z)
   const fogGate = createFogGate(group)
   outdoorScene.add(group)
-  snapObjectToGround(group)
+  snapObjectToGround(group, OUTDOOR_FACADE_GROUND_OFFSET)
   loadVisualModel(
     CASTLE_ENTRANCE.modelUrl,
     group,
@@ -814,6 +836,43 @@ export function createCastleWorld(outdoorScene) {
   let roofExit = { x: 0, y: 21, z: 21.5, range: 3.0 }
   const elevator = createElevator()
 
+  function getBottomElevatorIndex() {
+    return 0
+  }
+
+  function getRoofElevatorIndex() {
+    return elevator.stops.length - 1
+  }
+
+  function getElevatorStopY(index) {
+    return elevator.stops[index] + ELEVATOR_PLATFORM_OFFSET_Y
+  }
+
+  function isElevatorIdle() {
+    return elevator.targetIndex === elevator.stopIndex
+      && Math.abs(elevator.y - getElevatorStopY(elevator.stopIndex)) <= 0.05
+  }
+
+  function isElevatorAtIndex(index) {
+    return isElevatorIdle() && elevator.stopIndex === index
+  }
+
+  function setElevatorTarget(index) {
+    elevator.targetIndex = Math.max(0, Math.min(getRoofElevatorIndex(), index))
+    elevator.wait = 0
+    return elevator.targetIndex
+  }
+
+  function syncElevatorToStop(index) {
+    const clampedIndex = Math.max(0, Math.min(getRoofElevatorIndex(), index))
+    elevator.stopIndex = clampedIndex
+    elevator.targetIndex = clampedIndex
+    elevator.y = getElevatorStopY(clampedIndex)
+    elevator.prevY = elevator.y
+    elevator.collider.h = elevator.y
+    elevator.group.position.y = elevator.y
+  }
+
   function createElevator() {
     const group = new THREE.Group()
     group.name = 'castle-elevator'
@@ -830,25 +889,25 @@ export function createCastleWorld(outdoorScene) {
     group.add(pressureButton)
     scene.add(group)
 
-    const collider = { name: 'COL_DYNAMIC_ELEVATOR_PLATFORM', x: 0, z: -32, hx: 2.6, hz: 2.6, h: 0.2, surface: true }
+    const initialY = ELEVATOR_ROOF_STOP_Y + ELEVATOR_PLATFORM_OFFSET_Y
+    group.position.y = initialY
+    const collider = { name: 'COL_DYNAMIC_ELEVATOR_PLATFORM', x: 0, z: -32, hx: 2.6, hz: 2.6, h: initialY, surface: true }
     return {
       group,
       collider,
-      stops: [0, 5, 10, 15],
-      stopIndex: 0,
-      targetIndex: 0,
-      y: 0.2,
-      prevY: 0.2,
+      stops: [0, 5, 10, 15, ELEVATOR_ROOF_STOP_Y],
+      stopIndex: 4,
+      targetIndex: 4,
+      y: initialY,
+      prevY: initialY,
       speed: 2.4,
       wait: 0,
-      autoDirection: 1,
       occupied: false,
+      floorSwitchUnlocked: false,
       pressureButton,
       levers: [
-        { x: 4.2, y: 1.0, z: -25.8, floorIndex: 0 },
-        { x: 4.2, y: 6.0, z: -25.8, floorIndex: 1 },
-        { x: 4.2, y: 11.0, z: -25.8, floorIndex: 2 },
-        { x: 4.2, y: 16.0, z: -25.8, floorIndex: 3 },
+        { x: 4.2, y: 1.0, z: -25.8, floorIndex: 0, role: 'floor-call' },
+        { x: 4.2, y: 21.0, z: -25.8, floorIndex: -1, role: 'roof-call' },
       ],
     }
   }
@@ -906,21 +965,20 @@ export function createCastleWorld(outdoorScene) {
       ?.filter(value => Number.isFinite(value))
       ?.sort((a, b) => a - b)
     if (elevatorStops?.length) {
-      elevator.stops = elevatorStops
-      elevator.y = elevator.stops[0] + 0.2
-      elevator.prevY = elevator.y
-      elevator.collider.h = elevator.y
-      elevator.group.position.y = elevator.y
+      elevator.stops = [...new Set([...elevatorStops, ELEVATOR_ROOF_STOP_Y])].sort((a, b) => a - b)
+      syncElevatorToStop(getRoofElevatorIndex())
     }
     const elevatorLevers = manifest.elevator?.levers
       ?.filter(lever => Number.isFinite(lever.x) && Number.isFinite(lever.y) && Number.isFinite(lever.z))
-      ?.sort((a, b) => (a.floorIndex ?? 0) - (b.floorIndex ?? 0))
+      ?.filter(lever => lever.y < 2 || lever.y >= ELEVATOR_ROOF_STOP_Y)
+      ?.sort((a, b) => a.y - b.y)
     if (elevatorLevers?.length) {
-      elevator.levers = elevatorLevers.map((lever, index) => ({
+      elevator.levers = elevatorLevers.map(lever => ({
         x: lever.x,
         y: lever.y,
         z: lever.z,
-        floorIndex: Math.min(index, elevator.stops.length - 1),
+        floorIndex: lever.y >= ELEVATOR_ROOF_STOP_Y ? -1 : 0,
+        role: lever.role ?? (lever.y >= ELEVATOR_ROOF_STOP_Y ? 'roof-call' : 'floor-call'),
       }))
     }
     if (manifest.roofExit) {
@@ -958,35 +1016,19 @@ export function createCastleWorld(outdoorScene) {
   }
 
   function summonElevator(floorIndex, playerPosition) {
-    const clampedIndex = Math.max(0, Math.min(elevator.stops.length - 1, floorIndex))
-    const atRequestedFloor = elevator.stopIndex === clampedIndex
-      && Math.abs(elevator.y - (elevator.stops[clampedIndex] + 0.2)) <= 0.05
-    if (atRequestedFloor) {
-      elevator.targetIndex = (clampedIndex + 1) % elevator.stops.length
-    } else {
-      elevator.targetIndex = clampedIndex
-    }
-    elevator.wait = 0
-    return elevator.targetIndex
+    return setElevatorTarget(floorIndex)
   }
 
   function getNextElevatorIndex() {
-    if (elevator.stopIndex <= 0) elevator.autoDirection = 1
-    if (elevator.stopIndex >= elevator.stops.length - 1) elevator.autoDirection = -1
-    let nextIndex = elevator.stopIndex + elevator.autoDirection
-    if (nextIndex < 0 || nextIndex >= elevator.stops.length) {
-      elevator.autoDirection *= -1
-      nextIndex = elevator.stopIndex + elevator.autoDirection
-    }
-    return Math.max(0, Math.min(elevator.stops.length - 1, nextIndex))
+    const bottomIndex = getBottomElevatorIndex()
+    const roofIndex = getRoofElevatorIndex()
+    return elevator.stopIndex >= roofIndex ? bottomIndex : roofIndex
   }
 
   function triggerElevatorPressureButton() {
     const nextIndex = getNextElevatorIndex()
     if (nextIndex === elevator.stopIndex) return elevator.stopIndex
-    elevator.targetIndex = nextIndex
-    elevator.wait = 0
-    return nextIndex
+    return setElevatorTarget(nextIndex)
   }
 
   function updateElevator(dt, playerPosition) {
@@ -994,8 +1036,7 @@ export function createCastleWorld(outdoorScene) {
     const onPlatform = isOnElevator(playerPosition)
     if (elevator.wait > 0) elevator.wait = Math.max(0, elevator.wait - dt)
 
-    const idle = elevator.targetIndex === elevator.stopIndex
-      && Math.abs(elevator.y - (elevator.stops[elevator.stopIndex] + 0.2)) <= 0.05
+    const idle = isElevatorIdle()
     const steppedOnPressureButton = onPlatform && !elevator.occupied && idle
     if (steppedOnPressureButton && elevator.wait <= 0) {
       triggerElevatorPressureButton()
@@ -1005,7 +1046,7 @@ export function createCastleWorld(outdoorScene) {
       elevator.pressureButton.position.y = onPlatform ? 0.2 : 0.27
     }
 
-    const targetY = elevator.stops[elevator.targetIndex] + 0.2
+    const targetY = getElevatorStopY(elevator.targetIndex)
     const deltaToTarget = targetY - elevator.y
     if (Math.abs(deltaToTarget) > 0.001) {
       const step = Math.sign(deltaToTarget) * Math.min(Math.abs(deltaToTarget), elevator.speed * dt)
@@ -1013,6 +1054,7 @@ export function createCastleWorld(outdoorScene) {
       if (Math.abs(targetY - elevator.y) <= 0.001) {
         elevator.y = targetY
         elevator.stopIndex = elevator.targetIndex
+        if (elevator.stopIndex === getBottomElevatorIndex()) elevator.floorSwitchUnlocked = true
         elevator.wait = 0.8
       }
     }
@@ -1092,7 +1134,7 @@ export function createCastleWorld(outdoorScene) {
 
   function getNearbyAction(playerPosition) {
     let nearestLever = null
-    let nearestDistSq = 2.5 * 2.5
+    let nearestDistSq = ELEVATOR_ACTION_RANGE * ELEVATOR_ACTION_RANGE
     for (const lever of elevator.levers) {
       const dx = playerPosition.x - lever.x
       const dy = playerPosition.y - lever.y
@@ -1104,12 +1146,36 @@ export function createCastleWorld(outdoorScene) {
       }
     }
     if (nearestLever) {
-      const floorLabel = nearestLever.floorIndex + 1
+      const bottomIndex = getBottomElevatorIndex()
+      const roofIndex = getRoofElevatorIndex()
+      const isRoofLever = nearestLever.role === 'roof-call'
+      let label = '电梯运行中'
+      let execute = null
+      if (isElevatorIdle()) {
+        if (isRoofLever) {
+          if (isElevatorAtIndex(roofIndex)) {
+            label = '电梯已在屋顶'
+          } else if (isElevatorAtIndex(bottomIndex)) {
+            label = '召回电梯'
+            execute = () => summonElevator(roofIndex, playerPosition)
+          } else {
+            label = '电梯不可用'
+          }
+        } else if (isElevatorAtIndex(bottomIndex)) {
+          label = '启动电梯上行'
+          execute = () => summonElevator(roofIndex, playerPosition)
+        } else if (elevator.floorSwitchUnlocked) {
+          label = '呼叫电梯'
+          execute = () => summonElevator(bottomIndex, playerPosition)
+        } else {
+          label = '电梯不可用'
+        }
+      }
       return {
         type: 'elevator-lever',
-        label: `拉动${floorLabel}层升降机机关`,
+        label,
         position: new THREE.Vector3(nearestLever.x, nearestLever.y, nearestLever.z),
-        execute: () => summonElevator(nearestLever.floorIndex, playerPosition),
+        execute,
       }
     }
 

@@ -1,6 +1,6 @@
 import * as THREE from 'three'
-import { FBXLoader } from 'three/addons/loaders/FBXLoader.js'
 import { BALANCE } from '../config/balance.js'
+import { cloneFBX, loadFBXClips } from '../systems/modelAssets.js'
 import mainFbxUrl from '../characters/enemy/main.fbx?url'
 import sitFbxUrl from '../characters/enemy/sit.fbx?url'
 import standFbxUrl from '../characters/enemy/Stand.fbx?url'
@@ -69,12 +69,16 @@ export function createEnemyNpcFBX(scene, {
   moveSpeed = BALANCE.combat.enemy.moveSpeed,
   attackCooldown = BALANCE.combat.enemy.attackCooldown,
   attackDamage = BALANCE.combat.enemy.attackDamage,
+  attackTimeScale = BALANCE.combat.enemy.attackTimeScale,
   attackWindows = BALANCE.combat.enemy.attackWindows,
   turnSpeed = BALANCE.combat.enemy.turnSpeed,
   attackTurnScale = BALANCE.combat.enemy.attackTurnScale,
   animFade = BALANCE.combat.enemy.animFade,
   alertDuration = BALANCE.combat.enemy.alertDuration,
   attackEndGrace = BALANCE.combat.enemy.attackEndGrace,
+  patrol = null,
+  patrolSpeed = 1.25,
+  patrolArriveDistance = 0.45,
 } = {}) {
   const instanceId = _nextEnemyInstanceId++
   const pursuitPhase = instanceId * 1.73
@@ -82,6 +86,13 @@ export function createEnemyNpcFBX(scene, {
   const homeX = x
   const homeZ = z
   const homeRotY = rotY
+  const patrolPoints = Array.isArray(patrol)
+    ? patrol
+      .filter(point => Array.isArray(point) && point.length >= 2)
+      .map(([px, pz]) => ({ x: px, z: pz }))
+    : []
+  const hasPatrol = patrolPoints.length >= 2
+  let patrolTargetIndex = hasPatrol ? 1 : 0
   const group = new THREE.Group()
   group.position.set(x, 0, z)
   group.rotation.y = rotY
@@ -255,6 +266,40 @@ export function createEnemyNpcFBX(scene, {
     preHurtAction = null
   }
 
+  function refreshHitAggroMemory() {
+    const leashTravelTime = leashRadius / Math.max(0.001, moveSpeed)
+    aggroMemoryTimer = Math.max(
+      aggroMemoryTimer,
+      HIT_AGGRO_MEMORY_SECONDS,
+      leashTravelTime + HIT_AGGRO_LEASH_BUFFER_SECONDS,
+    )
+  }
+
+  function aggroFromHit() {
+    if (!alive || dying) return
+    returningHome = false
+    aggroByHit = false
+    refreshHitAggroMemory()
+    if (!engaged) {
+      engaged = true
+      alerting = true
+      alertTimer = alertDuration
+      if (!hurting) playAlertOnce()
+    }
+  }
+
+  function aggroFromSight() {
+    if (!alive || dying) return
+    returningHome = false
+    refreshHitAggroMemory()
+    if (!engaged) {
+      engaged = true
+      alerting = true
+      alertTimer = alertDuration
+      if (!hurting) playAlertOnce()
+    }
+  }
+
   function resumeAfterHurt() {
     if (dying) return
     const resumeAction = preHurtAction
@@ -263,7 +308,8 @@ export function createEnemyNpcFBX(scene, {
     if (!alive) return
 
     if (!engaged) {
-      setSeatedPose()
+      if (hasPatrol) playWalkLoop()
+      else setSeatedPose()
       return
     }
 
@@ -343,7 +389,7 @@ export function createEnemyNpcFBX(scene, {
       freezeRootXZ(idleClip)
       idleAction = mixer.clipAction(idleClip)
       idleAction.enabled = true
-      if (!engaged && !alerting && !attacking) setSeatedPose()
+      if (!engaged && !alerting && !attacking && !hasPatrol) setSeatedPose()
     }
     if (sitClip && !sitAction) {
       sitClip = retargetClipToModel(sitClip)
@@ -352,7 +398,7 @@ export function createEnemyNpcFBX(scene, {
       sitAction.enabled = true
       sitAction.setLoop(THREE.LoopRepeat, Infinity)
       sitAction.clampWhenFinished = false
-      if (!engaged && !alerting && !attacking) setSeatedPose()
+      if (!engaged && !alerting && !attacking && !hasPatrol) setSeatedPose()
     }
     if (standClip && !standAction) {
       standClip = retargetClipToModel(standClip)
@@ -373,6 +419,7 @@ export function createEnemyNpcFBX(scene, {
       freezeRootXZ(walkClip)
       walkAction = mixer.clipAction(walkClip)
       walkAction.timeScale = 1.0
+      if (!engaged && !alerting && !attacking && hasPatrol) playWalkLoop()
     }
     if (attackClip && !attackAction) {
       attackClip = retargetClipToModel(attackClip)
@@ -380,7 +427,7 @@ export function createEnemyNpcFBX(scene, {
       attackAction = mixer.clipAction(attackClip)
       attackAction.setLoop(THREE.LoopOnce, 1)
       attackAction.clampWhenFinished = true
-      attackAction.timeScale = 1.0
+      attackAction.timeScale = attackTimeScale
     }
     if (hurtClip && !hurtAction) {
       hurtClip = retargetClipToModel(hurtClip)
@@ -498,8 +545,7 @@ export function createEnemyNpcFBX(scene, {
     }
   }
 
-  const loader = new FBXLoader()
-  loader.load(modelPath, (fbx) => {
+  cloneFBX(modelPath).then((fbx) => {
     rootModel = fbx
     rootModel.scale.setScalar(ENEMY_MODEL_SCALE)
     const _lights = []
@@ -522,40 +568,42 @@ export function createEnemyNpcFBX(scene, {
 
     if (fbx.animations.length > 0) idleClip = fbx.animations[0]
     tryBuildActions()
+  }).catch((err) => {
+    console.error(`Failed to load enemy model: ${modelPath}`, err)
   })
 
-  loader.load(sitFbxUrl, (fbx) => {
-    if (fbx.animations.length > 0) sitClip = fbx.animations[0]
+  loadFBXClips(sitFbxUrl).then((clips) => {
+    if (clips.length > 0) sitClip = clips[0]
     tryBuildActions()
   })
 
-  loader.load(standFbxUrl, (fbx) => {
-    if (fbx.animations.length > 0) standClip = fbx.animations[0]
+  loadFBXClips(standFbxUrl).then((clips) => {
+    if (clips.length > 0) standClip = clips[0]
     tryBuildActions()
   })
 
-  loader.load(runFbxUrl, (fbx) => {
-    if (fbx.animations.length > 0) runClip = fbx.animations[0]
+  loadFBXClips(runFbxUrl).then((clips) => {
+    if (clips.length > 0) runClip = clips[0]
     tryBuildActions()
   })
 
-  loader.load(walkFbxUrl, (fbx) => {
-    if (fbx.animations.length > 0) walkClip = fbx.animations[0]
+  loadFBXClips(walkFbxUrl).then((clips) => {
+    if (clips.length > 0) walkClip = clips[0]
     tryBuildActions()
   })
 
-  loader.load(attackFbxUrl, (fbx) => {
-    if (fbx.animations.length > 0) attackClip = fbx.animations[0]
+  loadFBXClips(attackFbxUrl).then((clips) => {
+    if (clips.length > 0) attackClip = clips[0]
     tryBuildActions()
   })
 
-  loader.load(hurtFbxUrl, (fbx) => {
-    if (fbx.animations.length > 0) hurtClip = fbx.animations[0]
+  loadFBXClips(hurtFbxUrl).then((clips) => {
+    if (clips.length > 0) hurtClip = clips[0]
     tryBuildActions()
   })
 
-  loader.load(deathFbxUrl, (fbx) => {
-    if (fbx.animations.length > 0) deathClip = fbx.animations[0]
+  loadFBXClips(deathFbxUrl).then((clips) => {
+    if (clips.length > 0) deathClip = clips[0]
     tryBuildActions()
   })
 
@@ -685,7 +733,12 @@ export function createEnemyNpcFBX(scene, {
     collidable.x = homeX
     collidable.z = homeZ
     if (getTerrainHeight) group.position.y = getTerrainHeight(homeX, homeZ)
-    setSeatedPose()
+    if (hasPatrol) {
+      patrolTargetIndex = 1
+      playWalkLoop()
+    } else {
+      setSeatedPose()
+    }
   }
 
   function updateReturnHome(dt, collision) {
@@ -700,6 +753,30 @@ export function createEnemyNpcFBX(scene, {
     playWalkLoop()
     const target = { x: homeX, z: homeZ }
     const move = pickAvoidanceMove(dx / distHome, dz / distHome, dt, collision, target, returnSpeed)
+    if (move) {
+      group.position.x = move.x
+      group.position.z = move.z
+      const moveYaw = Math.atan2(move.dirX, move.dirZ)
+      const moveTurn = THREE.MathUtils.euclideanModulo(moveYaw - group.rotation.y + Math.PI, Math.PI * 2) - Math.PI
+      group.rotation.y += moveTurn * Math.min(1, dt * turnSpeed * 0.45)
+    }
+  }
+
+  function updatePatrol(dt, collision) {
+    if (!hasPatrol || hurting || attacking || alerting || dying) return
+    const target = patrolPoints[patrolTargetIndex]
+    if (!target) return
+    const dx = target.x - group.position.x
+    const dz = target.z - group.position.z
+    const distTarget = Math.hypot(dx, dz)
+
+    if (distTarget <= patrolArriveDistance) {
+      patrolTargetIndex = (patrolTargetIndex + 1) % patrolPoints.length
+      return
+    }
+
+    playWalkLoop()
+    const move = pickAvoidanceMove(dx / distTarget, dz / distTarget, dt, collision, target, patrolSpeed)
     if (move) {
       group.position.x = move.x
       group.position.z = move.z
@@ -778,19 +855,14 @@ export function createEnemyNpcFBX(scene, {
       const prevEngaged = engaged
       const inSightTrigger = hasToPlayerDir && dist <= triggerRange && isPlayerInFront(toPlayerX, toPlayerZ)
       if (aggroByHit) {
-        returningHome = false
-        const leashTravelTime = leashRadius / Math.max(0.001, moveSpeed)
-        aggroMemoryTimer = Math.max(
-          aggroMemoryTimer,
-          HIT_AGGRO_MEMORY_SECONDS,
-          leashTravelTime + HIT_AGGRO_LEASH_BUFFER_SECONDS,
-        )
+        aggroFromHit()
         aggroByHit = false
       } else {
         aggroMemoryTimer = Math.max(0, aggroMemoryTimer - dt)
       }
+      if (returningHome && inSightTrigger) aggroFromSight()
       if (!returningHome && (inSightTrigger || aggroMemoryTimer > 0)) engaged = true
-      if (engaged && distanceFromHome() > leashRadius) startReturnHome()
+      if (engaged && aggroMemoryTimer <= 0 && distanceFromHome() > leashRadius) startReturnHome()
       if (returningHome) engaged = false
       if (dist > disengageRange && aggroMemoryTimer <= 0) {
         engaged = false
@@ -808,7 +880,7 @@ export function createEnemyNpcFBX(scene, {
         alerting = false
         alertTimer = 0
         if (attacking) endAttack()
-        if (!returningHome) setSeatedPose()
+        if (!returningHome && !hasPatrol) setSeatedPose()
       }
 
       if (returningHome) {
@@ -829,7 +901,7 @@ export function createEnemyNpcFBX(scene, {
       group.rotation.y += shakeYaw
 
       if (!engaged) {
-        // 未激活：不播放任何动画
+        updatePatrol(dt, collision)
       } else if (hurting) {
         // 受伤中：播放一次 hurt，不切换其他动作
       } else if (alerting) {
@@ -872,6 +944,7 @@ export function createEnemyNpcFBX(scene, {
     },
 
     getPosition() { return group.position },
+    getGroup() { return group },
     getName() { return name },
     getColor() { return 0xff5a5a },
     getHeadWorldPos() {
@@ -900,9 +973,12 @@ export function createEnemyNpcFBX(scene, {
 
     onHit(amount) {
       hitShakeTime = HIT_SHAKE_DURATION
-      aggroByHit = true
-      return this.takeDamage(amount)
+      const nextHp = this.takeDamage(amount)
+      if (nextHp > 0) aggroFromHit()
+      return nextHp
     },
+
+    aggroFromHit,
 
     die() {
       triggerDeath()

@@ -1,4 +1,4 @@
-const CASTLE_ASSET_VERSION = 'v=16'
+const CASTLE_ASSET_VERSION = 'v=23'
 const castleAsset = (path) => `${path}?${CASTLE_ASSET_VERSION}`
 
 const CASTLE_EXTERIOR_ORIGIN = { x: 124, y: 0, z: 0 }

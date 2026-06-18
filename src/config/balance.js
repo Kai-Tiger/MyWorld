@@ -23,6 +23,7 @@ export const BALANCE = {
       moveSpeed: 3.2,
       attackCooldown: 1.0,
       attackDamage: 14,
+      attackTimeScale: 1.25,
       attackWindows: [
         { start: 0.13, end: 0.20, range: 2.6, angleDeg: 95, damageMul: 0.8 },
         { start: 0.30, end: 0.40, range: 2.8, angleDeg: 105, damageMul: 1.0 },
@@ -39,7 +40,15 @@ export const BALANCE = {
       hitAngleDeg: 90,
     },
     playerAttack: {
+      timeScale: 1.8,
       hitWindow: { start: 0.30, end: 0.52 },
+      secondHitWindow: { start: 0.28, end: 0.50 },
+      comboInputWindow: { start: 0.45, end: 0.78 },
+      comboLinkAt: 0.45,
+      secondDamageMul: 1.2,
+      secondRangeMul: 1.2,
+      secondLungeDistance: 0.6,
+      secondLungeDuration: 0.18,
     },
     hitstop: {
       attackHit: 0.05,
@@ -49,8 +58,28 @@ export const BALANCE = {
 
   player: {
     maxHp: 100,
+    maxMp: 100,
     atk: 20,
     throwCooldown: 0.45,
+    stamina: {
+      max: 100,
+      regenPerSecond: 25,
+      attackCost: 25,
+      comboAttackCost: 35,
+      blockCostDamageMultiplier: 1.5,
+      guardBreakDamageMultiplier: 0.5,
+      emptyMoveSpeedMultiplier: 0.8,
+      runRegenMultiplier: 0.75,
+      defenseRegenMultiplier: 0.5,
+    },
+  },
+
+  estusFlask: {
+    itemName: '元素瓶',
+    maxCharges: 3,
+    hpRestoreRatio: 0.30,
+    mpRestoreRatio: 0.20,
+    recoverDuration: 1.2,
   },
 
   npc: {
@@ -79,6 +108,7 @@ export const BALANCE = {
   spells: {
     fireball: {
       key: 'KeyE',
+      mpCost: 25,
       cooldown: 0.72,
       damage: 32,
       radius: 0.34,
@@ -87,8 +117,8 @@ export const BALANCE = {
       spawnForward: 0.72,
       spawnHeight: 1.18,
       hitRadiusBonus: 0.18,
-      trailParticles: 96,
-      burstParticles: 54,
+      trailParticles: 180,
+      burstParticles: 110,
     },
   },
 }

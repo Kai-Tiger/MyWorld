@@ -41,89 +41,7 @@
           "range": 3.0
         }
       ],
-      "colliders": [
-        {
-          "x": -6.75,
-          "z": 8.0,
-          "hx": 0.25,
-          "hz": 8.0,
-          "name": "COL_BOX_GATE_WALL_L",
-          "minY": 0.0,
-          "maxY": 5.0
-        },
-        {
-          "x": 6.75,
-          "z": 8.0,
-          "hx": 0.25,
-          "hz": 8.0,
-          "name": "COL_BOX_GATE_WALL_R",
-          "minY": 0.0,
-          "maxY": 5.0
-        },
-        {
-          "x": -4.7,
-          "z": 15.75,
-          "hx": 2.3,
-          "hz": 0.25,
-          "name": "COL_BOX_GATE_REAR_WALL_-4.7",
-          "minY": 0.0,
-          "maxY": 5.0
-        },
-        {
-          "x": -4.7,
-          "z": 0.25,
-          "hx": 2.3,
-          "hz": 0.25,
-          "name": "COL_BOX_GATE_FRONT_WALL_-4.7",
-          "minY": 0.0,
-          "maxY": 5.0
-        },
-        {
-          "x": 4.7,
-          "z": 15.75,
-          "hx": 2.3,
-          "hz": 0.25,
-          "name": "COL_BOX_GATE_REAR_WALL_4.7",
-          "minY": 0.0,
-          "maxY": 5.0
-        },
-        {
-          "x": 4.7,
-          "z": 0.25,
-          "hx": 2.3,
-          "hz": 0.25,
-          "name": "COL_BOX_GATE_FRONT_WALL_4.7",
-          "minY": 0.0,
-          "maxY": 5.0
-        },
-        {
-          "x": 0.0,
-          "z": 15.75,
-          "hx": 2.4,
-          "hz": 0.25,
-          "name": "COL_BOX_GATE_REAR_DOOR_BLOCKER",
-          "minY": 0.0,
-          "maxY": 5.0
-        },
-        {
-          "x": -5.4,
-          "z": 8.0,
-          "hx": 1.5,
-          "hz": 1.5,
-          "name": "COL_BOX_GATE_TOWER_L",
-          "minY": 0.0,
-          "maxY": 11.0
-        },
-        {
-          "x": 5.4,
-          "z": 8.0,
-          "hx": 1.5,
-          "hz": 1.5,
-          "name": "COL_BOX_GATE_TOWER_R",
-          "minY": 0.0,
-          "maxY": 11.0
-        }
-      ],
+      "colliders": [],
       "sockets": {
         "SOCKET_TORCH_01": {
           "x": -2.6,
@@ -191,108 +109,7 @@
           "range": 5.0
         }
       ],
-      "colliders": [
-        {
-          "x": -13.75,
-          "z": -22.25,
-          "hx": 0.25,
-          "hz": 1.75,
-          "name": "COL_BOX_COURTYARD_SIDE_-13.75_-22.25",
-          "minY": 0.0,
-          "maxY": 6.0
-        },
-        {
-          "x": -13.75,
-          "z": -12.0,
-          "hx": 0.25,
-          "hz": 4.0,
-          "name": "COL_BOX_COURTYARD_SIDE_-13.75_-12",
-          "minY": 0.0,
-          "maxY": 6.0
-        },
-        {
-          "x": -13.75,
-          "z": -1.75,
-          "hx": 0.25,
-          "hz": 1.75,
-          "name": "COL_BOX_COURTYARD_SIDE_-13.75_-1.75",
-          "minY": 0.0,
-          "maxY": 6.0
-        },
-        {
-          "x": 13.75,
-          "z": -22.25,
-          "hx": 0.25,
-          "hz": 1.75,
-          "name": "COL_BOX_COURTYARD_SIDE_13.75_-22.25",
-          "minY": 0.0,
-          "maxY": 6.0
-        },
-        {
-          "x": 13.75,
-          "z": -12.0,
-          "hx": 0.25,
-          "hz": 4.0,
-          "name": "COL_BOX_COURTYARD_SIDE_13.75_-12",
-          "minY": 0.0,
-          "maxY": 6.0
-        },
-        {
-          "x": 13.75,
-          "z": -1.75,
-          "hx": 0.25,
-          "hz": 1.75,
-          "name": "COL_BOX_COURTYARD_SIDE_13.75_-1.75",
-          "minY": 0.0,
-          "maxY": 6.0
-        },
-        {
-          "x": -8.5,
-          "z": -0.25,
-          "hx": 5.5,
-          "hz": 0.25,
-          "name": "COL_BOX_COURTYARD_END_L_-0.25",
-          "minY": 0.0,
-          "maxY": 6.0
-        },
-        {
-          "x": 8.5,
-          "z": -0.25,
-          "hx": 5.5,
-          "hz": 0.25,
-          "name": "COL_BOX_COURTYARD_END_R_-0.25",
-          "minY": 0.0,
-          "maxY": 6.0
-        },
-        {
-          "x": -8.5,
-          "z": -23.75,
-          "hx": 5.5,
-          "hz": 0.25,
-          "name": "COL_BOX_COURTYARD_END_L_-23.75",
-          "minY": 0.0,
-          "maxY": 6.0
-        },
-        {
-          "x": 8.5,
-          "z": -23.75,
-          "hx": 5.5,
-          "hz": 0.25,
-          "name": "COL_BOX_COURTYARD_END_R_-23.75",
-          "minY": 0.0,
-          "maxY": 6.0
-        },
-        {
-          "x": 0.0,
-          "z": -12.0,
-          "hx": 1.3,
-          "hz": 1.3,
-          "name": "COL_BOX_COURTYARD_WELL",
-          "h": 0.7,
-          "minY": 0.0,
-          "maxY": 0.7
-        }
-      ],
+      "colliders": [],
       "sockets": {
         "SOCKET_TORCH_01.001": {
           "x": -6.0,
@@ -355,42 +172,6 @@
       ],
       "colliders": [
         {
-          "x": -21.0,
-          "z": 7.75,
-          "hx": 7.0,
-          "hz": 0.25,
-          "name": "COL_BOX_NORTH_FRONT_WALL",
-          "minY": 0.0,
-          "maxY": 8.0
-        },
-        {
-          "x": -24.5,
-          "z": -20.0,
-          "hx": 2.1,
-          "hz": 1.1,
-          "name": "COL_BOX_NORTH_ROOM_BLOCK_-20",
-          "minY": 0.0,
-          "maxY": 2.8
-        },
-        {
-          "x": -24.5,
-          "z": -8.0,
-          "hx": 2.1,
-          "hz": 1.1,
-          "name": "COL_BOX_NORTH_ROOM_BLOCK_-8",
-          "minY": 0.0,
-          "maxY": 2.8
-        },
-        {
-          "x": -24.5,
-          "z": 4.0,
-          "hx": 2.1,
-          "hz": 1.1,
-          "name": "COL_BOX_NORTH_ROOM_BLOCK_4",
-          "minY": 0.0,
-          "maxY": 2.8
-        },
-        {
           "x": -18.0,
           "z": -10.0,
           "hx": 1.8,
@@ -402,33 +183,6 @@
           "h1": 5.0,
           "reverse": true,
           "surface": true
-        },
-        {
-          "x": -20.0,
-          "z": -10.0,
-          "hx": 0.2,
-          "hz": 7.0,
-          "name": "COL_BOX_NORTH_STAIR_RAIL_L",
-          "minY": 0.0,
-          "maxY": 6.0
-        },
-        {
-          "x": -16.0,
-          "z": -10.0,
-          "hx": 0.2,
-          "hz": 7.0,
-          "name": "COL_BOX_NORTH_STAIR_RAIL_R",
-          "minY": 0.0,
-          "maxY": 6.0
-        },
-        {
-          "x": -27.75,
-          "z": -7.3,
-          "hx": 0.25,
-          "hz": 15.3,
-          "name": "COL_BOX_NORTH_OUTER_WALL_B",
-          "minY": 0.0,
-          "maxY": 8.0
         }
       ],
       "sockets": {
@@ -493,42 +247,6 @@
       ],
       "colliders": [
         {
-          "x": 21.0,
-          "z": 7.75,
-          "hx": 7.0,
-          "hz": 0.25,
-          "name": "COL_BOX_SOUTH_FRONT_WALL",
-          "minY": 0.0,
-          "maxY": 8.0
-        },
-        {
-          "x": 24.5,
-          "z": -20.0,
-          "hx": 2.1,
-          "hz": 1.1,
-          "name": "COL_BOX_SOUTH_ROOM_BLOCK_-20",
-          "minY": 0.0,
-          "maxY": 2.8
-        },
-        {
-          "x": 24.5,
-          "z": -8.0,
-          "hx": 2.1,
-          "hz": 1.1,
-          "name": "COL_BOX_SOUTH_ROOM_BLOCK_-8",
-          "minY": 0.0,
-          "maxY": 2.8
-        },
-        {
-          "x": 24.5,
-          "z": 4.0,
-          "hx": 2.1,
-          "hz": 1.1,
-          "name": "COL_BOX_SOUTH_ROOM_BLOCK_4",
-          "minY": 0.0,
-          "maxY": 2.8
-        },
-        {
           "x": 18.0,
           "z": -10.0,
           "hx": 1.8,
@@ -540,43 +258,16 @@
           "h1": 5.0,
           "reverse": true,
           "surface": true
-        },
-        {
-          "x": 16.0,
-          "z": -10.0,
-          "hx": 0.2,
-          "hz": 7.0,
-          "name": "COL_BOX_SOUTH_STAIR_RAIL_L",
-          "minY": 0.0,
-          "maxY": 6.0
-        },
-        {
-          "x": 20.0,
-          "z": -10.0,
-          "hx": 0.2,
-          "hz": 7.0,
-          "name": "COL_BOX_SOUTH_STAIR_RAIL_R",
-          "minY": 0.0,
-          "maxY": 6.0
-        },
-        {
-          "x": 27.75,
-          "z": -7.3,
-          "hx": 0.25,
-          "hz": 15.3,
-          "name": "COL_BOX_SOUTH_OUTER_WALL_B",
-          "minY": 0.0,
-          "maxY": 8.0
         }
       ],
       "sockets": {
         "SOCKET_TORCH_22.001": {
-          "x": 24.5,
+          "x": 36.6811,
           "y": 2.2,
           "z": -22.0
         },
         "SOCKET_TORCH_04.001": {
-          "x": 24.5,
+          "x": 36.6811,
           "y": 2.2,
           "z": -4.0
         }
@@ -622,98 +313,7 @@
           "range": 4.0
         }
       ],
-      "colliders": [
-        {
-          "x": -9.75,
-          "z": -28.25,
-          "hx": 0.25,
-          "hz": 4.25,
-          "name": "COL_BOX_HALL_SIDE_FRONT_-9.75",
-          "minY": 0.0,
-          "maxY": 8.0
-        },
-        {
-          "x": -9.75,
-          "z": -39.75,
-          "hx": 0.25,
-          "hz": 4.25,
-          "name": "COL_BOX_HALL_SIDE_REAR_-9.75",
-          "minY": 0.0,
-          "maxY": 8.0
-        },
-        {
-          "x": 9.75,
-          "z": -28.25,
-          "hx": 0.25,
-          "hz": 4.25,
-          "name": "COL_BOX_HALL_SIDE_FRONT_9.75",
-          "minY": 0.0,
-          "maxY": 8.0
-        },
-        {
-          "x": 9.75,
-          "z": -39.75,
-          "hx": 0.25,
-          "hz": 4.25,
-          "name": "COL_BOX_HALL_SIDE_REAR_9.75",
-          "minY": 0.0,
-          "maxY": 8.0
-        },
-        {
-          "x": -5.8,
-          "z": -24.25,
-          "hx": 4.2,
-          "hz": 0.25,
-          "name": "COL_BOX_HALL_FRONT_-5.8",
-          "minY": 0.0,
-          "maxY": 8.0
-        },
-        {
-          "x": -5.8,
-          "z": -43.75,
-          "hx": 4.2,
-          "hz": 0.25,
-          "name": "COL_BOX_HALL_REAR_-5.8",
-          "minY": 0.0,
-          "maxY": 9.0
-        },
-        {
-          "x": 5.8,
-          "z": -24.25,
-          "hx": 4.2,
-          "hz": 0.25,
-          "name": "COL_BOX_HALL_FRONT_5.8",
-          "minY": 0.0,
-          "maxY": 8.0
-        },
-        {
-          "x": 5.8,
-          "z": -43.75,
-          "hx": 4.2,
-          "hz": 0.25,
-          "name": "COL_BOX_HALL_REAR_5.8",
-          "minY": 0.0,
-          "maxY": 9.0
-        },
-        {
-          "x": 0.0,
-          "z": -40.8,
-          "hx": 2.25,
-          "hz": 0.75,
-          "name": "COL_BOX_HALL_THRONE",
-          "minY": 0.0,
-          "maxY": 1.3
-        },
-        {
-          "x": 0.0,
-          "z": -43.75,
-          "hx": 1.0,
-          "hz": 0.25,
-          "name": "COL_BOX_HALL_EXIT_DOOR",
-          "minY": 0.0,
-          "maxY": 2.8
-        }
-      ],
+      "colliders": [],
       "sockets": {
         "SOCKET_TORCH_01.002": {
           "x": -7.5,
@@ -781,15 +381,6 @@
       ],
       "colliders": [
         {
-          "x": 0.0,
-          "z": -32.0,
-          "hx": 11.0,
-          "hz": 11.0,
-          "name": "COL_SURFACE_UPPER_HALL",
-          "surface": true,
-          "h": 5.0
-        },
-        {
           "x": -24.15,
           "z": -10.0,
           "hx": 3.85,
@@ -826,24 +417,6 @@
           "h": 5.0
         },
         {
-          "x": -20.5,
-          "z": -9.75,
-          "hx": 0.125,
-          "hz": 7.25,
-          "name": "COL_BOX_UPPER_NORTH_RAIL_L",
-          "minY": 5.0,
-          "maxY": 6.1
-        },
-        {
-          "x": -15.5,
-          "z": -9.75,
-          "hx": 0.125,
-          "hz": 7.25,
-          "name": "COL_BOX_UPPER_NORTH_RAIL_R",
-          "minY": 5.0,
-          "maxY": 6.1
-        },
-        {
           "x": 24.15,
           "z": -10.0,
           "hx": 3.85,
@@ -878,24 +451,6 @@
           "name": "COL_SURFACE_UPPER_SOUTH_STAIR_FRONT",
           "surface": true,
           "h": 5.0
-        },
-        {
-          "x": 15.5,
-          "z": -9.75,
-          "hx": 0.125,
-          "hz": 7.25,
-          "name": "COL_BOX_UPPER_SOUTH_RAIL_L",
-          "minY": 5.0,
-          "maxY": 6.1
-        },
-        {
-          "x": 20.5,
-          "z": -9.75,
-          "hx": 0.125,
-          "hz": 7.25,
-          "name": "COL_BOX_UPPER_SOUTH_RAIL_R",
-          "minY": 5.0,
-          "maxY": 6.1
         },
         {
           "x": 0.0,
@@ -935,102 +490,39 @@
         },
         {
           "x": 0.0,
-          "z": -43.75,
-          "hx": 28.0,
-          "hz": 0.25,
-          "name": "COL_BOX_UPPER_REAR",
-          "minY": 5.0,
-          "maxY": 9.0
+          "z": -39.6,
+          "hx": 11.0,
+          "hz": 3.4,
+          "name": "COL_SURFACE_UPPER_HALL_NORTH",
+          "surface": true,
+          "h": 5.0
         },
         {
-          "x": -25.6,
-          "z": 2.0,
-          "hx": 2.4,
-          "hz": 0.25,
-          "name": "COL_BOX_UPPER_TERRACE_DIVIDER_-25.6",
-          "minY": 5.0,
-          "maxY": 10.0
+          "x": 0.0,
+          "z": -24.4,
+          "hx": 11.0,
+          "hz": 3.4,
+          "name": "COL_SURFACE_UPPER_HALL_SOUTH",
+          "surface": true,
+          "h": 5.0
         },
         {
-          "x": -10.6,
-          "z": 2.0,
-          "hx": 8.2,
-          "hz": 0.25,
-          "name": "COL_BOX_UPPER_TERRACE_DIVIDER_-10.6",
-          "minY": 5.0,
-          "maxY": 10.0
+          "x": -7.5,
+          "z": -32.0,
+          "hx": 3.5,
+          "hz": 4.2,
+          "name": "COL_SURFACE_UPPER_HALL_WEST",
+          "surface": true,
+          "h": 5.0
         },
         {
-          "x": 10.6,
-          "z": 2.0,
-          "hx": 8.2,
-          "hz": 0.25,
-          "name": "COL_BOX_UPPER_TERRACE_DIVIDER_10.6",
-          "minY": 5.0,
-          "maxY": 10.0
-        },
-        {
-          "x": 25.6,
-          "z": 2.0,
-          "hx": 2.4,
-          "hz": 0.25,
-          "name": "COL_BOX_UPPER_TERRACE_DIVIDER_25.6",
-          "minY": 5.0,
-          "maxY": 10.0
-        },
-        {
-          "x": -12.0,
-          "z": 8.0,
-          "hx": 0.25,
-          "hz": 6.0,
-          "name": "COL_BOX_UPPER_TERRACE_PARAPET_-12",
-          "minY": 5.0,
-          "maxY": 7.0
-        },
-        {
-          "x": 12.0,
-          "z": 8.0,
-          "hx": 0.25,
-          "hz": 6.0,
-          "name": "COL_BOX_UPPER_TERRACE_PARAPET_12",
-          "minY": 5.0,
-          "maxY": 7.0
-        },
-        {
-          "x": -27.75,
-          "z": -30.75,
-          "hx": 0.25,
-          "hz": 1.25,
-          "name": "COL_BOX_UPPER_OUTER_-27.75_A",
-          "minY": 5.0,
-          "maxY": 9.0
-        },
-        {
-          "x": -27.75,
-          "z": -7.25,
-          "hx": 0.25,
-          "hz": 15.25,
-          "name": "COL_BOX_UPPER_OUTER_-27.75_B",
-          "minY": 5.0,
-          "maxY": 9.0
-        },
-        {
-          "x": 27.75,
-          "z": -30.75,
-          "hx": 0.25,
-          "hz": 1.25,
-          "name": "COL_BOX_UPPER_OUTER_27.75_A",
-          "minY": 5.0,
-          "maxY": 9.0
-        },
-        {
-          "x": 27.75,
-          "z": -7.25,
-          "hx": 0.25,
-          "hz": 15.25,
-          "name": "COL_BOX_UPPER_OUTER_27.75_B",
-          "minY": 5.0,
-          "maxY": 9.0
+          "x": 7.5,
+          "z": -32.0,
+          "hx": 3.5,
+          "hz": 4.2,
+          "name": "COL_SURFACE_UPPER_HALL_EAST",
+          "surface": true,
+          "h": 5.0
         }
       ],
       "sockets": {
@@ -1131,15 +623,6 @@
           "name": "COL_SURFACE_ATRIUM_L1_EAST",
           "surface": true,
           "h": 0.0
-        },
-        {
-          "x": -24.0,
-          "z": -29.0,
-          "hx": 0.75,
-          "hz": 0.75,
-          "name": "COL_BOX_ATRIUM_SPIRAL_STAIR_CORE",
-          "minY": 0.0,
-          "maxY": 21.2
         },
         {
           "x": -19.6562,
@@ -1644,141 +1127,6 @@
           "name": "COL_SURFACE_ATRIUM_SPIRAL_STAIR_LANDING_20",
           "surface": true,
           "h": 20.0
-        },
-        {
-          "x": 0.0,
-          "z": -48.0,
-          "hx": 14.0,
-          "hz": 0.225,
-          "name": "COL_BOX_ATRIUM_L1_ATRIUM_RAIL_N",
-          "minY": 0.0,
-          "maxY": 1.4
-        },
-        {
-          "x": 14.0,
-          "z": -29.0,
-          "hx": 0.225,
-          "hz": 19.0,
-          "name": "COL_BOX_ATRIUM_L1_ATRIUM_RAIL_E",
-          "minY": 0.0,
-          "maxY": 1.4
-        },
-        {
-          "x": 0.0,
-          "z": -48.0,
-          "hx": 14.0,
-          "hz": 0.225,
-          "name": "COL_BOX_ATRIUM_L2_ATRIUM_RAIL_N",
-          "minY": 5.0,
-          "maxY": 6.4
-        },
-        {
-          "x": 0.0,
-          "z": -10.0,
-          "hx": 14.0,
-          "hz": 0.225,
-          "name": "COL_BOX_ATRIUM_L2_ATRIUM_RAIL_S",
-          "minY": 5.0,
-          "maxY": 6.4
-        },
-        {
-          "x": 14.0,
-          "z": -29.0,
-          "hx": 0.225,
-          "hz": 19.0,
-          "name": "COL_BOX_ATRIUM_L2_ATRIUM_RAIL_E",
-          "minY": 5.0,
-          "maxY": 6.4
-        },
-        {
-          "x": 0.0,
-          "z": -48.0,
-          "hx": 14.0,
-          "hz": 0.225,
-          "name": "COL_BOX_ATRIUM_L3_ATRIUM_RAIL_N",
-          "minY": 10.0,
-          "maxY": 11.4
-        },
-        {
-          "x": 0.0,
-          "z": -10.0,
-          "hx": 14.0,
-          "hz": 0.225,
-          "name": "COL_BOX_ATRIUM_L3_ATRIUM_RAIL_S",
-          "minY": 10.0,
-          "maxY": 11.4
-        },
-        {
-          "x": -14.0,
-          "z": -29.0,
-          "hx": 0.225,
-          "hz": 19.0,
-          "name": "COL_BOX_ATRIUM_L3_ATRIUM_RAIL_W",
-          "minY": 10.0,
-          "maxY": 11.4
-        },
-        {
-          "x": 14.0,
-          "z": -29.0,
-          "hx": 0.225,
-          "hz": 19.0,
-          "name": "COL_BOX_ATRIUM_L3_ATRIUM_RAIL_E",
-          "minY": 10.0,
-          "maxY": 11.4
-        },
-        {
-          "x": 0.0,
-          "z": -48.0,
-          "hx": 14.0,
-          "hz": 0.225,
-          "name": "COL_BOX_ATRIUM_L4_ATRIUM_RAIL_N",
-          "minY": 15.0,
-          "maxY": 16.4
-        },
-        {
-          "x": 0.0,
-          "z": -10.0,
-          "hx": 14.0,
-          "hz": 0.225,
-          "name": "COL_BOX_ATRIUM_L4_ATRIUM_RAIL_S",
-          "minY": 15.0,
-          "maxY": 16.4
-        },
-        {
-          "x": -14.0,
-          "z": -29.0,
-          "hx": 0.225,
-          "hz": 19.0,
-          "name": "COL_BOX_ATRIUM_L4_ATRIUM_RAIL_W",
-          "minY": 15.0,
-          "maxY": 16.4
-        },
-        {
-          "x": 14.0,
-          "z": -29.0,
-          "hx": 0.225,
-          "hz": 19.0,
-          "name": "COL_BOX_ATRIUM_L4_ATRIUM_RAIL_E",
-          "minY": 15.0,
-          "maxY": 16.4
-        },
-        {
-          "x": -14.0,
-          "z": -41.0,
-          "hx": 0.225,
-          "hz": 7.0,
-          "name": "COL_BOX_ATRIUM_L1_ATRIUM_RAIL_W_NORTH",
-          "minY": 0.0,
-          "maxY": 1.4
-        },
-        {
-          "x": -14.0,
-          "z": -17.0,
-          "hx": 0.225,
-          "hz": 7.0,
-          "name": "COL_BOX_ATRIUM_L1_ATRIUM_RAIL_W_SOUTH",
-          "minY": 0.0,
-          "maxY": 1.4
         }
       ],
       "sockets": {
@@ -1786,25 +1134,8 @@
           "x": 4.2,
           "y": 1.0,
           "z": -25.8,
-          "floorIndex": 0
-        },
-        "SOCKET_ELEVATOR_LEVER_02": {
-          "x": 4.2,
-          "y": 6.0,
-          "z": -25.8,
-          "floorIndex": 1
-        },
-        "SOCKET_ELEVATOR_LEVER_03": {
-          "x": 4.2,
-          "y": 11.0,
-          "z": -25.8,
-          "floorIndex": 2
-        },
-        "SOCKET_ELEVATOR_LEVER_04": {
-          "x": 4.2,
-          "y": 16.0,
-          "z": -25.8,
-          "floorIndex": 3
+          "floorIndex": 0,
+          "role": "floor-call"
         },
         "SOCKET_ELEVATOR_PLATFORM": {
           "x": 0.0,
@@ -1937,438 +1268,6 @@
           "name": "COL_SURFACE_FLOOR_3_EAST",
           "surface": true,
           "h": 10.0
-        },
-        {
-          "x": -41.35,
-          "z": -50.0,
-          "hx": 3.65,
-          "hz": 0.225,
-          "name": "COL_BOX_FLOOR_3_NORTH_ROOM_FRONT_-36_L",
-          "minY": 10.0,
-          "maxY": 15.2
-        },
-        {
-          "x": -30.65,
-          "z": -50.0,
-          "hx": 3.65,
-          "hz": 0.225,
-          "name": "COL_BOX_FLOOR_3_NORTH_ROOM_FRONT_-36_R",
-          "minY": 10.0,
-          "maxY": 15.2
-        },
-        {
-          "x": -36.0,
-          "z": -72.0,
-          "hx": 9.0,
-          "hz": 0.25,
-          "name": "COL_BOX_FLOOR_3_NORTH_ROOM_BACK_-36",
-          "minY": 10.0,
-          "maxY": 15.2
-        },
-        {
-          "x": -45.0,
-          "z": -61.0,
-          "hx": 0.225,
-          "hz": 11.0,
-          "name": "COL_BOX_FLOOR_3_NORTH_ROOM_SIDE_L_-36",
-          "minY": 10.0,
-          "maxY": 15.2
-        },
-        {
-          "x": -27.0,
-          "z": -61.0,
-          "hx": 0.225,
-          "hz": 11.0,
-          "name": "COL_BOX_FLOOR_3_NORTH_ROOM_SIDE_R_-36",
-          "minY": 10.0,
-          "maxY": 15.2
-        },
-        {
-          "x": -23.35,
-          "z": -50.0,
-          "hx": 3.65,
-          "hz": 0.225,
-          "name": "COL_BOX_FLOOR_3_NORTH_ROOM_FRONT_-18_L",
-          "minY": 10.0,
-          "maxY": 15.2
-        },
-        {
-          "x": -12.65,
-          "z": -50.0,
-          "hx": 3.65,
-          "hz": 0.225,
-          "name": "COL_BOX_FLOOR_3_NORTH_ROOM_FRONT_-18_R",
-          "minY": 10.0,
-          "maxY": 15.2
-        },
-        {
-          "x": -18.0,
-          "z": -72.0,
-          "hx": 9.0,
-          "hz": 0.25,
-          "name": "COL_BOX_FLOOR_3_NORTH_ROOM_BACK_-18",
-          "minY": 10.0,
-          "maxY": 15.2
-        },
-        {
-          "x": -27.0,
-          "z": -61.0,
-          "hx": 0.225,
-          "hz": 11.0,
-          "name": "COL_BOX_FLOOR_3_NORTH_ROOM_SIDE_L_-18",
-          "minY": 10.0,
-          "maxY": 15.2
-        },
-        {
-          "x": -9.0,
-          "z": -61.0,
-          "hx": 0.225,
-          "hz": 11.0,
-          "name": "COL_BOX_FLOOR_3_NORTH_ROOM_SIDE_R_-18",
-          "minY": 10.0,
-          "maxY": 15.2
-        },
-        {
-          "x": 12.65,
-          "z": -50.0,
-          "hx": 3.65,
-          "hz": 0.225,
-          "name": "COL_BOX_FLOOR_3_NORTH_ROOM_FRONT_18_L",
-          "minY": 10.0,
-          "maxY": 15.2
-        },
-        {
-          "x": 23.35,
-          "z": -50.0,
-          "hx": 3.65,
-          "hz": 0.225,
-          "name": "COL_BOX_FLOOR_3_NORTH_ROOM_FRONT_18_R",
-          "minY": 10.0,
-          "maxY": 15.2
-        },
-        {
-          "x": 18.0,
-          "z": -72.0,
-          "hx": 9.0,
-          "hz": 0.25,
-          "name": "COL_BOX_FLOOR_3_NORTH_ROOM_BACK_18",
-          "minY": 10.0,
-          "maxY": 15.2
-        },
-        {
-          "x": 9.0,
-          "z": -61.0,
-          "hx": 0.225,
-          "hz": 11.0,
-          "name": "COL_BOX_FLOOR_3_NORTH_ROOM_SIDE_L_18",
-          "minY": 10.0,
-          "maxY": 15.2
-        },
-        {
-          "x": 27.0,
-          "z": -61.0,
-          "hx": 0.225,
-          "hz": 11.0,
-          "name": "COL_BOX_FLOOR_3_NORTH_ROOM_SIDE_R_18",
-          "minY": 10.0,
-          "maxY": 15.2
-        },
-        {
-          "x": 30.65,
-          "z": -50.0,
-          "hx": 3.65,
-          "hz": 0.225,
-          "name": "COL_BOX_FLOOR_3_NORTH_ROOM_FRONT_36_L",
-          "minY": 10.0,
-          "maxY": 15.2
-        },
-        {
-          "x": 41.35,
-          "z": -50.0,
-          "hx": 3.65,
-          "hz": 0.225,
-          "name": "COL_BOX_FLOOR_3_NORTH_ROOM_FRONT_36_R",
-          "minY": 10.0,
-          "maxY": 15.2
-        },
-        {
-          "x": 36.0,
-          "z": -72.0,
-          "hx": 9.0,
-          "hz": 0.25,
-          "name": "COL_BOX_FLOOR_3_NORTH_ROOM_BACK_36",
-          "minY": 10.0,
-          "maxY": 15.2
-        },
-        {
-          "x": 27.0,
-          "z": -61.0,
-          "hx": 0.225,
-          "hz": 11.0,
-          "name": "COL_BOX_FLOOR_3_NORTH_ROOM_SIDE_L_36",
-          "minY": 10.0,
-          "maxY": 15.2
-        },
-        {
-          "x": 45.0,
-          "z": -61.0,
-          "hx": 0.225,
-          "hz": 11.0,
-          "name": "COL_BOX_FLOOR_3_NORTH_ROOM_SIDE_R_36",
-          "minY": 10.0,
-          "maxY": 15.2
-        },
-        {
-          "x": -41.35,
-          "z": -2.0,
-          "hx": 3.65,
-          "hz": 0.225,
-          "name": "COL_BOX_FLOOR_3_SOUTH_ROOM_FRONT_-36_L",
-          "minY": 10.0,
-          "maxY": 15.2
-        },
-        {
-          "x": -30.65,
-          "z": -2.0,
-          "hx": 3.65,
-          "hz": 0.225,
-          "name": "COL_BOX_FLOOR_3_SOUTH_ROOM_FRONT_-36_R",
-          "minY": 10.0,
-          "maxY": 15.2
-        },
-        {
-          "x": -36.0,
-          "z": 18.0,
-          "hx": 9.0,
-          "hz": 0.25,
-          "name": "COL_BOX_FLOOR_3_SOUTH_ROOM_BACK_-36",
-          "minY": 10.0,
-          "maxY": 15.2
-        },
-        {
-          "x": -45.0,
-          "z": 8.0,
-          "hx": 0.225,
-          "hz": 10.0,
-          "name": "COL_BOX_FLOOR_3_SOUTH_ROOM_SIDE_L_-36",
-          "minY": 10.0,
-          "maxY": 15.2
-        },
-        {
-          "x": -27.0,
-          "z": 8.0,
-          "hx": 0.225,
-          "hz": 10.0,
-          "name": "COL_BOX_FLOOR_3_SOUTH_ROOM_SIDE_R_-36",
-          "minY": 10.0,
-          "maxY": 15.2
-        },
-        {
-          "x": -23.35,
-          "z": -2.0,
-          "hx": 3.65,
-          "hz": 0.225,
-          "name": "COL_BOX_FLOOR_3_SOUTH_ROOM_FRONT_-18_L",
-          "minY": 10.0,
-          "maxY": 15.2
-        },
-        {
-          "x": -12.65,
-          "z": -2.0,
-          "hx": 3.65,
-          "hz": 0.225,
-          "name": "COL_BOX_FLOOR_3_SOUTH_ROOM_FRONT_-18_R",
-          "minY": 10.0,
-          "maxY": 15.2
-        },
-        {
-          "x": -18.0,
-          "z": 18.0,
-          "hx": 9.0,
-          "hz": 0.25,
-          "name": "COL_BOX_FLOOR_3_SOUTH_ROOM_BACK_-18",
-          "minY": 10.0,
-          "maxY": 15.2
-        },
-        {
-          "x": -27.0,
-          "z": 8.0,
-          "hx": 0.225,
-          "hz": 10.0,
-          "name": "COL_BOX_FLOOR_3_SOUTH_ROOM_SIDE_L_-18",
-          "minY": 10.0,
-          "maxY": 15.2
-        },
-        {
-          "x": -9.0,
-          "z": 8.0,
-          "hx": 0.225,
-          "hz": 10.0,
-          "name": "COL_BOX_FLOOR_3_SOUTH_ROOM_SIDE_R_-18",
-          "minY": 10.0,
-          "maxY": 15.2
-        },
-        {
-          "x": 12.65,
-          "z": -2.0,
-          "hx": 3.65,
-          "hz": 0.225,
-          "name": "COL_BOX_FLOOR_3_SOUTH_ROOM_FRONT_18_L",
-          "minY": 10.0,
-          "maxY": 15.2
-        },
-        {
-          "x": 23.35,
-          "z": -2.0,
-          "hx": 3.65,
-          "hz": 0.225,
-          "name": "COL_BOX_FLOOR_3_SOUTH_ROOM_FRONT_18_R",
-          "minY": 10.0,
-          "maxY": 15.2
-        },
-        {
-          "x": 18.0,
-          "z": 18.0,
-          "hx": 9.0,
-          "hz": 0.25,
-          "name": "COL_BOX_FLOOR_3_SOUTH_ROOM_BACK_18",
-          "minY": 10.0,
-          "maxY": 15.2
-        },
-        {
-          "x": 9.0,
-          "z": 8.0,
-          "hx": 0.225,
-          "hz": 10.0,
-          "name": "COL_BOX_FLOOR_3_SOUTH_ROOM_SIDE_L_18",
-          "minY": 10.0,
-          "maxY": 15.2
-        },
-        {
-          "x": 27.0,
-          "z": 8.0,
-          "hx": 0.225,
-          "hz": 10.0,
-          "name": "COL_BOX_FLOOR_3_SOUTH_ROOM_SIDE_R_18",
-          "minY": 10.0,
-          "maxY": 15.2
-        },
-        {
-          "x": 30.65,
-          "z": -2.0,
-          "hx": 3.65,
-          "hz": 0.225,
-          "name": "COL_BOX_FLOOR_3_SOUTH_ROOM_FRONT_36_L",
-          "minY": 10.0,
-          "maxY": 15.2
-        },
-        {
-          "x": 41.35,
-          "z": -2.0,
-          "hx": 3.65,
-          "hz": 0.225,
-          "name": "COL_BOX_FLOOR_3_SOUTH_ROOM_FRONT_36_R",
-          "minY": 10.0,
-          "maxY": 15.2
-        },
-        {
-          "x": 36.0,
-          "z": 18.0,
-          "hx": 9.0,
-          "hz": 0.25,
-          "name": "COL_BOX_FLOOR_3_SOUTH_ROOM_BACK_36",
-          "minY": 10.0,
-          "maxY": 15.2
-        },
-        {
-          "x": 27.0,
-          "z": 8.0,
-          "hx": 0.225,
-          "hz": 10.0,
-          "name": "COL_BOX_FLOOR_3_SOUTH_ROOM_SIDE_L_36",
-          "minY": 10.0,
-          "maxY": 15.2
-        },
-        {
-          "x": 45.0,
-          "z": 8.0,
-          "hx": 0.225,
-          "hz": 10.0,
-          "name": "COL_BOX_FLOOR_3_SOUTH_ROOM_SIDE_R_36",
-          "minY": 10.0,
-          "maxY": 15.2
-        },
-        {
-          "x": 0.0,
-          "z": -48.0,
-          "hx": 14.0,
-          "hz": 0.225,
-          "name": "COL_BOX_FLOOR_3_ATRIUM_RAIL_N",
-          "minY": 10.0,
-          "maxY": 11.4
-        },
-        {
-          "x": 0.0,
-          "z": -10.0,
-          "hx": 14.0,
-          "hz": 0.225,
-          "name": "COL_BOX_FLOOR_3_ATRIUM_RAIL_S",
-          "minY": 10.0,
-          "maxY": 11.4
-        },
-        {
-          "x": -14.0,
-          "z": -29.0,
-          "hx": 0.225,
-          "hz": 19.0,
-          "name": "COL_BOX_FLOOR_3_ATRIUM_RAIL_W",
-          "minY": 10.0,
-          "maxY": 11.4
-        },
-        {
-          "x": 14.0,
-          "z": -29.0,
-          "hx": 0.225,
-          "hz": 19.0,
-          "name": "COL_BOX_FLOOR_3_ATRIUM_RAIL_E",
-          "minY": 10.0,
-          "maxY": 11.4
-        },
-        {
-          "x": -50.0,
-          "z": -29.0,
-          "hx": 0.25,
-          "hz": 43.0,
-          "name": "COL_BOX_FLOOR_3_OUTER_WALL_-50",
-          "minY": 10.0,
-          "maxY": 15.6
-        },
-        {
-          "x": 50.0,
-          "z": -29.0,
-          "hx": 0.25,
-          "hz": 43.0,
-          "name": "COL_BOX_FLOOR_3_OUTER_WALL_50",
-          "minY": 10.0,
-          "maxY": 15.6
-        },
-        {
-          "x": 0.0,
-          "z": -78.0,
-          "hx": 50.0,
-          "hz": 0.25,
-          "name": "COL_BOX_FLOOR_3_NORTH_WALL",
-          "minY": 10.0,
-          "maxY": 15.6
-        },
-        {
-          "x": 0.0,
-          "z": 20.0,
-          "hx": 50.0,
-          "hz": 0.25,
-          "name": "COL_BOX_FLOOR_3_SOUTH_WALL",
-          "minY": 10.0,
-          "maxY": 15.6
         }
       ],
       "sockets": {
@@ -2480,438 +1379,6 @@
           "h": 15.0
         },
         {
-          "x": -41.35,
-          "z": -50.0,
-          "hx": 3.65,
-          "hz": 0.225,
-          "name": "COL_BOX_FLOOR_4_NORTH_ROOM_FRONT_-36_L",
-          "minY": 15.0,
-          "maxY": 20.2
-        },
-        {
-          "x": -30.65,
-          "z": -50.0,
-          "hx": 3.65,
-          "hz": 0.225,
-          "name": "COL_BOX_FLOOR_4_NORTH_ROOM_FRONT_-36_R",
-          "minY": 15.0,
-          "maxY": 20.2
-        },
-        {
-          "x": -36.0,
-          "z": -72.0,
-          "hx": 9.0,
-          "hz": 0.25,
-          "name": "COL_BOX_FLOOR_4_NORTH_ROOM_BACK_-36",
-          "minY": 15.0,
-          "maxY": 20.2
-        },
-        {
-          "x": -45.0,
-          "z": -61.0,
-          "hx": 0.225,
-          "hz": 11.0,
-          "name": "COL_BOX_FLOOR_4_NORTH_ROOM_SIDE_L_-36",
-          "minY": 15.0,
-          "maxY": 20.2
-        },
-        {
-          "x": -27.0,
-          "z": -61.0,
-          "hx": 0.225,
-          "hz": 11.0,
-          "name": "COL_BOX_FLOOR_4_NORTH_ROOM_SIDE_R_-36",
-          "minY": 15.0,
-          "maxY": 20.2
-        },
-        {
-          "x": -23.35,
-          "z": -50.0,
-          "hx": 3.65,
-          "hz": 0.225,
-          "name": "COL_BOX_FLOOR_4_NORTH_ROOM_FRONT_-18_L",
-          "minY": 15.0,
-          "maxY": 20.2
-        },
-        {
-          "x": -12.65,
-          "z": -50.0,
-          "hx": 3.65,
-          "hz": 0.225,
-          "name": "COL_BOX_FLOOR_4_NORTH_ROOM_FRONT_-18_R",
-          "minY": 15.0,
-          "maxY": 20.2
-        },
-        {
-          "x": -18.0,
-          "z": -72.0,
-          "hx": 9.0,
-          "hz": 0.25,
-          "name": "COL_BOX_FLOOR_4_NORTH_ROOM_BACK_-18",
-          "minY": 15.0,
-          "maxY": 20.2
-        },
-        {
-          "x": -27.0,
-          "z": -61.0,
-          "hx": 0.225,
-          "hz": 11.0,
-          "name": "COL_BOX_FLOOR_4_NORTH_ROOM_SIDE_L_-18",
-          "minY": 15.0,
-          "maxY": 20.2
-        },
-        {
-          "x": -9.0,
-          "z": -61.0,
-          "hx": 0.225,
-          "hz": 11.0,
-          "name": "COL_BOX_FLOOR_4_NORTH_ROOM_SIDE_R_-18",
-          "minY": 15.0,
-          "maxY": 20.2
-        },
-        {
-          "x": 12.65,
-          "z": -50.0,
-          "hx": 3.65,
-          "hz": 0.225,
-          "name": "COL_BOX_FLOOR_4_NORTH_ROOM_FRONT_18_L",
-          "minY": 15.0,
-          "maxY": 20.2
-        },
-        {
-          "x": 23.35,
-          "z": -50.0,
-          "hx": 3.65,
-          "hz": 0.225,
-          "name": "COL_BOX_FLOOR_4_NORTH_ROOM_FRONT_18_R",
-          "minY": 15.0,
-          "maxY": 20.2
-        },
-        {
-          "x": 18.0,
-          "z": -72.0,
-          "hx": 9.0,
-          "hz": 0.25,
-          "name": "COL_BOX_FLOOR_4_NORTH_ROOM_BACK_18",
-          "minY": 15.0,
-          "maxY": 20.2
-        },
-        {
-          "x": 9.0,
-          "z": -61.0,
-          "hx": 0.225,
-          "hz": 11.0,
-          "name": "COL_BOX_FLOOR_4_NORTH_ROOM_SIDE_L_18",
-          "minY": 15.0,
-          "maxY": 20.2
-        },
-        {
-          "x": 27.0,
-          "z": -61.0,
-          "hx": 0.225,
-          "hz": 11.0,
-          "name": "COL_BOX_FLOOR_4_NORTH_ROOM_SIDE_R_18",
-          "minY": 15.0,
-          "maxY": 20.2
-        },
-        {
-          "x": 30.65,
-          "z": -50.0,
-          "hx": 3.65,
-          "hz": 0.225,
-          "name": "COL_BOX_FLOOR_4_NORTH_ROOM_FRONT_36_L",
-          "minY": 15.0,
-          "maxY": 20.2
-        },
-        {
-          "x": 41.35,
-          "z": -50.0,
-          "hx": 3.65,
-          "hz": 0.225,
-          "name": "COL_BOX_FLOOR_4_NORTH_ROOM_FRONT_36_R",
-          "minY": 15.0,
-          "maxY": 20.2
-        },
-        {
-          "x": 36.0,
-          "z": -72.0,
-          "hx": 9.0,
-          "hz": 0.25,
-          "name": "COL_BOX_FLOOR_4_NORTH_ROOM_BACK_36",
-          "minY": 15.0,
-          "maxY": 20.2
-        },
-        {
-          "x": 27.0,
-          "z": -61.0,
-          "hx": 0.225,
-          "hz": 11.0,
-          "name": "COL_BOX_FLOOR_4_NORTH_ROOM_SIDE_L_36",
-          "minY": 15.0,
-          "maxY": 20.2
-        },
-        {
-          "x": 45.0,
-          "z": -61.0,
-          "hx": 0.225,
-          "hz": 11.0,
-          "name": "COL_BOX_FLOOR_4_NORTH_ROOM_SIDE_R_36",
-          "minY": 15.0,
-          "maxY": 20.2
-        },
-        {
-          "x": -41.35,
-          "z": -2.0,
-          "hx": 3.65,
-          "hz": 0.225,
-          "name": "COL_BOX_FLOOR_4_SOUTH_ROOM_FRONT_-36_L",
-          "minY": 15.0,
-          "maxY": 20.2
-        },
-        {
-          "x": -30.65,
-          "z": -2.0,
-          "hx": 3.65,
-          "hz": 0.225,
-          "name": "COL_BOX_FLOOR_4_SOUTH_ROOM_FRONT_-36_R",
-          "minY": 15.0,
-          "maxY": 20.2
-        },
-        {
-          "x": -36.0,
-          "z": 18.0,
-          "hx": 9.0,
-          "hz": 0.25,
-          "name": "COL_BOX_FLOOR_4_SOUTH_ROOM_BACK_-36",
-          "minY": 15.0,
-          "maxY": 20.2
-        },
-        {
-          "x": -45.0,
-          "z": 8.0,
-          "hx": 0.225,
-          "hz": 10.0,
-          "name": "COL_BOX_FLOOR_4_SOUTH_ROOM_SIDE_L_-36",
-          "minY": 15.0,
-          "maxY": 20.2
-        },
-        {
-          "x": -27.0,
-          "z": 8.0,
-          "hx": 0.225,
-          "hz": 10.0,
-          "name": "COL_BOX_FLOOR_4_SOUTH_ROOM_SIDE_R_-36",
-          "minY": 15.0,
-          "maxY": 20.2
-        },
-        {
-          "x": -23.35,
-          "z": -2.0,
-          "hx": 3.65,
-          "hz": 0.225,
-          "name": "COL_BOX_FLOOR_4_SOUTH_ROOM_FRONT_-18_L",
-          "minY": 15.0,
-          "maxY": 20.2
-        },
-        {
-          "x": -12.65,
-          "z": -2.0,
-          "hx": 3.65,
-          "hz": 0.225,
-          "name": "COL_BOX_FLOOR_4_SOUTH_ROOM_FRONT_-18_R",
-          "minY": 15.0,
-          "maxY": 20.2
-        },
-        {
-          "x": -18.0,
-          "z": 18.0,
-          "hx": 9.0,
-          "hz": 0.25,
-          "name": "COL_BOX_FLOOR_4_SOUTH_ROOM_BACK_-18",
-          "minY": 15.0,
-          "maxY": 20.2
-        },
-        {
-          "x": -27.0,
-          "z": 8.0,
-          "hx": 0.225,
-          "hz": 10.0,
-          "name": "COL_BOX_FLOOR_4_SOUTH_ROOM_SIDE_L_-18",
-          "minY": 15.0,
-          "maxY": 20.2
-        },
-        {
-          "x": -9.0,
-          "z": 8.0,
-          "hx": 0.225,
-          "hz": 10.0,
-          "name": "COL_BOX_FLOOR_4_SOUTH_ROOM_SIDE_R_-18",
-          "minY": 15.0,
-          "maxY": 20.2
-        },
-        {
-          "x": 12.65,
-          "z": -2.0,
-          "hx": 3.65,
-          "hz": 0.225,
-          "name": "COL_BOX_FLOOR_4_SOUTH_ROOM_FRONT_18_L",
-          "minY": 15.0,
-          "maxY": 20.2
-        },
-        {
-          "x": 23.35,
-          "z": -2.0,
-          "hx": 3.65,
-          "hz": 0.225,
-          "name": "COL_BOX_FLOOR_4_SOUTH_ROOM_FRONT_18_R",
-          "minY": 15.0,
-          "maxY": 20.2
-        },
-        {
-          "x": 18.0,
-          "z": 18.0,
-          "hx": 9.0,
-          "hz": 0.25,
-          "name": "COL_BOX_FLOOR_4_SOUTH_ROOM_BACK_18",
-          "minY": 15.0,
-          "maxY": 20.2
-        },
-        {
-          "x": 9.0,
-          "z": 8.0,
-          "hx": 0.225,
-          "hz": 10.0,
-          "name": "COL_BOX_FLOOR_4_SOUTH_ROOM_SIDE_L_18",
-          "minY": 15.0,
-          "maxY": 20.2
-        },
-        {
-          "x": 27.0,
-          "z": 8.0,
-          "hx": 0.225,
-          "hz": 10.0,
-          "name": "COL_BOX_FLOOR_4_SOUTH_ROOM_SIDE_R_18",
-          "minY": 15.0,
-          "maxY": 20.2
-        },
-        {
-          "x": 30.65,
-          "z": -2.0,
-          "hx": 3.65,
-          "hz": 0.225,
-          "name": "COL_BOX_FLOOR_4_SOUTH_ROOM_FRONT_36_L",
-          "minY": 15.0,
-          "maxY": 20.2
-        },
-        {
-          "x": 41.35,
-          "z": -2.0,
-          "hx": 3.65,
-          "hz": 0.225,
-          "name": "COL_BOX_FLOOR_4_SOUTH_ROOM_FRONT_36_R",
-          "minY": 15.0,
-          "maxY": 20.2
-        },
-        {
-          "x": 36.0,
-          "z": 18.0,
-          "hx": 9.0,
-          "hz": 0.25,
-          "name": "COL_BOX_FLOOR_4_SOUTH_ROOM_BACK_36",
-          "minY": 15.0,
-          "maxY": 20.2
-        },
-        {
-          "x": 27.0,
-          "z": 8.0,
-          "hx": 0.225,
-          "hz": 10.0,
-          "name": "COL_BOX_FLOOR_4_SOUTH_ROOM_SIDE_L_36",
-          "minY": 15.0,
-          "maxY": 20.2
-        },
-        {
-          "x": 45.0,
-          "z": 8.0,
-          "hx": 0.225,
-          "hz": 10.0,
-          "name": "COL_BOX_FLOOR_4_SOUTH_ROOM_SIDE_R_36",
-          "minY": 15.0,
-          "maxY": 20.2
-        },
-        {
-          "x": 0.0,
-          "z": -48.0,
-          "hx": 14.0,
-          "hz": 0.225,
-          "name": "COL_BOX_FLOOR_4_ATRIUM_RAIL_N",
-          "minY": 15.0,
-          "maxY": 16.4
-        },
-        {
-          "x": 0.0,
-          "z": -10.0,
-          "hx": 14.0,
-          "hz": 0.225,
-          "name": "COL_BOX_FLOOR_4_ATRIUM_RAIL_S",
-          "minY": 15.0,
-          "maxY": 16.4
-        },
-        {
-          "x": -14.0,
-          "z": -29.0,
-          "hx": 0.225,
-          "hz": 19.0,
-          "name": "COL_BOX_FLOOR_4_ATRIUM_RAIL_W",
-          "minY": 15.0,
-          "maxY": 16.4
-        },
-        {
-          "x": 14.0,
-          "z": -29.0,
-          "hx": 0.225,
-          "hz": 19.0,
-          "name": "COL_BOX_FLOOR_4_ATRIUM_RAIL_E",
-          "minY": 15.0,
-          "maxY": 16.4
-        },
-        {
-          "x": -50.0,
-          "z": -29.0,
-          "hx": 0.25,
-          "hz": 43.0,
-          "name": "COL_BOX_FLOOR_4_OUTER_WALL_-50",
-          "minY": 15.0,
-          "maxY": 20.6
-        },
-        {
-          "x": 50.0,
-          "z": -29.0,
-          "hx": 0.25,
-          "hz": 43.0,
-          "name": "COL_BOX_FLOOR_4_OUTER_WALL_50",
-          "minY": 15.0,
-          "maxY": 20.6
-        },
-        {
-          "x": 0.0,
-          "z": -78.0,
-          "hx": 50.0,
-          "hz": 0.25,
-          "name": "COL_BOX_FLOOR_4_NORTH_WALL",
-          "minY": 15.0,
-          "maxY": 20.6
-        },
-        {
-          "x": 0.0,
-          "z": 20.0,
-          "hx": 50.0,
-          "hz": 0.25,
-          "name": "COL_BOX_FLOOR_4_SOUTH_WALL",
-          "minY": 15.0,
-          "maxY": 20.6
-        },
-        {
           "x": 42.0,
           "z": 12.0,
           "hx": 1.6,
@@ -2923,24 +1390,6 @@
           "h1": 20.0,
           "reverse": false,
           "surface": true
-        },
-        {
-          "x": 40.2,
-          "z": 12.0,
-          "hx": 0.175,
-          "hz": 8.0,
-          "name": "COL_BOX_ROOF_SECRET_RAIL_L",
-          "minY": 15.0,
-          "maxY": 21.0
-        },
-        {
-          "x": 43.8,
-          "z": 12.0,
-          "hx": 0.175,
-          "hz": 8.0,
-          "name": "COL_BOX_ROOF_SECRET_RAIL_R",
-          "minY": 15.0,
-          "maxY": 21.0
         }
       ],
       "sockets": {
@@ -3027,94 +1476,22 @@
           "h": 20.0
         },
         {
-          "x": 34.0,
+          "x": 22.4,
           "z": -29.0,
-          "hx": 8.0,
+          "hx": 19.55,
           "hz": 19.0,
           "name": "COL_SURFACE_ROOF_EAST",
           "surface": true,
           "h": 20.0
         },
         {
-          "x": 0.0,
-          "z": -48.0,
-          "hx": 14.0,
-          "hz": 0.225,
-          "name": "COL_BOX_ROOF_ATRIUM_RAIL_N",
-          "minY": 20.0,
-          "maxY": 21.4
-        },
-        {
-          "x": 0.0,
-          "z": -10.0,
-          "hx": 14.0,
-          "hz": 0.225,
-          "name": "COL_BOX_ROOF_ATRIUM_RAIL_S",
-          "minY": 20.0,
-          "maxY": 21.4
-        },
-        {
-          "x": -14.0,
-          "z": -29.0,
-          "hx": 0.225,
-          "hz": 19.0,
-          "name": "COL_BOX_ROOF_ATRIUM_RAIL_W",
-          "minY": 20.0,
-          "maxY": 21.4
-        },
-        {
-          "x": 14.0,
-          "z": -29.0,
-          "hx": 0.225,
-          "hz": 19.0,
-          "name": "COL_BOX_ROOF_ATRIUM_RAIL_E",
-          "minY": 20.0,
-          "maxY": 21.4
-        },
-        {
-          "x": 0.0,
-          "z": -78.0,
-          "hx": 50.0,
-          "hz": 0.35,
-          "name": "COL_BOX_ROOF_NORTH_PARAPET",
-          "minY": 20.0,
-          "maxY": 22.0
-        },
-        {
-          "x": -28.0,
-          "z": 20.0,
-          "hx": 22.0,
-          "hz": 0.35,
-          "name": "COL_BOX_ROOF_SOUTH_PARAPET_L",
-          "minY": 20.0,
-          "maxY": 22.0
-        },
-        {
-          "x": 28.0,
-          "z": 20.0,
-          "hx": 22.0,
-          "hz": 0.35,
-          "name": "COL_BOX_ROOF_SOUTH_PARAPET_R",
-          "minY": 20.0,
-          "maxY": 22.0
-        },
-        {
-          "x": -50.0,
-          "z": -29.0,
-          "hx": 0.35,
-          "hz": 49.0,
-          "name": "COL_BOX_ROOF_WEST_PARAPET",
-          "minY": 20.0,
-          "maxY": 22.0
-        },
-        {
-          "x": 50.0,
-          "z": -29.0,
-          "hx": 0.35,
-          "hz": 49.0,
-          "name": "COL_BOX_ROOF_EAST_PARAPET",
-          "minY": 20.0,
-          "maxY": 22.0
+          "x": 42.0,
+          "z": 19.2,
+          "hx": 2.2,
+          "hz": 1.1,
+          "name": "COL_SURFACE_ROOF_SECRET_HATCH",
+          "surface": true,
+          "h": 20.2
         }
       ],
       "sockets": {
@@ -3152,6 +1529,13 @@
           "x": 12.0,
           "y": 22.2,
           "z": -10.0
+        },
+        "SOCKET_ELEVATOR_LEVER_05": {
+          "x": 4.2,
+          "y": 21.0,
+          "z": -25.8,
+          "floorIndex": -1,
+          "role": "roof-call"
         }
       }
     }
@@ -3209,25 +1593,15 @@
         "x": 4.2,
         "y": 1.0,
         "z": -25.8,
-        "floorIndex": 0
+        "floorIndex": 0,
+        "role": "floor-call"
       },
       {
         "x": 4.2,
-        "y": 6.0,
+        "y": 21.0,
         "z": -25.8,
-        "floorIndex": 1
-      },
-      {
-        "x": 4.2,
-        "y": 11.0,
-        "z": -25.8,
-        "floorIndex": 2
-      },
-      {
-        "x": 4.2,
-        "y": 16.0,
-        "z": -25.8,
-        "floorIndex": 3
+        "floorIndex": -1,
+        "role": "roof-call"
       }
     ]
   },

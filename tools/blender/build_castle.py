@@ -792,6 +792,8 @@ def add_ring_floor(prefix, y, material, bevel=0.06):
         ("WEST", (-34, y, -29), (16, 0.32, 38)),
         ("EAST", (34, y, -29), (16, 0.32, 38)),
     ]
+    if prefix == "VIS_ROOF_WALK":
+        slabs[-1] = ("EAST", (22.4, y, -29), (39.1, 0.32, 38))
     for name, location, scale in slabs:
         add_box(f"{prefix}_{name}", location, scale, material, bevel)
 
@@ -952,7 +954,7 @@ def build_atrium():
     add_spiral_stair_visual("VIS_ATRIUM_SPIRAL_STAIR", m)
     for y, label in ((0, "L1"), (5, "L2"), (10, "L3"), (15, "L4")):
         add_atrium_guardrails(f"VIS_ATRIUM_{label}", y, m["stone_light"])
-        add_elevator_lever(int(y / 5) + 1, y, m["stone_light"], m["metal"])
+    add_elevator_lever(1, 0, m["stone_light"], m["metal"])
     for x in (-50, 50):
         for z in (-60, -38, -18, 6):
             add_box(f"VIS_ATRIUM_PERIMETER_PIER_{x}_{z}", (x, 8.2, z), (0.8, 16.4, 1.1), m["stone_light"], 0.08)
@@ -1029,6 +1031,7 @@ def build_roof():
     y = 20
     add_ring_floor("VIS_ROOF_WALK", y - 0.16, m["stone_dark"], 0.08)
     add_atrium_guardrails("VIS_ROOF", y, m["stone_light"])
+    add_elevator_lever(5, y, m["stone_light"], m["metal"])
     add_box("VIS_ROOF_NORTH_PARAPET", (0, y + 0.8, -78), (100, 1.6, 0.7), m["stone_light"], 0.06)
     add_box("VIS_ROOF_SOUTH_PARAPET", (0, y + 0.8, 20), (100, 1.6, 0.7), m["stone_light"], 0.06)
     add_box("VIS_ROOF_WEST_PARAPET", (-50, y + 0.8, -29), (0.7, 1.6, 98), m["stone_light"], 0.06)
@@ -1047,7 +1050,11 @@ def build_roof():
 
 def add_roof_collision():
     y = 20
-    add_ring_floor_collision("ROOF", y)
+    add_collision_box("COL_SURFACE_ROOF_NORTH", (0, y - 0.12, -60), (84, 0.24, 24), surface=True, h=y)
+    add_collision_box("COL_SURFACE_ROOF_SOUTH", (0, y - 0.12, 2), (84, 0.24, 24), surface=True, h=y)
+    add_collision_box("COL_SURFACE_ROOF_WEST", (-34, y - 0.12, -29), (16, 0.24, 38), surface=True, h=y)
+    add_collision_box("COL_SURFACE_ROOF_EAST", (22.4, y - 0.12, -29), (39.1, 0.24, 38), surface=True, h=y)
+    add_collision_box("COL_SURFACE_ROOF_SECRET_HATCH", (42, y + 0.1, 19.2), (4.4, 0.2, 2.2), surface=True, h=y + 0.2)
     add_atrium_guardrail_collision("ROOF", y)
     add_collision_box("COL_BOX_ROOF_NORTH_PARAPET", (0, y + 0.8, -78), (100, 1.6, 0.7), min_y=y, max_y=y + 2)
     add_collision_box("COL_BOX_ROOF_SOUTH_PARAPET_L", (-28, y + 0.8, 20), (44, 1.6, 0.7), min_y=y, max_y=y + 2)
@@ -1353,8 +1360,13 @@ def export_manifest():
                 manifest["roofExit"] = socket
     manifest["elevator"]["stops"].sort(key=lambda stop: stop["y"])
     manifest["elevator"]["levers"].sort(key=lambda lever: lever["y"])
-    for index, lever in enumerate(manifest["elevator"]["levers"]):
-        lever["floorIndex"] = index
+    for lever in manifest["elevator"]["levers"]:
+        if lever["y"] >= 20:
+            lever["role"] = "roof-call"
+            lever["floorIndex"] = -1
+        else:
+            lever["role"] = "floor-call"
+            lever["floorIndex"] = 0
     MANIFEST.parent.mkdir(parents=True, exist_ok=True)
     MANIFEST.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
     print(f"Exported {MANIFEST}")

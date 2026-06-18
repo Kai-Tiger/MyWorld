@@ -1,8 +1,9 @@
 import * as THREE from 'three'
+import elementFlaskImage from '../assets/img/element.png?url'
 
 /**
  * createUI
- * 创建游戏 HUD：左上角信息面板 + 移动端虚拟方向键。
+ * 创建游戏 HUD：左上角信息面板。
  * 返回 { update(player) } 供主循环调用。
  */
 export function createUI(container, handlers = {}) {
@@ -17,11 +18,46 @@ export function createUI(container, handlers = {}) {
   `
   container.appendChild(sceneFade)
 
+  const deathMessage = document.createElement('div')
+  deathMessage.id = 'death-message'
+  deathMessage.textContent = 'YOU DIED'
+  deathMessage.style.display = 'none'
+  container.appendChild(deathMessage)
+
+  const areaTitle = document.createElement('div')
+  areaTitle.id = 'area-title'
+  areaTitle.style.display = 'none'
+  container.appendChild(areaTitle)
+
+  const vitals = document.createElement('div')
+  vitals.id = 'souls-vitals'
+  vitals.innerHTML = `
+    <div id="souls-vitals-emblem"></div>
+    <div id="souls-vitals-bars">
+      <div id="souls-hp-wrap" aria-label="玩家生命值">
+        <div id="souls-hp-back"></div>
+        <div id="souls-hp-fill"></div>
+        <div id="souls-hp-shine"></div>
+      </div>
+      <div id="souls-mp-wrap" aria-label="玩家法力值">
+        <div id="souls-mp-back"></div>
+        <div id="souls-mp-fill"></div>
+        <div id="souls-mp-shine"></div>
+      </div>
+      <div id="souls-stamina-wrap" aria-label="玩家精力值">
+        <div id="souls-stamina-back"></div>
+        <div id="souls-stamina-fill"></div>
+        <div id="souls-stamina-shine"></div>
+      </div>
+    </div>
+  `
+  container.appendChild(vitals)
+
   // ── 信息面板 ──────────────────────────────────────
   const hud = document.createElement('div')
   hud.style.cssText = `
     position: absolute;
-    top: 12px; left: 12px;
+    top: 82px; left: 12px;
     color: #e8f4e8;
     font-size: 12px;
     font-family: monospace;
@@ -38,51 +74,208 @@ export function createUI(container, handlers = {}) {
     <div><span style="color:#8bd3ff">Q</span> 锁定目标</div>
     <div id="hud-pos">位置: (0, 0)</div>
     <div id="hud-spd">速度: 0.00</div>
-    <div id="hud-combat">HP: 100/100  ATK: 20</div>
+    <div id="hud-combat">ATK: 20</div>
     <div id="hud-lock">LOCK: OFF</div>
   `
   container.appendChild(hud)
 
-  // ── 虚拟方向键（移动端）──────────────────────────
-  const dpad = document.createElement('div')
-  dpad.style.cssText = `
-    position: absolute;
-    bottom: 20px; left: 50%;
-    transform: translateX(-50%);
-    display: grid;
-    grid-template-columns: repeat(3, 44px);
-    grid-template-rows: repeat(2, 44px);
-    gap: 5px;
-  `
-  dpad.innerHTML = `
-    <div></div>
-    <button class="dpad-btn" data-action="up"    style="grid-column:2">↑</button>
-    <div></div>
-    <button class="dpad-btn" data-action="left"  style="grid-column:1">←</button>
-    <button class="dpad-btn" data-action="down"  style="grid-column:2">↓</button>
-    <button class="dpad-btn" data-action="right" style="grid-column:3">→</button>
-  `
-  container.appendChild(dpad)
-
   // 按钮样式
   const style = document.createElement('style')
   style.textContent = `
-    .dpad-btn {
-      width: 44px; height: 44px;
-      background: rgba(255,255,255,0.12);
-      border: 1px solid rgba(255,255,255,0.25);
-      border-radius: 10px;
-      color: white;
-      font-size: 18px;
-      cursor: pointer;
-      user-select: none;
-      touch-action: none;
-      transition: background 0.1s, border-color 0.1s;
-      display: flex; align-items: center; justify-content: center;
+    #souls-vitals {
+      position: absolute;
+      top: 14px;
+      left: 16px;
+      z-index: 45;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      pointer-events: none;
+      filter: drop-shadow(0 3px 8px rgba(0,0,0,0.82));
     }
-    .dpad-btn.active {
-      background: rgba(126,200,126,0.4);
-      border-color: #7ec87e;
+    #souls-vitals-emblem {
+      width: 44px;
+      height: 44px;
+      border-radius: 50%;
+      border: 2px solid rgba(168,139,83,0.92);
+      background:
+        radial-gradient(circle at 42% 38%, rgba(245,211,123,0.72), rgba(92,58,26,0.38) 28%, rgba(12,10,8,0.96) 66%),
+        linear-gradient(145deg, rgba(42,30,18,0.95), rgba(8,7,6,0.98));
+      box-shadow:
+        inset 0 0 0 2px rgba(0,0,0,0.72),
+        inset 0 0 14px rgba(220,152,55,0.22),
+        0 0 0 1px rgba(0,0,0,0.88);
+    }
+    #souls-vitals-bars {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      width: min(340px, calc(100vw - 96px));
+    }
+    #souls-hp-wrap {
+      position: relative;
+      width: 100%;
+      height: 18px;
+      border: 1px solid rgba(181,153,96,0.82);
+      border-radius: 2px;
+      overflow: hidden;
+      background:
+        linear-gradient(180deg, rgba(30,22,17,0.98), rgba(7,6,5,0.98));
+      box-shadow:
+        inset 0 0 0 1px rgba(0,0,0,0.78),
+        inset 0 0 10px rgba(0,0,0,0.94);
+    }
+    #souls-mp-wrap {
+      position: relative;
+      width: 72%;
+      height: 8px;
+      border: 1px solid rgba(126,154,205,0.78);
+      border-radius: 2px;
+      overflow: hidden;
+      background:
+        linear-gradient(180deg, rgba(18,24,36,0.98), rgba(5,7,12,0.98));
+      box-shadow:
+        inset 0 0 0 1px rgba(0,0,0,0.78),
+        inset 0 0 8px rgba(0,0,0,0.88);
+    }
+    #souls-stamina-wrap {
+      position: relative;
+      width: 82%;
+      height: 8px;
+      border: 1px solid rgba(120,176,104,0.78);
+      border-radius: 2px;
+      overflow: hidden;
+      background:
+        linear-gradient(180deg, rgba(19,32,20,0.98), rgba(6,11,7,0.98));
+      box-shadow:
+        inset 0 0 0 1px rgba(0,0,0,0.78),
+        inset 0 0 8px rgba(0,0,0,0.88);
+    }
+    #souls-hp-back,
+    #souls-hp-fill,
+    #souls-hp-shine,
+    #souls-mp-back,
+    #souls-mp-fill,
+    #souls-mp-shine,
+    #souls-stamina-back,
+    #souls-stamina-fill,
+    #souls-stamina-shine {
+      position: absolute;
+      inset: 0;
+      transform-origin: left center;
+    }
+    #souls-hp-back {
+      background: linear-gradient(90deg, #5b1912, #3b0d0a);
+      transform: scaleX(1);
+      opacity: 0.9;
+    }
+    #souls-hp-fill {
+      background:
+        linear-gradient(180deg, rgba(255,173,135,0.35), rgba(255,255,255,0) 42%),
+        linear-gradient(90deg, #a71510, #d73825 52%, #8d120d);
+      transform: scaleX(1);
+      transition: transform 0.16s ease-out;
+      box-shadow:
+        inset 0 1px 0 rgba(255,230,190,0.38),
+        inset 0 -4px 8px rgba(52,0,0,0.42);
+    }
+    #souls-mp-back {
+      background: linear-gradient(90deg, #122642, #091325);
+      transform: scaleX(1);
+      opacity: 0.92;
+    }
+    #souls-mp-fill {
+      background:
+        linear-gradient(180deg, rgba(199,227,255,0.38), rgba(255,255,255,0) 48%),
+        linear-gradient(90deg, #1d5ca7, #4a9cff 54%, #1a4b90);
+      transform: scaleX(1);
+      transition: transform 0.16s ease-out;
+      box-shadow:
+        inset 0 1px 0 rgba(225,245,255,0.42),
+        inset 0 -3px 6px rgba(0,12,40,0.5);
+    }
+    #souls-stamina-back {
+      background: linear-gradient(90deg, #183719, #0b1b0c);
+      transform: scaleX(1);
+      opacity: 0.92;
+    }
+    #souls-stamina-fill {
+      background:
+        linear-gradient(180deg, rgba(214,255,188,0.34), rgba(255,255,255,0) 48%),
+        linear-gradient(90deg, #3d8b33, #78c45f 54%, #2d7029);
+      transform: scaleX(1);
+      transition: transform 0.16s ease-out;
+      box-shadow:
+        inset 0 1px 0 rgba(230,255,205,0.4),
+        inset 0 -3px 6px rgba(0,34,8,0.5);
+    }
+    #souls-hp-shine {
+      height: 1px;
+      top: 2px;
+      bottom: auto;
+      background: linear-gradient(90deg, rgba(255,238,198,0), rgba(255,238,198,0.55), rgba(255,238,198,0));
+      opacity: 0.62;
+    }
+    #souls-mp-shine {
+      height: 1px;
+      top: 1px;
+      bottom: auto;
+      background: linear-gradient(90deg, rgba(190,225,255,0), rgba(190,225,255,0.58), rgba(190,225,255,0));
+      opacity: 0.58;
+    }
+    #souls-stamina-shine {
+      height: 1px;
+      top: 1px;
+      bottom: auto;
+      background: linear-gradient(90deg, rgba(210,255,185,0), rgba(210,255,185,0.58), rgba(210,255,185,0));
+      opacity: 0.58;
+    }
+    #death-message {
+      position: absolute;
+      inset: 0;
+      z-index: 1001;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      pointer-events: none;
+      color: #8e1410;
+      font-family: Georgia, 'Times New Roman', serif;
+      font-size: clamp(46px, 8vw, 104px);
+      font-weight: 400;
+      letter-spacing: 0.08em;
+      text-shadow:
+        0 2px 0 rgba(0,0,0,0.95),
+        0 0 18px rgba(80,0,0,0.72);
+    }
+    #area-title {
+      position: absolute;
+      inset: 0;
+      z-index: 900;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      pointer-events: none;
+      color: rgba(226,221,205,0.96);
+      font-family: Georgia, 'Times New Roman', serif;
+      font-size: clamp(34px, 5.2vw, 72px);
+      font-weight: 400;
+      letter-spacing: 0.16em;
+      text-indent: 0.16em;
+      text-shadow:
+        0 2px 3px rgba(0,0,0,0.95),
+        0 0 20px rgba(0,0,0,0.72),
+        0 0 34px rgba(190,175,135,0.22);
+      opacity: 0;
+    }
+    #area-title.area-title-visible {
+      display: flex;
+      animation: area-title-fade 4s ease-in-out forwards;
+    }
+    @keyframes area-title-fade {
+      0% { opacity: 0; transform: translateY(10px); }
+      20% { opacity: 1; transform: translateY(0); }
+      70% { opacity: 1; transform: translateY(0); }
+      100% { opacity: 0; transform: translateY(-6px); }
     }
   `
   document.head.appendChild(style)
@@ -471,7 +664,7 @@ export function createUI(container, handlers = {}) {
       left: 110%;
       opacity: 1;
     }
-    .equipment-slot > span {
+    .equipment-slot > span:not(.equipment-slot-count) {
       position: relative;
       z-index: 1;
       transform: rotate(-45deg);
@@ -518,6 +711,25 @@ export function createUI(container, handlers = {}) {
       line-height: 1;
       transform: rotate(-45deg);
       text-shadow: 0 1px 2px rgba(0,0,0,0.9);
+    }
+    .equipment-slot-count {
+      position: absolute;
+      right: 5px; bottom: 7px;
+      min-width: 24px;
+      padding: 2px 5px 1px;
+      border: 1px solid rgba(255,227,160,0.48);
+      border-radius: 999px;
+      background: rgba(8,7,6,0.84);
+      color: #ffe3a0;
+      font-size: 11px;
+      line-height: 1;
+      text-align: center;
+      transform: rotate(-45deg);
+      text-shadow: 0 1px 2px rgba(0,0,0,0.95);
+      box-shadow:
+        inset 0 0 0 1px rgba(0,0,0,0.46),
+        0 2px 6px rgba(0,0,0,0.72);
+      pointer-events: none;
     }
     .equipment-slot-top {
       top: 0; left: 69px;
@@ -857,6 +1069,7 @@ export function createUI(container, handlers = {}) {
     <button class="equipment-slot equipment-slot-bottom" data-equipment-slot="item" data-clickable="true" type="button">
       <span class="equipment-slot-icon"></span>
       <span class="equipment-slot-name">背包</span>
+      <span class="equipment-slot-count" aria-hidden="true"></span>
     </button>
   `
   container.appendChild(equipmentBar)
@@ -938,6 +1151,10 @@ export function createUI(container, handlers = {}) {
       name: '锤子',
       image: '/icons/equipment/hammer.png',
     },
+    estusFlask: {
+      name: '元素瓶',
+      image: elementFlaskImage,
+    },
     bag: {
       name: '背包',
       image: equipmentImage(`
@@ -978,7 +1195,7 @@ export function createUI(container, handlers = {}) {
     bagPanel = null
   }
 
-  function updateEquipmentSlot(slot, itemId) {
+  function updateEquipmentSlot(slot, itemId, count = null) {
     const slotEl = equipmentBar.querySelector(`[data-equipment-slot="${slot}"]`)
     const label = equipmentLabels[itemId] ?? equipmentLabels.bag
     if (!slotEl) return
@@ -992,6 +1209,12 @@ export function createUI(container, handlers = {}) {
     slotEl.querySelector('.equipment-slot-name').textContent = label.name
     slotEl.setAttribute('aria-label', label.name)
     slotEl.title = label.name
+    const countEl = slotEl.querySelector('.equipment-slot-count')
+    if (countEl) {
+      const visible = count !== null && count !== undefined
+      countEl.textContent = visible ? `×${count}` : ''
+      countEl.style.display = visible ? '' : 'none'
+    }
   }
 
   equipmentBar.querySelector('[data-equipment-slot="weapon"]').addEventListener('click', () => {
@@ -1006,7 +1229,7 @@ export function createUI(container, handlers = {}) {
       bagPanel.innerHTML = `<h4>背包</h4><div id="bag-empty">空空如也</div>`
     } else {
       const rows = bagItems.map(({ name, count }) =>
-        `<div class="bag-item"><span>🍎 ${name}</span><span class="bag-count">×${count}</span></div>`
+        `<div class="bag-item"><span>${name === '元素瓶' ? '🧪' : '🍎'} ${name}</span><span class="bag-count">×${count}</span></div>`
       ).join('')
       bagPanel.innerHTML = `<h4>背包</h4>${rows}`
     }
@@ -1016,7 +1239,7 @@ export function createUI(container, handlers = {}) {
     updateEquipmentSlot('spell', state.spell ?? 'fireball')
     updateEquipmentSlot('shield', state.shield ?? 'shield')
     updateEquipmentSlot('weapon', state.weapon ?? 'sword')
-    updateEquipmentSlot('item', state.item ?? 'bag')
+    updateEquipmentSlot('item', state.item ?? 'estusFlask', state.itemCount)
   }
   updateEquipmentState()
 
@@ -1143,14 +1366,48 @@ export function createUI(container, handlers = {}) {
   const spdEl = hud.querySelector('#hud-spd')
   const combatEl = hud.querySelector('#hud-combat')
   const lockEl = hud.querySelector('#hud-lock')
+  const hpWrapEl = vitals.querySelector('#souls-hp-wrap')
+  const hpFillEl = vitals.querySelector('#souls-hp-fill')
+  const mpWrapEl = vitals.querySelector('#souls-mp-wrap')
+  const mpFillEl = vitals.querySelector('#souls-mp-fill')
+  const staminaWrapEl = vitals.querySelector('#souls-stamina-wrap')
+  const staminaFillEl = vitals.querySelector('#souls-stamina-fill')
+  let areaTitleTimer = null
+
+  function updateVitals(player) {
+    if (!player.getHp || !player.getMaxHp) return
+    const maxHp = Math.max(1, player.getMaxHp())
+    const hp = Math.min(maxHp, Math.max(0, player.getHp()))
+    const ratio = hp / maxHp
+    hpFillEl.style.transform = `scaleX(${ratio.toFixed(4)})`
+    hpWrapEl.setAttribute('aria-label', `玩家生命值 ${Math.round(hp)} / ${Math.round(maxHp)}`)
+    hpWrapEl.title = `${Math.round(hp)} / ${Math.round(maxHp)}`
+
+    if (!player.getMp || !player.getMaxMp) return
+    const maxMp = Math.max(1, player.getMaxMp())
+    const mp = Math.min(maxMp, Math.max(0, player.getMp()))
+    const mpRatio = mp / maxMp
+    mpFillEl.style.transform = `scaleX(${mpRatio.toFixed(4)})`
+    mpWrapEl.setAttribute('aria-label', `玩家法力值 ${Math.round(mp)} / ${Math.round(maxMp)}`)
+    mpWrapEl.title = `${Math.round(mp)} / ${Math.round(maxMp)}`
+
+    if (!player.getStamina || !player.getMaxStamina) return
+    const maxStamina = Math.max(1, player.getMaxStamina())
+    const stamina = Math.min(maxStamina, Math.max(0, player.getStamina()))
+    const staminaRatio = stamina / maxStamina
+    staminaFillEl.style.transform = `scaleX(${staminaRatio.toFixed(4)})`
+    staminaWrapEl.setAttribute('aria-label', `玩家精力值 ${Math.round(stamina)} / ${Math.round(maxStamina)}`)
+    staminaWrapEl.title = `${Math.round(stamina)} / ${Math.round(maxStamina)}`
+  }
 
   return {
     update(player, sunPhase) {
       const pos = player.getPosition()
       posEl.textContent = `位置: (${pos.x.toFixed(1)}, ${pos.z.toFixed(1)})`
       spdEl.textContent = `速度: ${player.getSpeed().toFixed(2)}`
+      updateVitals(player)
       if (player.getHp && player.getMaxHp && player.getAtk) {
-        combatEl.textContent = `HP: ${Math.round(player.getHp())}/${player.getMaxHp()}  ATK: ${player.getAtk()}`
+        combatEl.textContent = `ATK: ${player.getAtk()}`
       }
       if (sunPhase !== undefined) drawSunDial(sunPhase)
     },
@@ -1244,9 +1501,35 @@ export function createUI(container, handlers = {}) {
       sceneFade.style.opacity = Math.min(1, Math.max(0, opacity)).toFixed(3)
     },
 
+    showDeathMessage() {
+      deathMessage.style.display = 'flex'
+    },
+
+    hideDeathMessage() {
+      deathMessage.style.display = 'none'
+    },
+
+    showAreaTitle(name) {
+      if (!name) return
+      if (areaTitleTimer) {
+        clearTimeout(areaTitleTimer)
+        areaTitleTimer = null
+      }
+      areaTitle.textContent = name
+      areaTitle.style.display = 'flex'
+      areaTitle.classList.remove('area-title-visible')
+      void areaTitle.offsetWidth
+      areaTitle.classList.add('area-title-visible')
+      areaTitleTimer = window.setTimeout(() => {
+        areaTitle.classList.remove('area-title-visible')
+        areaTitle.style.display = 'none'
+        areaTitleTimer = null
+      }, 4100)
+    },
+
     setTransitionUiVisible(visible) {
-      hud.style.display = visible ? '' : 'none'
-      dpad.style.display = visible ? '' : 'none'
+      vitals.style.display = ''
+      hud.style.display = ''
       equipmentBar.style.display = visible ? '' : 'none'
       if (!visible) {
         closeBagPanel()
@@ -1295,8 +1578,8 @@ export function createUI(container, handlers = {}) {
         exitBtn.id = 'exit-btn'
         container.appendChild(exitBtn)
         exitBtn.addEventListener('click', onExit)
-        hud.style.display = 'none'
-        dpad.style.display = 'none'
+        vitals.style.display = ''
+        hud.style.display = ''
         equipmentBar.style.display = 'none'
         closeBagPanel()
       }
@@ -1314,8 +1597,8 @@ export function createUI(container, handlers = {}) {
         exitBtn.remove()
         exitBtn = null
       }
+      vitals.style.display = ''
       hud.style.display = ''
-      dpad.style.display = ''
       equipmentBar.style.display = ''
     },
 
@@ -1360,8 +1643,8 @@ export function createUI(container, handlers = {}) {
       leaveBtn.onclick = handlers.onLeave
 
       positionAtCharacterUpperRight(bonfireMenu, worldPos, camera, renderer)
-      hud.style.display = 'none'
-      dpad.style.display = 'none'
+      vitals.style.display = ''
+      hud.style.display = ''
       equipmentBar.style.display = 'none'
       closeBagPanel()
     },
@@ -1372,8 +1655,8 @@ export function createUI(container, handlers = {}) {
         bonfireMenu = null
       }
       if (restoreHud) {
+        vitals.style.display = ''
         hud.style.display = ''
-        dpad.style.display = ''
         equipmentBar.style.display = ''
       }
     },
@@ -1439,8 +1722,8 @@ export function createUI(container, handlers = {}) {
         onEnd?.()
       })
       renderLine()
-      hud.style.display = 'none'
-      dpad.style.display = 'none'
+      vitals.style.display = ''
+      hud.style.display = ''
       equipmentBar.style.display = 'none'
       closeBagPanel()
     },
@@ -1475,8 +1758,8 @@ export function createUI(container, handlers = {}) {
         dialoguePanel.remove()
         dialoguePanel = null
       }
+      vitals.style.display = ''
       hud.style.display = ''
-      dpad.style.display = ''
       equipmentBar.style.display = ''
     },
 
@@ -1556,8 +1839,8 @@ export function createUI(container, handlers = {}) {
       }
       container.appendChild(fishResultEl)
       fishResultEl.querySelector('button').addEventListener('click', onClose)
-      hud.style.display = 'none'
-      dpad.style.display = 'none'
+      vitals.style.display = ''
+      hud.style.display = ''
       equipmentBar.style.display = 'none'
       closeBagPanel()
     },
@@ -1567,8 +1850,8 @@ export function createUI(container, handlers = {}) {
         fishResultEl.remove()
         fishResultEl = null
       }
+      vitals.style.display = ''
       hud.style.display = ''
-      dpad.style.display = ''
       equipmentBar.style.display = ''
     },
   }

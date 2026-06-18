@@ -11,7 +11,7 @@ export class ThirdPersonCameraController {
     fov = 62,
     near = 0.1,
     far = 260,
-    distance = 5.2,
+    distance = 4.7,
     minDistance = 3.2,
     maxDistance = 7.5,
     pitch = 0.3316,
@@ -80,13 +80,20 @@ export class ThirdPersonCameraController {
     domElement.addEventListener('contextmenu', this._onContextMenu)
   }
 
+  _getEffectiveDistance() {
+    if (this.pitch >= 0) return this.distance
+    const t = THREE.MathUtils.clamp(this.pitch / this.minPitch, 0, 1)
+    return Math.max(2.8, this.distance * (1 - t * 0.42))
+  }
+
   _desiredPosition(targetPos, out) {
     const cp = Math.cos(this.pitch)
+    const distance = this._getEffectiveDistance()
     _tmpOffset.set(
       Math.sin(this.yaw) * cp,
       Math.sin(this.pitch),
       Math.cos(this.yaw) * cp,
-    ).multiplyScalar(this.distance)
+    ).multiplyScalar(distance)
     out.copy(targetPos).add(this.targetOffset).add(_tmpOffset)
     return out
   }

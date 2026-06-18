@@ -1,7 +1,6 @@
 import * as THREE from 'three'
-import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js'
-import { FBXLoader } from 'three/addons/loaders/FBXLoader.js'
 import { hills as hillDefs } from '../config/world.js'
+import { cloneFBX, cloneGLTFScene } from '../systems/modelAssets.js'
 
 const _rayDown = new THREE.Raycaster()
 _rayDown.ray.direction.set(0, -1, 0)
@@ -12,11 +11,8 @@ let _terrainMesh = null
 const STEP_H = 0.2
 const RADII  = [4.5, 3.0, 1.8]  // outer → inner visual radii
 
-const loader = new GLTFLoader()
-
 function place(scene, path, x, y, z, rotY, scale) {
-  loader.load(path, (gltf) => {
-    const mesh = gltf.scene
+  cloneGLTFScene(path).then((mesh) => {
     mesh.position.set(x, y, z)
     mesh.rotation.y = rotY
     mesh.scale.setScalar(scale)
@@ -24,6 +20,8 @@ function place(scene, path, x, y, z, rotY, scale) {
       if (c.isMesh) { c.castShadow = true; c.receiveShadow = true }
     })
     scene.add(mesh)
+  }).catch((error) => {
+    console.warn(`Terrain decoration model failed: ${path}`, error)
   })
 }
 
@@ -43,13 +41,11 @@ const DECORATIONS = [
   [ 36,  -6, '/models/terrain/stone-rocks.glb',  Math.PI * 0.3,  3.5],
 ]
 
-const fbxLoader = new FBXLoader()
-
 export function createTerrain(scene) {
   const collidables = []
 
   // 大水池地形 FBX
-  fbxLoader.load('/models/terrain.fbx', (fbx) => {
+  cloneFBX('/models/terrain.fbx').then((fbx) => {
     fbx.scale.setScalar(0.01)
     fbx.position.set(-52, 0, -8)
     const _tLights = []
@@ -75,6 +71,8 @@ export function createTerrain(scene) {
         }
       }
     }
+  }).catch((error) => {
+    console.warn('Terrain FBX failed', error)
   })
 
   // Hills: visual model + concentric circle collidables for step-up mechanic

@@ -37,7 +37,7 @@ export const rocks = [
 // ── 火堆 [x, z] ──────────────────────────────────────
 export const campfires = [
   [  2,  -2],
-  [ 10, -18],
+  [ 19, -66],
   [-18,  -2],
   [ 22,  22],
 ]
@@ -55,4 +55,10 @@ export const hills = [
 export const enemyNpcs = [
   { x: -20.2, z: -4.0, rotY: Math.PI * 0.35, name: '篝火巡守', model: 'e1' },
   { x: -15.8, z: -2.4, rotY: -Math.PI * 0.65, name: '篝火伏击者', model: 'e2' },
+  { x: 37, z: 9, rotY: Math.PI, name: '巡逻敌人 e1', model: 'e1', patrol: [[37, 9], [30, -11]] },
+  { x: 55, z: 10, rotY: Math.PI, name: '巡逻敌人 e2', model: 'e2', patrol: [[55, 10], [57, -8]] },
+  { x: -40, z: 27, rotY: 0, name: '异乡敌人 e1', model: 'e1' },
+  { x: -52, z: -75, rotY: 0, name: '迷宫守卫 e1', model: 'e1' },
+  { x: -54, z: -73.5, rotY: Math.PI * 0.1, name: '迷宫守卫 e1-2', model: 'e1' },
+  { x: -50, z: -73.5, rotY: -Math.PI * 0.1, name: '迷宫守卫 e2', model: 'e2' },
 ]

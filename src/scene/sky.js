@@ -1,26 +1,26 @@
 import * as THREE from 'three'
-import { FBXLoader } from 'three/addons/loaders/FBXLoader.js'
+import { cloneFBX } from '../systems/modelAssets.js'
 
 // ── 天空色调关键帧（sunPhase: 0=黎明, π/2=正午, π=黄昏, 3π/2=午夜）────
 const SKY_KEYS = [
-  { t: 0,             hex: '#3E4854' }, // 黎明
-  { t: Math.PI * .18, hex: '#62645E' }, // 日出
-  { t: Math.PI * .35, hex: '#718089' }, // 上午
-  { t: Math.PI * .5,  hex: '#6C8494' }, // 正午
-  { t: Math.PI * .75, hex: '#6E7C80' }, // 下午
-  { t: Math.PI,       hex: '#5A4545' }, // 黄昏
-  { t: Math.PI * 1.2, hex: '#2A3140' }, // 入夜
-  { t: Math.PI * 1.5, hex: '#171D29' }, // 深夜
-  { t: Math.PI * 1.8, hex: '#242B3A' }, // 拂晓前
-  { t: Math.PI * 2,   hex: '#3E4854' }, // 回到黎明
+  { t: 0,             hex: '#B8BCC0' }, // 黎明
+  { t: Math.PI * .18, hex: '#C3C3BE' }, // 日出
+  { t: Math.PI * .35, hex: '#C7CDD0' }, // 上午
+  { t: Math.PI * .5,  hex: '#CFD5D7' }, // 正午
+  { t: Math.PI * .75, hex: '#C7CCCC' }, // 下午
+  { t: Math.PI,       hex: '#B9B4AF' }, // 黄昏
+  { t: Math.PI * 1.2, hex: '#8E949B' }, // 入夜
+  { t: Math.PI * 1.5, hex: '#767F8A' }, // 深夜
+  { t: Math.PI * 1.8, hex: '#9299A1' }, // 拂晓前
+  { t: Math.PI * 2,   hex: '#B8BCC0' }, // 回到黎明
 ]
 
 const _pal  = SKY_KEYS.map(k => ({ t: k.t, c: new THREE.Color(k.hex) }))
 const _tmpC = new THREE.Color()
 const _fogC = new THREE.Color()
-const _backgroundC = new THREE.Color(0x08090c)
-const _horizonTintC = new THREE.Color(0x5f463d)
-const _fogTargetC = new THREE.Color(0x2a2f38)
+const _backgroundC = new THREE.Color(0xc4c8c8)
+const _horizonTintC = new THREE.Color(0xd6d5cf)
+const _fogTargetC = new THREE.Color(0xaeb4ba)
 const _sunDir = new THREE.Vector3()
 const _moonDir = new THREE.Vector3()
 const _moonLocal = new THREE.Vector3()
@@ -35,8 +35,6 @@ function skyColorAt(phase) {
   return _pal[0].c
 }
 
-const _fbxLoader = new FBXLoader()
-
 function makeSkyDome(scene) {
   const geo = new THREE.SphereGeometry(180, 48, 24)
   const mat = new THREE.ShaderMaterial({
@@ -49,12 +47,12 @@ function makeSkyDome(scene) {
       uNightFactor:   { value: 0 },
       uSunDir:        { value: new THREE.Vector3(0, 1, 0) },
       uMoonDir:       { value: new THREE.Vector3(0, 1, 0) },
-      uZenithColor:   { value: new THREE.Color('#25313A') },
-      uMidColor:      { value: new THREE.Color('#485962') },
-      uHorizonColor:  { value: new THREE.Color('#7C6358') },
-      uStormColor:    { value: new THREE.Color('#242831') },
-      uCloudColor:    { value: new THREE.Color('#5A6161') },
-      uEmberColor:    { value: new THREE.Color('#8F3F2F') },
+      uZenithColor:   { value: new THREE.Color('#CFD4D6') },
+      uMidColor:      { value: new THREE.Color('#C4CACB') },
+      uHorizonColor:  { value: new THREE.Color('#D9D8D1') },
+      uStormColor:    { value: new THREE.Color('#9FA6AD') },
+      uCloudColor:    { value: new THREE.Color('#D2D4D1') },
+      uEmberColor:    { value: new THREE.Color('#D0BEB2') },
     },
     vertexShader: `
       varying vec3 vDir;
@@ -108,16 +106,25 @@ function makeSkyDome(scene) {
         return v;
       }
 
+      float skyFbm(vec3 p) {
+        vec3 w = abs(normalize(p));
+        w = max(w, vec3(0.0001));
+        w /= w.x + w.y + w.z;
+        float xy = fbm(p.xy);
+        float yz = fbm(p.yz + vec2(17.0, 31.0));
+        float zx = fbm(p.zx + vec2(47.0, 11.0));
+        return xy * w.z + yz * w.x + zx * w.y;
+      }
+
       void main() {
         vec3 dir = normalize(vDir);
         float skyY = clamp(dir.y * 0.5 + 0.5, 0.0, 1.0);
         float domeY = clamp(dir.y, 0.0, 1.0);
         float horizon = 1.0 - smoothstep(0.02, 0.42, abs(dir.y));
 
-        vec2 uv = vec2(atan(dir.z, dir.x) * 0.45, dir.y * 1.35);
-        vec2 wind = vec2(uTime * 0.008, -uTime * 0.002);
-        float broad = fbm(uv * 2.0 + wind);
-        float detail = fbm(uv * 7.5 + wind * 2.3 + vec2(broad));
+        vec3 wind = vec3(uTime * 0.008, -uTime * 0.002, uTime * 0.005);
+        float broad = skyFbm(dir * 2.4 + wind);
+        float detail = skyFbm(dir * 8.5 + wind * 2.3 + vec3(broad, -broad, broad * 0.5));
         float cloud = smoothstep(0.38, 0.69, broad * 0.76 + detail * 0.56);
         float cloudWeight = smoothstep(-0.12, 0.62, dir.y) * (1.0 - smoothstep(0.92, 1.0, dir.y));
 
@@ -141,10 +148,10 @@ function makeSkyDome(scene) {
 
         float grain = hash(gl_FragCoord.xy + uTime * 11.0) - 0.5;
         base += grain * 0.018;
-        base = mix(base, uStormColor * 0.70, uNightFactor * (1.0 - horizon) * 0.24);
-        base *= 1.0 - smoothstep(0.0, 1.0, domeY) * 0.10;
+        base = mix(base, uStormColor * 0.92, uNightFactor * (1.0 - horizon) * 0.12);
+        base *= 1.0 - smoothstep(0.0, 1.0, domeY) * 0.04;
 
-        gl_FragColor = vec4(max(base, vec3(0.0)), 1.0);
+        gl_FragColor = vec4(max(base * 1.08, vec3(0.0)), 1.0);
       }
     `,
   })
@@ -204,7 +211,7 @@ export function createSky(scene) {
     const speed = 0.7 + Math.random() * 0.9
     const rotY  = Math.random() * Math.PI * 2
     const entry = { mesh: null, speed }
-    _fbxLoader.load('/models/cloud.fbx', (fbx) => {
+    cloneFBX('/models/cloud.fbx').then((fbx) => {
       fbx.scale.setScalar(0.02)
       fbx.position.set(x, y, z)
       fbx.rotation.y = rotY
@@ -225,6 +232,8 @@ export function createSky(scene) {
       _cLights.forEach(l => l.removeFromParent())
       scene.add(fbx)
       entry.mesh = fbx
+    }).catch((error) => {
+      console.warn('Cloud model preload failed', error)
     })
     return entry
   })
@@ -290,7 +299,7 @@ export function createSky(scene) {
         scene.fog.color.copy(_fogC)
       }
 
-      // ── 云朵：只在透视模式（NPC 对话）下显示 ─────────
+      // ── 云朵：保留为可选层，默认隐藏 ─────────
       const cloudOpacity = THREE.MathUtils.lerp(0.62, 0.18, nightFactor)
       for (const { mesh, speed } of clouds) {
         if (!mesh) continue

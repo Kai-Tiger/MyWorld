@@ -13,6 +13,7 @@ import { createIndoorScene } from './scene/indoor.js'
 import { InteractionSystem } from './systems/interaction.js'
 import { createFishingRod } from './scene/fishingRod.js'
 import { InventorySystem } from './systems/inventory.js'
+import { EstusFlaskSystem } from './systems/estusFlask.js'
 import { enemyNpcs as enemyNpcConfigs } from './config/world.js'
 import { defaultMap } from './config/defaultMap.js'
 import { BALANCE } from './config/balance.js'
@@ -25,6 +26,7 @@ import { createCastleWorld } from './scene/castle.js'
 import { CASTLE_ENTRY_TRANSITION, CASTLE_EXTERIOR } from './config/castle.js'
 import { WORLD_HALF_SIZE } from './config/world.js'
 import { CASTLE_INDOOR_LIGHTING, OUTDOOR_LIGHTING } from './config/lighting.js'
+import { preloadRuntimeModels } from './systems/modelAssets.js'
 import npcF1Url from './characters/npc/f1.fbx?url'
 import npcF2Url from './characters/npc/f2.fbx?url'
 import enemyE1Url from './characters/enemy/e1.fbx?url'
@@ -43,6 +45,21 @@ renderer.toneMapping = THREE.ACESFilmicToneMapping
 renderer.toneMappingExposure = OUTDOOR_LIGHTING.exposure.initial
 renderer.outputColorSpace = THREE.SRGBColorSpace
 app.appendChild(renderer.domElement)
+
+const loadingOverlay = document.createElement('div')
+loadingOverlay.style.cssText = `
+  position:absolute; inset:0; z-index:2000;
+  display:flex; align-items:center; justify-content:center;
+  background:#050608; color:#d8d5c8;
+  font:14px monospace; pointer-events:none;
+`
+loadingOverlay.textContent = '加载模型 0%'
+app.appendChild(loadingOverlay)
+
+const preloadModelsPromise = preloadRuntimeModels(({ loaded, total }) => {
+  const pct = total > 0 ? Math.round(loaded / total * 100) : 100
+  loadingOverlay.textContent = `加载模型 ${pct}%`
+})
 
 // ── 搭建场景 ──────────────────────────────────────────
 const { scene, camera: editorCamera } = createScene()
@@ -119,6 +136,11 @@ function updateDayNightLighting(sunPhase) {
   }
 }
 // 优先加载存档，无存档时使用默认地图配置
+const INITIAL_CAMPFIRE_POSITION = { x: 0, z: 50 }
+const INITIAL_PLAYER_POSITION = { x: 0, z: 40 }
+const RELOCATED_SOUTH_CAMPFIRE_FROM = { x: 10, z: -18 }
+const RELOCATED_SOUTH_CAMPFIRE_TO = { x: 19, z: -66 }
+
 function isCastleApproachLayoutRock(rock) {
   if (!rock) return false
   const x = rock.x ?? 0
@@ -127,22 +149,50 @@ function isCastleApproachLayoutRock(rock) {
 }
 
 function filterCastleApproachLayout(layout) {
+  const campfires = (layout.campfires ?? []).map(fire => {
+    const dx = (fire.x ?? 0) - RELOCATED_SOUTH_CAMPFIRE_FROM.x
+    const dz = (fire.z ?? 0) - RELOCATED_SOUTH_CAMPFIRE_FROM.z
+    if (Math.hypot(dx, dz) < 2) return { ...fire, ...RELOCATED_SOUTH_CAMPFIRE_TO }
+    return fire
+  })
+  campfires[0] = { ...(campfires[0] ?? {}), ...INITIAL_CAMPFIRE_POSITION }
+
   return {
     ...layout,
     houses: [],
     rocks: (layout.rocks ?? []).filter(rock => !isCastleApproachLayoutRock(rock)),
+    campfires,
   }
 }
 
 const _savedLayoutJson = localStorage.getItem('mapLayout')
 const _layoutData = filterCastleApproachLayout(_savedLayoutJson ? JSON.parse(_savedLayoutJson) : defaultMap)
 let _activeLayout = _layoutData
-const { collidables, update: updateMap, getTerrainHeight } = createMap(scene)
+let resolveOutdoorStaticReady = null
+const outdoorStaticReadyPromise = new Promise(resolve => {
+  resolveOutdoorStaticReady = resolve
+})
+const { collidables, update: updateMap, getTerrainHeight } = createMap(scene, {
+  onStaticModelReady: (model) => {
+    resolveOutdoorStaticReady?.(model)
+    const compile = () => {
+      if (renderer.compileAsync) renderer.compileAsync(scene, gameCamera)
+      else renderer.compile(scene, gameCamera)
+    }
+    if ('requestIdleCallback' in window) window.requestIdleCallback(compile, { timeout: 1200 })
+    else window.setTimeout(compile, 0)
+  },
+})
 applyLayoutToScene(scene, _layoutData)
 
 // ── 创建玩家 ──────────────────────────────────────────
 const player = createPlayer(scene)
-const playerCollidable = { x: 0, z: 0, r: 0.4 }
+player.setPosition(
+  INITIAL_PLAYER_POSITION.x,
+  INITIAL_PLAYER_POSITION.z,
+  getTerrainHeight(INITIAL_PLAYER_POSITION.x, INITIAL_PLAYER_POSITION.z),
+)
+const playerCollidable = { x: INITIAL_PLAYER_POSITION.x, z: INITIAL_PLAYER_POSITION.z, r: 0.4 }
 setCameraIgnoreRecursive(player.getGroup(), true)
 thirdPerson.syncToTarget(player.getPosition())
 
@@ -158,6 +208,35 @@ let activeScene = 'outdoor'
 let _editor = null
 let _editorUi = null
 
+const AREA_TITLE_COOLDOWN_SECONDS = 90
+const AREA_DEFS = {
+  ruins: { name: '城外废墟' },
+  forest: { name: '城外密林' },
+  'lost-castle': { name: '失落城堡' },
+}
+let currentAreaId = null
+const areaTitleShownAt = new Map()
+
+function getOutdoorAreaId(position) {
+  return position.z <= -20 ? 'forest' : 'ruins'
+}
+
+function setArea(areaId, { force = false } = {}) {
+  const area = AREA_DEFS[areaId]
+  if (!area) return
+  if (!force && areaId === currentAreaId) return
+  const now = performance.now() / 1000
+  const lastShownAt = areaTitleShownAt.get(areaId) ?? -Infinity
+  currentAreaId = areaId
+  if (!force && now - lastShownAt < AREA_TITLE_COOLDOWN_SECONDS) return
+  areaTitleShownAt.set(areaId, now)
+  ui?.showAreaTitle?.(area.name)
+}
+
+function updateOutdoorAreaTitle(position) {
+  setArea(getOutdoorAreaId(position))
+}
+
 // ── NPC ──────────────────────────────────────────────
 const npcs = []
 const getYawToCastleEntrance = (x, z) => Math.atan2(
@@ -166,41 +245,37 @@ const getYawToCastleEntrance = (x, z) => Math.atan2(
 )
 const spawnNpcs = [
   createFBXNPC(scene, {
-    x: -2.2,
-    z: 2.4,
+    x: -2,
+    z: 53,
     name: '异乡防毒面具男人',
     modelPath: npcF1Url,
-    rotY: getYawToCastleEntrance(-2.2, 2.4),
+    rotY: getYawToCastleEntrance(-2, 53),
     speed: 0,
     wanderRadius: 0,
     canWander: false,
     getTerrainHeight,
     dialogueLines: [
-      '别靠太近。我的面具不是装饰，是我从那片毒雾里活下来的原因。',
-      '我来自很远的国家。那里的人相信，只要沿着旧王道一直走，就能抵达这座城堡。',
-      '我也曾相信。直到我走进雾门，看见那些大厅、楼梯和沉默的石像。',
-      '城堡里面不是迷路那么简单。它会让你觉得每一道门都通向希望，然后把希望关上。',
-      '我失败了。我的队伍也散了。现在我只想离那扇门远一点。',
-      '如果你一定要进去，别相信宽阔的走廊。真正安全的路，往往藏在侧门和楼梯后面。',
+      '沿着旧路往城堡走，前方那道白雾就是入口。',
+      '雾门前有守卫，别把他们当成路边的石像。',
+      '先在旁边篝火休息，它会成为你的落脚点，也能把伤口养好。',
+      '如果倒下，记住回到篝火再试，不要硬闯。',
     ],
   }),
   createFBXNPC(scene, {
-    x: 2.2,
-    z: 2.4,
+    x: -1,
+    z: 37,
     name: '蒙面女弓箭手',
     modelPath: npcF2Url,
-    rotY: getYawToCastleEntrance(2.2, 2.4),
+    rotY: getYawToCastleEntrance(-1, 37),
     speed: 0,
     wanderRadius: 0,
     canWander: false,
     getTerrainHeight,
     dialogueLines: [
-      '你也是冲着城堡来的？外乡人总是这样，看见高墙就以为里面藏着答案。',
-      '我是附近村子的人。小时候，老人们不许我们靠近那座城，说里面会吞掉人的脚步声。',
-      '可最近夜里，城堡二层会亮起火光。不是火把，是有人在里面移动。',
-      '我会用弓，但一个人进去太蠢。雾门后的路太窄，弓弦拉不开的时候，勇气救不了命。',
-      '如果你先进去，记住出口不一定在正前方。城堡会把直路伪装成唯一的路。',
-      '等我准备好箭和绳索，我也会进去。到时候，希望你还活着。',
+      '遇敌先用 Q 锁定目标，别让守卫绕到视线外。',
+      '距离拉开时用火球，锁定后更容易命中。',
+      '穿过雾门后继续找能上行或通往大厅深处的路，别只盯着正门。',
+      '你要做的不是清空城堡，而是找到里面能继续前进的出口。',
     ],
   }),
 ]
@@ -208,25 +283,80 @@ npcs.push(...spawnNpcs)
 const enemyModelUrls = {
   e1: enemyE1Url,
   e2: enemyE2Url,
+  f1: npcF1Url,
 }
-enemyNpcConfigs.forEach((enemyConfig, index) => {
-  const enemyNpc = createEnemyNpcFBX(scene, {
-    x: enemyConfig.x,
-    z: enemyConfig.z,
-    rotY: enemyConfig.rotY,
-    name: enemyConfig.name ?? `Enemy ${index + 1}`,
-    modelPath: enemyModelUrls[enemyConfig.model] ?? enemyE1Url,
-    getTerrainHeight,
+let hostileNpcs = []
+function spawnEnemyNpcs(addToCollision = false) {
+  hostileNpcs = []
+  enemyNpcConfigs.forEach((enemyConfig, index) => {
+    const enemyNpc = createEnemyNpcFBX(scene, {
+      x: enemyConfig.x,
+      z: enemyConfig.z,
+      rotY: enemyConfig.rotY,
+      name: enemyConfig.name ?? `Enemy ${index + 1}`,
+      modelPath: enemyModelUrls[enemyConfig.model] ?? enemyE1Url,
+      getTerrainHeight,
+      patrol: enemyConfig.patrol,
+    })
+    enemyNpc.isHostile = true
+    hostileNpcs.push(enemyNpc)
+    npcs.push(enemyNpc)
+    if (addToCollision) collision.add(enemyNpc.collidable)
   })
-  enemyNpc.isHostile = true
-  npcs.push(enemyNpc)
-})
+}
+spawnEnemyNpcs()
 
 // ── 天空系统 ──────────────────────────────────────────
 const sky = createSky(scene)
 
 // ── 背包 ─────────────────────────────────────────────
 const inventory = new InventorySystem()
+const estusFlask = new EstusFlaskSystem(BALANCE.estusFlask)
+const usableItems = ['estusFlask']
+let currentUsableItemIndex = 0
+
+function getCurrentUsableItemId() {
+  return usableItems[currentUsableItemIndex] ?? 'estusFlask'
+}
+
+function getCurrentUsableItemCount() {
+  if (getCurrentUsableItemId() === 'estusFlask') return estusFlask.charges
+  return null
+}
+
+function getPlayerEquipmentState() {
+  return {
+    ...(player.getEquipmentState?.() ?? {}),
+    item: getCurrentUsableItemId(),
+    itemCount: getCurrentUsableItemCount(),
+  }
+}
+
+function syncEstusFlaskToBag() {
+  inventory.set(estusFlask.itemName, estusFlask.charges)
+  ui?.updateBag(inventory.getAll())
+  ui?.updateEquipmentState?.(getPlayerEquipmentState())
+}
+
+function useEstusFlask() {
+  if (!estusFlask.tryUse(player)) return false
+  syncEstusFlaskToBag()
+  return true
+}
+
+function useCurrentItem() {
+  if (getCurrentUsableItemId() === 'estusFlask') return useEstusFlask()
+  return false
+}
+
+function updateEstusFlask(dt) {
+  estusFlask.update(dt, player)
+}
+
+function refillEstusFlask() {
+  estusFlask.refill()
+  syncEstusFlaskToBag()
+}
 
 // ── 钓鱼 ──────────────────────────────────────────────
 const fishingRod = createFishingRod(scene)
@@ -242,7 +372,7 @@ npcs.forEach(npc => collision.add(npc.collidable))
 castle.outdoorColliders.forEach(collider => collision.add(collider))
 // 记录"固定/动态碰撞体"结束位置，布局碰撞体从此之后追加
 // 退出编辑器时截断这里并用新布局重填，保证新增对象也有碰撞
-const _layoutCollidableIdx = collision.collidables.length
+let _layoutCollidableIdx = collision.collidables.length
 function _applyLayoutCollidables(layout) {
   collision.collidables.splice(_layoutCollidableIdx)
   layout.houses?.forEach(({ x, z }) => collision.add({ x, z, r: 2.2 }))
@@ -255,10 +385,20 @@ _applyLayoutCollidables(_layoutData)
 // ── UI ───────────────────────────────────────────────
 let ui = null
 let zWasPressed = false
+let fWasPressed = false
 
 function cyclePlayerWeapon() {
   player.cycleWeapon?.()
-  const state = player.getEquipmentState?.()
+  const state = getPlayerEquipmentState()
+  ui?.updateEquipmentState?.(state)
+  return state
+}
+
+function cycleUsableItem() {
+  if (usableItems.length > 1) {
+    currentUsableItemIndex = (currentUsableItemIndex + 1) % usableItems.length
+  }
+  const state = getPlayerEquipmentState()
   ui?.updateEquipmentState?.(state)
   return state
 }
@@ -272,12 +412,22 @@ function updateWeaponCycleInput() {
   const zNow = input.isPressed('KeyZ')
   if (zNow && !zWasPressed) cyclePlayerWeapon()
   zWasPressed = zNow
+
+  if (input.consumePressed?.('KeyF')) {
+    fWasPressed = input.isPressed('KeyF')
+    cycleUsableItem()
+    return
+  }
+  const fNow = input.isPressed('KeyF')
+  if (fNow && !fWasPressed) cycleUsableItem()
+  fWasPressed = fNow
 }
 
 ui = createUI(app, {
   onCycleWeapon: cyclePlayerWeapon,
 })
-ui.updateEquipmentState?.(player.getEquipmentState?.())
+ui.updateEquipmentState?.(getPlayerEquipmentState())
+syncEstusFlaskToBag()
 
 // ── 编辑器入口按钮 ────────────────────────────────────
 const _editBtn = document.createElement('button')
@@ -366,12 +516,55 @@ let castleTransition = null
 let activeBonfire = null
 let dismissedBonfire = null
 let bonfireRestState = null
+let deathState = null
+let checkpoint = null
 const BONFIRE_INTERACTION_RANGE = 2.7
 const BONFIRE_SIT_SECONDS = 4.2
 const BONFIRE_STAND_SECONDS = 2.2
+const DEATH_FADE_DELAY = 0.65
+const DEATH_FADE_OUT_SECONDS = 0.85
+const DEATH_RESPAWN_HOLD_SECONDS = 0.35
+const DEATH_FADE_IN_SECONDS = 0.8
+const BONFIRE_RESPAWN_DISTANCE = 1.45
 
 function requestHitstop(duration) {
   _hitstopTimer = Math.max(_hitstopTimer, Math.max(0, duration))
+}
+
+function makeCheckpointFromCampfire(fire, playerPos = null) {
+  const fireX = fire?.x ?? 0
+  const fireZ = fire?.z ?? 0
+  let dx = (playerPos?.x ?? fireX) - fireX
+  let dz = (playerPos?.z ?? fireZ) - fireZ
+  const len = Math.hypot(dx, dz)
+  if (len < 0.2) {
+    dx = 0
+    dz = 1
+  } else {
+    dx /= len
+    dz /= len
+  }
+  const x = fireX + dx * BONFIRE_RESPAWN_DISTANCE
+  const z = fireZ + dz * BONFIRE_RESPAWN_DISTANCE
+  return {
+    fireX,
+    fireZ,
+    x,
+    z,
+    y: getTerrainHeight(x, z),
+    yaw: Math.atan2(fireX - x, fireZ - z),
+  }
+}
+
+function getDefaultCheckpoint() {
+  const fire = (_activeLayout.campfires ?? [])[0]
+  return makeCheckpointFromCampfire(fire)
+}
+
+checkpoint = getDefaultCheckpoint()
+
+function setCheckpointFromCampfire(fire) {
+  checkpoint = makeCheckpointFromCampfire(fire, player.getPosition())
 }
 
 function isSameCampfire(a, b) {
@@ -406,6 +599,182 @@ function closeBonfireMenu(returnToOutdoor = true) {
   }
 }
 
+function resetHostileNpcs() {
+  clearNpcCombatUi()
+  clearLock()
+  collision.collidables.splice(_layoutCollidableIdx)
+
+  hostileNpcs.forEach(npc => {
+    const idx = collision.collidables.indexOf(npc.collidable)
+    if (idx !== -1) collision.collidables.splice(idx, 1)
+    const npcIdx = npcs.indexOf(npc)
+    if (npcIdx !== -1) npcs.splice(npcIdx, 1)
+    npc.getGroup?.().removeFromParent()
+  })
+
+  spawnEnemyNpcs(true)
+  _layoutCollidableIdx = collision.collidables.length
+  _applyLayoutCollidables(_activeLayout)
+}
+
+function clearDeathRuntimeState() {
+  pendingFireballCast = null
+  spells.clear?.()
+  clearLock()
+  clearNpcCombatUi()
+  ui.clearCombatOverlays?.()
+  ui.hideEnterPrompt?.()
+  ui.hideExitButton?.()
+  ui.hideTalkButton?.()
+  ui.hidePickButton?.()
+  ui.hideFishButton?.()
+  ui.hideActionPrompt?.()
+  ui.hideBonfireMenu?.(false)
+  ui.hideDialoguePanel?.()
+  if (activeNpc) activeNpc.endTalk?.()
+  activeNpc = null
+  activeBonfire = null
+  dismissedBonfire = null
+  bonfireRestState = null
+  _fishPhase = null
+  _fishTimer = 0
+  fishingRod.hide?.()
+}
+
+function beginPlayerDeath(sourceScene = activeScene) {
+  if (deathState) return true
+  deathState = {
+    sourceScene,
+    time: 0,
+    movedToCheckpoint: false,
+  }
+  activeScene = 'player-dead'
+  _hitstopTimer = 0
+  clearDeathRuntimeState()
+  ui.setTransitionUiVisible(false)
+  ui.showDeathMessage?.()
+  _editBtn.style.display = 'none'
+  thirdPerson.setEnabled(false)
+  player.playDeath?.()
+  return true
+}
+
+function checkPlayerDeath(sourceScene = activeScene) {
+  if (!player.isDead?.()) return false
+  return beginPlayerDeath(sourceScene)
+}
+
+function movePlayerToCheckpointForRespawn() {
+  const target = checkpoint ?? getDefaultCheckpoint()
+  if (player.getGroup().parent !== scene) scene.add(player.getGroup())
+  castle.resetExitDoor()
+  ui.hideExitButton?.()
+  ui.hideActionPrompt?.()
+  const y = getTerrainHeight(target.x, target.z)
+  player.setPosition(target.x, target.z, y)
+  player.getGroup().rotation.y = target.yaw
+  player.restoreFullHp?.()
+  player.restoreFullMp?.()
+  player.restoreFullStamina?.()
+  refillEstusFlask()
+  player.playIdle()
+  playerCollidable.x = target.x
+  playerCollidable.z = target.z
+  resetHostileNpcs()
+  thirdPerson.setCollisionObjects(scene.children)
+  thirdPerson.syncToTarget(player.getPosition())
+}
+
+function finishPlayerRespawn() {
+  deathState = null
+  activeScene = 'outdoor'
+  ui.hideDeathMessage?.()
+  ui.setSceneFade(0)
+  ui.setTransitionUiVisible(true)
+  _editBtn.style.display = ''
+  thirdPerson.setEnabled(true)
+}
+
+function updateOutdoorNpcs(dt) {
+  npcs.forEach(npc => {
+    if (npc.isAlive?.() || npc.shouldUpdateWhenDead?.()) npc.update(dt, player, collision)
+  })
+}
+
+function updateDeathSceneRuntime(dt, sourceScene) {
+  if (sourceScene === 'castle') {
+    const elevatorMove = castle.update(dt, player.getPosition())
+    if (elevatorMove?.elevatorDeltaY) {
+      player.getGroup().position.y += elevatorMove.elevatorDeltaY
+    }
+    return
+  }
+
+  if (sourceScene === 'outdoor' || sourceScene === 'npc-talk' || sourceScene === 'fishing' || sourceScene === 'bonfire-rest') {
+    updateMap(clock.elapsedTime)
+    castle.updateOutdoor(dt)
+    updateOutdoorNpcs(dt)
+    return
+  }
+
+  if (sourceScene === 'indoor') {
+    return
+  }
+
+  updateMap(clock.elapsedTime)
+  castle.updateOutdoor(dt)
+}
+
+function renderDeathScene(sourceScene) {
+  if (sourceScene === 'castle') {
+    renderCastle(gameCamera, player.getPosition())
+    return
+  }
+
+  if (sourceScene === 'indoor') {
+    const ipos = player.getPosition()
+    indoorCamera.position.copy(ipos).add(_indoorOffset)
+    indoorCamera.lookAt(ipos)
+    renderWithAO(indoorCamera, 'indoor', indoorScene)
+    return
+  }
+
+  renderWithAO(gameCamera, sourceScene)
+}
+
+function updatePlayerDeath(dt) {
+  const state = deathState
+  if (!state) return
+  state.time += dt
+  player.updateAnimation(dt)
+
+  if (!state.movedToCheckpoint) {
+    updateDeathSceneRuntime(dt, state.sourceScene)
+    const fade = THREE.MathUtils.clamp((state.time - DEATH_FADE_DELAY) / DEATH_FADE_OUT_SECONDS, 0, 1)
+    ui.setSceneFade(fade)
+    thirdPerson.update(dt, player.getPosition())
+    renderDeathScene(state.sourceScene)
+
+    if (state.time >= DEATH_FADE_DELAY + DEATH_FADE_OUT_SECONDS) {
+      movePlayerToCheckpointForRespawn()
+      state.movedToCheckpoint = true
+      state.time = 0
+    }
+    return
+  }
+
+  const fadeInTime = Math.max(0, state.time - DEATH_RESPAWN_HOLD_SECONDS)
+  const fade = 1 - THREE.MathUtils.clamp(fadeInTime / DEATH_FADE_IN_SECONDS, 0, 1)
+  updateMap(clock.elapsedTime)
+  castle.updateOutdoor(dt)
+  ui.setSceneFade(fade)
+  thirdPerson.update(dt, player.getPosition())
+  ui.update(player, clock.elapsedTime)
+  renderWithAO(gameCamera, 'outdoor')
+
+  if (fadeInTime >= DEATH_FADE_IN_SECONDS) finishPlayerRespawn()
+}
+
 function showBonfireMenu(fire, options = {}) {
   activeBonfire = fire
   const menuPos = {
@@ -416,6 +785,10 @@ function showBonfireMenu(fire, options = {}) {
   ui.showBonfireMenu?.(menuPos, gameCamera, renderer, {
     onRest: () => {
       activeBonfire = fire
+      setCheckpointFromCampfire(fire)
+      player.restoreFullHp?.()
+      player.restoreFullMp?.()
+      player.restoreFullStamina?.()
       clearLock()
       input.consumeMovePressed?.()
       ui.hideBonfireMenu?.(false)
@@ -481,6 +854,7 @@ function acquireViewLockTarget(playerPos) {
   let best = null
   let bestScore = -Infinity
   npcs.forEach(npc => {
+    if (!npc?.isHostile) return
     if (!npc.isAlive || !npc.isAlive()) return
     const d = playerPos.distanceTo(npc.getPosition())
     if (d > lockState.maxDistance) return
@@ -498,6 +872,7 @@ function acquireViewLockTarget(playerPos) {
 function validateLock(playerPos) {
   const npc = lockState.targetNpc
   if (!npc) return
+  if (!npc.isHostile) { clearLock(); return }
   if (!npc.isAlive || !npc.isAlive()) { clearLock(); return }
   if (playerPos.distanceTo(npc.getPosition()) > lockState.releaseDistance) clearLock()
 }
@@ -531,12 +906,16 @@ function handleNpcHit(npc, damage) {
 }
 
 function processPlayerMeleeAttack() {
-  if (!player.consumeAttackHitWindow?.()) return
+  const hitInfo = player.consumeAttackHitWindow?.()
+  if (!hitInfo) return
 
   player.getForwardXZ(_meleeForward)
   const playerPos = player.getPosition()
   const cfg = BALANCE.combat.melee
-  const maxDistSq = cfg.hitRange * cfg.hitRange
+  const rangeMul = typeof hitInfo === 'object' ? (hitInfo.rangeMul ?? 1) : 1
+  const damageMul = typeof hitInfo === 'object' ? (hitInfo.damageMul ?? 1) : 1
+  const hitRange = cfg.hitRange * rangeMul
+  const maxDistSq = hitRange * hitRange
   const cosHalf = Math.cos(THREE.MathUtils.degToRad(cfg.hitAngleDeg * 0.5))
 
   const isNpcInMeleeArc = (npc) => {
@@ -578,7 +957,7 @@ function processPlayerMeleeAttack() {
   })
 
   if (!best) return
-  const damage = player.getAtk?.() ?? BALANCE.player.atk
+  const damage = Math.round((player.getAtk?.() ?? BALANCE.player.atk) * damageMul)
   const hp = best.onHit ? best.onHit(damage) : best.takeDamage(damage)
   handleNpcHit(best, damage)
   if (hp <= 0) handleNpcDeath(best)
@@ -612,7 +991,11 @@ function updatePlayerSpellCasting(dt, playerPos) {
   _spellForward.normalize()
 
   if (!spells.consumeCastRequest('fireball', input)) return
+  const cfg = BALANCE.spells.fireball
+  const mpCost = cfg.mpCost ?? 0
+  if ((player.getMp?.() ?? 0) < mpCost) return
   if (!spells.beginCast('fireball')) return
+  if (!player.spendMp?.(mpCost)) return
 
   pendingFireballCast = {
     timer: 0.8,
@@ -676,10 +1059,11 @@ function updateNpcCombatUi(camera) {
     if (npc.isHostile) {
       const ratio = npc.getHpRatio ? npc.getHpRatio() : 1
       ui.showNpcHpBar?.(npc, { x: head.x, y: head.y + 0.35, z: head.z }, ratio, camera, renderer)
+      npc.setLockVisualState?.(lockState.targetNpc === npc ? 'locked' : 'candidate')
     } else {
       ui.hideNpcHpBar?.(npc)
+      npc.setLockVisualState?.('hidden')
     }
-    npc.setLockVisualState?.(lockState.targetNpc === npc ? 'locked' : 'candidate')
   })
 }
 
@@ -790,6 +1174,7 @@ function updateCastleTransition(dt) {
     ui.setSceneFade(0)
     ui.setTransitionUiVisible(true)
     thirdPerson.setEnabled(true)
+    setArea('lost-castle')
   }
 }
 
@@ -798,6 +1183,11 @@ function gameLoop() {
   const rawDt = Math.min(clock.getDelta(), 0.05)
   if (_hitstopTimer > 0) _hitstopTimer = Math.max(0, _hitstopTimer - rawDt)
   const dt = _hitstopTimer > 0 ? 0 : rawDt
+
+  if (activeScene === 'player-dead') {
+    updatePlayerDeath(rawDt)
+    return
+  }
 
   if (activeScene === 'castle-transition') {
     updateCastleTransition(rawDt)
@@ -830,6 +1220,7 @@ function gameLoop() {
 
   if (activeScene === 'castle') {
     updateWeaponCycleInput()
+    if (input.consumePressed?.('KeyR')) useCurrentItem()
     clearNpcCombatUi()
     clearLock()
     lockState.qWasPressed = input.isPressed('KeyQ')
@@ -841,7 +1232,9 @@ function gameLoop() {
     }
     const moveIntent = getThirdPersonMoveIntent(input)
     player.update(dt, input, castle.collision, () => 0, playerCollidable, moveIntent)
+    if (checkPlayerDeath('castle')) return
     castle.update(0, player.getPosition())
+    updateEstusFlask(dt)
 
     const castlePos = player.getPosition()
     if (castle.isTerraceFallExit(castlePos)) {
@@ -885,9 +1278,7 @@ function gameLoop() {
   if (activeScene === 'npc-talk') {
     updateMap(clock.elapsedTime)
     player.updateAnimation(dt)
-    npcs.forEach(npc => {
-      if (npc.isAlive?.() || npc.shouldUpdateWhenDead?.()) npc.update(dt, player, collision)
-    })
+    updateOutdoorNpcs(dt)
     thirdPerson.update(dt, player.getPosition())
     updateNpcCombatUi(gameCamera)
     ui.updateCombatOverlay?.(dt, gameCamera, renderer)
@@ -900,7 +1291,8 @@ function gameLoop() {
 
     const sunPhaseNpc = (clock.elapsedTime % 1800) / 1800 * Math.PI * 2
     updateDayNightLighting(sunPhaseNpc)
-    sky.update(sunPhaseNpc, dt, true)
+    sky.update(sunPhaseNpc, dt, false)
+    updateOutdoorAreaTitle(player.getPosition())
 
     renderWithAO(gameCamera, 'npc-talk')
     return
@@ -908,9 +1300,7 @@ function gameLoop() {
 
   if (activeScene === 'fishing') {
     updateMap(clock.elapsedTime)
-    npcs.forEach(npc => {
-      if (npc.isAlive?.() || npc.shouldUpdateWhenDead?.()) npc.update(dt, player, collision)
-    })
+    updateOutdoorNpcs(dt)
     player.updateAnimation(dt)
     lockState.qWasPressed = input.isPressed('KeyQ')
 
@@ -951,6 +1341,7 @@ function gameLoop() {
     }
 
     sky.update(sunPhase, dt, false)
+    updateOutdoorAreaTitle(fpos)
     ui.update(player, sunPhase)
     updateNpcCombatUi(gameCamera)
     ui.updateCombatOverlay?.(dt, gameCamera, renderer)
@@ -970,14 +1361,13 @@ function gameLoop() {
     const restPos = player.getPosition()
     playerCollidable.x = restPos.x
     playerCollidable.z = restPos.z
-    npcs.forEach(npc => {
-      if (npc.isAlive?.() || npc.shouldUpdateWhenDead?.()) npc.update(dt, player, collision)
-    })
+    updateOutdoorNpcs(dt)
     thirdPerson.update(dt, restPos)
 
     const sunPhaseRest = (clock.elapsedTime % 1800) / 1800 * Math.PI * 2
     updateDayNightLighting(sunPhaseRest)
     sky.update(sunPhaseRest, dt, false)
+    updateOutdoorAreaTitle(restPos)
     ui.update(player, sunPhaseRest)
     ui.updateCombatOverlay?.(dt, gameCamera, renderer)
 
@@ -1012,11 +1402,13 @@ function gameLoop() {
 
   // 更新玩家
   updateWeaponCycleInput()
+  if (input.consumePressed?.('KeyR')) useCurrentItem()
   updateLockToggle(input, player.getPosition())
   validateLock(player.getPosition())
   const moveIntent = getThirdPersonMoveIntent(input)
-  const suppressRun = Boolean(lockState.targetNpc?.isAlive?.())
-  player.update(dt, input, collision, getTerrainHeight, playerCollidable, moveIntent, suppressRun)
+  const lockFacingTarget = lockState.targetNpc?.isAlive?.() ? lockState.targetNpc.getPosition() : null
+  const suppressRun = Boolean(lockFacingTarget)
+  player.update(dt, input, collision, getTerrainHeight, playerCollidable, moveIntent, suppressRun, lockFacingTarget)
 
   const pos = player.getPosition()
   playerCollidable.x = pos.x
@@ -1024,11 +1416,11 @@ function gameLoop() {
   player.setInWater(false)
   updatePlayerSpellCasting(dt, pos)
   spells.update(dt, npcs, getTerrainHeight, handleNpcDeath, handleNpcHit)
+  updateEstusFlask(dt)
 
   // 更新 NPC
-  npcs.forEach(npc => {
-    if (npc.isAlive?.() || npc.shouldUpdateWhenDead?.()) npc.update(dt, player, collision)
-  })
+  updateOutdoorNpcs(dt)
+  if (checkPlayerDeath('outdoor')) return
   if (player.consumeBlockImpact?.()) {
     requestHitstop(BALANCE.combat.hitstop.blockHit)
   }
@@ -1162,6 +1554,7 @@ function gameLoop() {
   sky.update(sunPhase, dt, false)
 
   // 更新 UI
+  updateOutdoorAreaTitle(pos)
   ui.update(player, sunPhase)
   updateNpcCombatUi(gameCamera)
   ui.updateCombatOverlay?.(dt, gameCamera, renderer)
@@ -1169,7 +1562,60 @@ function gameLoop() {
   renderWithAO(gameCamera, 'outdoor')
 }
 
-gameLoop()
+async function prewarmSpawnLookSweep() {
+  const turns = 2
+  const totalFrames = 96
+  const warmupCamera = new THREE.PerspectiveCamera(gameCamera.fov, gameCamera.aspect, gameCamera.near, gameCamera.far)
+  const dir = new THREE.Vector3()
+  const look = new THREE.Vector3()
+
+  thirdPerson.syncToTarget(player.getPosition())
+  warmupCamera.position.copy(gameCamera.position)
+  gameCamera.getWorldDirection(dir)
+
+  const flatLen = Math.hypot(dir.x, dir.z) || 1
+  const startYaw = Math.atan2(dir.x, dir.z)
+  const pitch = Math.atan2(dir.y, flatLen)
+
+  for (let i = 0; i < totalFrames; i++) {
+    const t = i / (totalFrames - 1)
+    const yaw = startYaw + Math.PI * 2 * turns * t
+    const cp = Math.cos(pitch)
+    dir.set(Math.sin(yaw) * cp, Math.sin(pitch), Math.cos(yaw) * cp).normalize()
+    look.copy(warmupCamera.position).add(dir)
+    warmupCamera.lookAt(look)
+    warmupCamera.updateMatrixWorld()
+    loadingOverlay.textContent = `预渲染场景 ${Math.min(turns, Math.floor(t * turns) + 1)}/${turns}`
+    renderWithAO(warmupCamera, 'outdoor')
+    await new Promise(resolve => requestAnimationFrame(resolve))
+  }
+}
+
+async function startGame() {
+  await preloadModelsPromise
+  loadingOverlay.textContent = '准备场景...'
+  await Promise.resolve()
+  await new Promise(resolve => requestAnimationFrame(resolve))
+  await Promise.race([
+    outdoorStaticReadyPromise,
+    new Promise(resolve => window.setTimeout(resolve, 1500)),
+  ])
+  if (renderer.compileAsync) {
+    await renderer.compileAsync(scene, gameCamera)
+    await renderer.compileAsync(castle.scene, gameCamera)
+  } else {
+    renderer.compile(scene, gameCamera)
+    renderer.compile(castle.scene, gameCamera)
+  }
+  await prewarmSpawnLookSweep()
+  thirdPerson.syncToTarget(player.getPosition())
+  loadingOverlay.remove()
+  setArea(getOutdoorAreaId(player.getPosition()), { force: true })
+  clock.getDelta()
+  gameLoop()
+}
+
+startGame()
 
 // ── 响应窗口大小变化 ──────────────────────────────────
 window.addEventListener('resize', () => {

@@ -1,29 +1,29 @@
 export const OUTDOOR_LIGHTING = {
   exposure: {
-    initial: 1.35,
-    day: 1.35,
-    night: 1.24,
+    initial: 1.485,
+    day: 1.485,
+    night: 1.474,
   },
   sun: {
     color: 0xfff3d8,
-    dayIntensity: 3.0,
-    nightIntensity: 1.25,
+    dayIntensity: 3.3,
+    nightIntensity: 1.375,
   },
   moon: {
     color: 0xd4e2ff,
-    dayIntensity: 0.22,
-    nightIntensity: 0.95,
+    dayIntensity: 0.242,
+    nightIntensity: 1.485,
   },
   hemisphere: {
     skyColor: 0xb8ddff,
     groundColor: 0x687a50,
-    dayIntensity: 0.95,
-    nightIntensity: 0.68,
+    dayIntensity: 1.321925,
+    nightIntensity: 1.19669,
   },
   fill: {
     color: 0xc2d6ff,
-    dayIntensity: 0.68,
-    nightIntensity: 0.42,
+    dayIntensity: 0.94622,
+    nightIntensity: 0.80707,
   },
 }
 
@@ -31,21 +31,21 @@ export const HOUSE_INDOOR_LIGHTING = {
   background: 0xfff0e0,
   ambient: {
     color: 0xfff5e0,
-    intensity: 1.0,
+    intensity: 1.1,
   },
   ceiling: {
     color: 0xffddaa,
-    intensity: 2.5,
+    intensity: 2.75,
     distance: 18,
   },
   fill: {
     color: 0xffeedd,
-    intensity: 0.4,
+    intensity: 0.44,
   },
 }
 
 export const CASTLE_INDOOR_LIGHTING = {
-  exposure: 1.42,
+  exposure: 1.562,
   background: 0x181b20,
   fog: {
     color: 0x181b20,
@@ -55,18 +55,18 @@ export const CASTLE_INDOOR_LIGHTING = {
   hemisphere: {
     skyColor: 0xaab8cc,
     groundColor: 0x4a4036,
-    intensity: 0.92,
+    intensity: 1.012,
   },
   ambient: {
     color: 0x8c9eb5,
-    intensity: 0.48,
+    intensity: 0.528,
   },
   key: {
     color: 0xdce8ff,
-    intensity: 0.88,
+    intensity: 0.968,
   },
   fill: {
     color: 0xffe4be,
-    intensity: 0.36,
+    intensity: 0.396,
   },
 }

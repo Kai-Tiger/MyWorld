@@ -24,8 +24,8 @@ export const defaultMap = {
     { x: -42, z:  25, scale: 0.9 }, { x:  32, z: -42, scale: 0.9 }, { x: -30, z:  40, scale: 0.9 },
   ],
   campfires: [
-    { x:   2, z:  -2 },
-    { x:  10, z: -18 },
+    { x:   0, z:  50 },
+    { x:  19, z: -66 },
     { x: -18, z:  -2 },
     { x:  22, z:  22 },
   ],

@@ -1,6 +1,6 @@
 import * as THREE from 'three'
-import { FBXLoader } from 'three/addons/loaders/FBXLoader.js'
 import { BALANCE } from '../config/balance.js'
+import { cloneFBX } from '../systems/modelAssets.js'
 
 /**
  * createFBXNPC
@@ -57,8 +57,7 @@ export function createFBXNPC(scene, {
 
   // FBX 加载
   let mixer = null
-  const loader = new FBXLoader()
-  loader.load(modelPath, (fbx) => {
+  cloneFBX(modelPath).then((fbx) => {
     fbx.scale.setScalar(0.01)
     const _nLights = []
     fbx.traverse(c => {
@@ -85,6 +84,8 @@ export function createFBXNPC(scene, {
       action.timeScale = 0.5
       action.play()
     }
+  }).catch((err) => {
+    console.error(`Failed to load NPC model: ${modelPath}`, err)
   })
 
   // 动态碰撞体
