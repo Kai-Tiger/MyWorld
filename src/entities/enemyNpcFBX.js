@@ -1,6 +1,7 @@
 import * as THREE from 'three'
 import { BALANCE } from '../config/balance.js'
-import { cloneFBX, loadFBXClips } from '../systems/modelAssets.js'
+import { startLoop, stopLoop, setLoopVolume } from '../systems/audio.js'
+import { cloneModel, loadFBXClips } from '../systems/modelAssets.js'
 import mainFbxUrl from '../characters/enemy/main.fbx?url'
 import sitFbxUrl from '../characters/enemy/sit.fbx?url'
 import standFbxUrl from '../characters/enemy/Stand.fbx?url'
@@ -21,6 +22,17 @@ const AVOIDANCE_ANGLES = [
 const HIT_AGGRO_MEMORY_SECONDS = 6
 const HIT_AGGRO_LEASH_BUFFER_SECONDS = 3
 const ENEMY_MODEL_SCALE = 0.015
+const ENEMY_GLB_MODEL_SCALE = 2.0
+const LOCK_MARKER_MIN_SCALE = 0.75
+const LOCK_MARKER_MAX_SCALE = 1.75
+const LOCK_MARKER_SCALE_DISTANCE = 24
+
+function getEnemyModelScale(modelPath) {
+  const cleanPath = String(modelPath).split(/[?#]/)[0].toLowerCase()
+  return cleanPath.endsWith('.glb') || cleanPath.endsWith('.gltf')
+    ? ENEMY_GLB_MODEL_SCALE
+    : ENEMY_MODEL_SCALE
+}
 
 function getTrackTargetName(trackName) {
   const dot = trackName.lastIndexOf('.')
@@ -82,6 +94,12 @@ export function createEnemyNpcFBX(scene, {
 } = {}) {
   const instanceId = _nextEnemyInstanceId++
   const pursuitPhase = instanceId * 1.73
+  const enemyAudioKey = `enemy:${instanceId}`
+  const enemyAudioCfg = BALANCE.combat.enemyAudio ?? {}
+  const enemyAudioMaxVolume = Math.max(0, enemyAudioCfg.maxVolume ?? 0.45)
+  const enemyAudioFullDistance = Math.max(0, enemyAudioCfg.fullVolumeDistance ?? 4)
+  const enemyAudioFadeOutDistance = Math.max(enemyAudioFullDistance + 0.001, enemyAudioCfg.fadeOutDistance ?? disengageRange)
+  const enemyAudioFadeSeconds = Math.max(0.001, enemyAudioCfg.fadeSeconds ?? 0.25)
   let avoidanceSide = instanceId % 2 === 0 ? 1 : -1
   const homeX = x
   const homeZ = z
@@ -100,44 +118,88 @@ export function createEnemyNpcFBX(scene, {
 
   if (getTerrainHeight) group.position.y = getTerrainHeight(x, z)
 
-  const lockRing = new THREE.Mesh(
-    new THREE.TorusGeometry(0.42, 0.02, 8, 28),
-    new THREE.MeshStandardMaterial({
-      color: 0xffffff,
-      emissive: 0x111111,
-      emissiveIntensity: 0.15,
-      roughness: 0.4,
-      metalness: 0.0,
+  const lockMarker = new THREE.Group()
+  lockMarker.visible = false
+  lockMarker.renderOrder = 30
+  lockMarker.userData.cameraIgnore = true
+
+  const lockCore = new THREE.Mesh(
+    new THREE.SphereGeometry(0.065, 16, 12),
+    new THREE.MeshBasicMaterial({
+      color: 0xff2020,
       transparent: true,
       opacity: 0.92,
+      depthTest: false,
+      depthWrite: false,
     })
   )
-  lockRing.rotation.x = Math.PI / 2
-  lockRing.position.y = 0.03
-  lockRing.visible = false
-  group.add(lockRing)
+  lockCore.renderOrder = 31
+  lockCore.userData.cameraIgnore = true
+  lockMarker.add(lockCore)
 
+  group.add(lockMarker)
+
+  const lockBounds = new THREE.Box3()
+  const lockCenterWorld = new THREE.Vector3()
+  const lockBoundsSize = new THREE.Vector3()
+  const lockSurfaceWorld = new THREE.Vector3()
+  const lockSurfaceLocal = new THREE.Vector3()
+  const lockToCamera = new THREE.Vector3()
   let lockVisualState = 'hidden'
-  let lockPulseTime = 0
-  function applyLockVisualState(state) {
-    lockVisualState = state
-    if (state === 'hidden') {
-      lockRing.visible = false
-      lockRing.scale.setScalar(1)
+
+  function updateLockBoundsCenter() {
+    if (rootModel) {
+      rootModel.updateMatrixWorld(true)
+      rootModel.traverse((obj) => {
+        if (obj.isSkinnedMesh && obj.computeBoundingBox) obj.computeBoundingBox()
+      })
+      lockBounds.setFromObject(rootModel)
+      if (!lockBounds.isEmpty()) {
+        lockBounds.getCenter(lockCenterWorld)
+        lockCenterWorld.y = THREE.MathUtils.lerp(lockBounds.min.y, lockBounds.max.y, 2 / 3)
+        lockBounds.getSize(lockBoundsSize)
+        return true
+      }
+    }
+    lockCenterWorld.set(group.position.x, group.position.y + 1.2, group.position.z)
+    lockBoundsSize.set(0.84, 1.8, 0.84)
+    return false
+  }
+
+  function updateLockMarker(camera) {
+    if (lockVisualState !== 'locked' || !alive) {
+      lockMarker.visible = false
       return
     }
-    lockRing.visible = true
-    lockRing.scale.setScalar(1)
-    const mat = lockRing.material
-    if (state === 'locked') {
-      mat.color.setHex(0xff4b4b)
-      mat.emissive.setHex(0xff2a2a)
-      mat.emissiveIntensity = 0.45
+
+    lockMarker.visible = true
+    updateLockBoundsCenter()
+    if (camera) {
+      lockToCamera.subVectors(camera.position, lockCenterWorld)
+      lockToCamera.y = 0
+      if (lockToCamera.lengthSq() > 0.0001) lockToCamera.normalize()
+      else lockToCamera.set(0, 0, 1)
     } else {
-      mat.color.setHex(0xffffff)
-      mat.emissive.setHex(0x222222)
-      mat.emissiveIntensity = 0.12
+      lockToCamera.set(0, 0, 1)
     }
+
+    const surfaceRadius = (
+      Math.abs(lockToCamera.x) * lockBoundsSize.x +
+      Math.abs(lockToCamera.z) * lockBoundsSize.z
+    ) * 0.5
+    lockSurfaceWorld
+      .copy(lockCenterWorld)
+      .addScaledVector(lockToCamera, Math.max(0.18, surfaceRadius * 0.92))
+    group.worldToLocal(lockSurfaceLocal.copy(lockSurfaceWorld))
+    lockMarker.position.copy(lockSurfaceLocal)
+
+    const time = performance.now() * 0.001
+    const pulse = 0.5 + Math.sin(time * 7.5 + instanceId) * 0.5
+    const cameraDistance = camera ? camera.position.distanceTo(lockSurfaceWorld) : LOCK_MARKER_SCALE_DISTANCE * 0.5
+    const distanceT = THREE.MathUtils.clamp(cameraDistance / LOCK_MARKER_SCALE_DISTANCE, 0, 1)
+    const distanceScale = THREE.MathUtils.lerp(LOCK_MARKER_MIN_SCALE, LOCK_MARKER_MAX_SCALE, distanceT)
+    lockCore.material.opacity = 0.72 + pulse * 0.24
+    lockCore.scale.setScalar(distanceScale * (0.9 + pulse * 0.18))
   }
 
   const collidable = { x, z, r: 0.42 }
@@ -199,6 +261,40 @@ export function createEnemyNpcFBX(scene, {
   let hurtPending = false
   let dying = false
   let deathPending = false
+  let enemyAudioPlaying = false
+  let enemyAudioVolume = 0
+
+  function getEnemyAudioTargetVolume(dist, player) {
+    if (!engaged || !alive || dying || returningHome || player?.isDead?.() || player?.isDying?.()) return 0
+    if (dist <= enemyAudioFullDistance) return enemyAudioMaxVolume
+    const fade = 1 - THREE.MathUtils.clamp(
+      (dist - enemyAudioFullDistance) / (enemyAudioFadeOutDistance - enemyAudioFullDistance),
+      0,
+      1,
+    )
+    return enemyAudioMaxVolume * fade
+  }
+
+  function stopEnemyAudio() {
+    if (!enemyAudioPlaying && enemyAudioVolume <= 0) return
+    stopLoop('enemy', { key: enemyAudioKey })
+    enemyAudioPlaying = false
+    enemyAudioVolume = 0
+  }
+
+  function updateEnemyAudio(dt, dist, player) {
+    const targetVolume = getEnemyAudioTargetVolume(dist, player)
+    const step = enemyAudioMaxVolume * Math.max(0, dt) / enemyAudioFadeSeconds
+    enemyAudioVolume = enemyAudioVolume < targetVolume
+      ? Math.min(targetVolume, enemyAudioVolume + step)
+      : Math.max(targetVolume, enemyAudioVolume - step)
+
+    if (targetVolume > 0 && !enemyAudioPlaying) {
+      enemyAudioPlaying = startLoop('enemy', { key: enemyAudioKey, volume: enemyAudioVolume })
+    }
+    if (enemyAudioPlaying) setLoopVolume('enemy', { key: enemyAudioKey, volume: enemyAudioVolume })
+    if (enemyAudioPlaying && targetVolume <= 0 && enemyAudioVolume <= 0.001) stopEnemyAudio()
+  }
 
   function endAttack() {
     if (dying) return
@@ -222,19 +318,21 @@ export function createEnemyNpcFBX(scene, {
     aggroByHit = false
     aggroMemoryTimer = 0
     returningHome = false
+    stopEnemyAudio()
     attacking = false
     attackCdRemain = 0
-    if (hurtAction) hurtAction.stop()
-    if (attackAction) attackAction.stop()
-    if (runAction) runAction.stop()
-    if (walkAction) walkAction.stop()
-    if (standAction) standAction.stop()
-    if (sitAction) sitAction.stop()
-    if (idleAction) idleAction.stop()
+    const transitionAction = currentAction && currentAction !== deathAction
+      ? currentAction
+      : null
+    const actionsToStop = [hurtAction, attackAction, runAction, walkAction, standAction, sitAction, idleAction]
+    actionsToStop.forEach((action) => {
+      if (action && action !== transitionAction && action !== deathAction) action.stop()
+    })
     deathAction.paused = false
     deathAction.setLoop(THREE.LoopOnce, 1)
     deathAction.clampWhenFinished = true
     switchAction(deathAction, true)
+    if (mixer) mixer.update(0)
     return true
   }
 
@@ -243,7 +341,8 @@ export function createEnemyNpcFBX(scene, {
     _activePursuerIds.delete(instanceId)
     hp = 0
     alive = false
-    applyLockVisualState('hidden')
+    lockVisualState = 'hidden'
+    lockMarker.visible = false
     if (!playDeathOnce()) deathPending = true
   }
 
@@ -382,6 +481,12 @@ export function createEnemyNpcFBX(scene, {
     return clone
   }
 
+  function prepareExternalClip(clip) {
+    const prepared = retargetClipToModel(clip)
+    freezeRootXZ(prepared)
+    return prepared
+  }
+
   function tryBuildActions() {
     if (!mixer) return
     if (idleClip && !idleAction) {
@@ -392,8 +497,7 @@ export function createEnemyNpcFBX(scene, {
       if (!engaged && !alerting && !attacking && !hasPatrol) setSeatedPose()
     }
     if (sitClip && !sitAction) {
-      sitClip = retargetClipToModel(sitClip)
-      freezeRootXZ(sitClip)
+      sitClip = prepareExternalClip(sitClip)
       sitAction = mixer.clipAction(sitClip)
       sitAction.enabled = true
       sitAction.setLoop(THREE.LoopRepeat, Infinity)
@@ -401,37 +505,32 @@ export function createEnemyNpcFBX(scene, {
       if (!engaged && !alerting && !attacking && !hasPatrol) setSeatedPose()
     }
     if (standClip && !standAction) {
-      standClip = retargetClipToModel(standClip)
-      freezeRootXZ(standClip)
+      standClip = prepareExternalClip(standClip)
       standAction = mixer.clipAction(standClip)
       standAction.enabled = true
       standAction.setLoop(THREE.LoopRepeat, Infinity)
       standAction.clampWhenFinished = false
     }
     if (runClip && !runAction) {
-      runClip = retargetClipToModel(runClip)
-      freezeRootXZ(runClip)
+      runClip = prepareExternalClip(runClip)
       runAction = mixer.clipAction(runClip)
       runAction.timeScale = 1.15
     }
     if (walkClip && !walkAction) {
-      walkClip = retargetClipToModel(walkClip)
-      freezeRootXZ(walkClip)
+      walkClip = prepareExternalClip(walkClip)
       walkAction = mixer.clipAction(walkClip)
       walkAction.timeScale = 1.0
       if (!engaged && !alerting && !attacking && hasPatrol) playWalkLoop()
     }
     if (attackClip && !attackAction) {
-      attackClip = retargetClipToModel(attackClip)
-      freezeRootXZ(attackClip)
+      attackClip = prepareExternalClip(attackClip)
       attackAction = mixer.clipAction(attackClip)
       attackAction.setLoop(THREE.LoopOnce, 1)
       attackAction.clampWhenFinished = true
       attackAction.timeScale = attackTimeScale
     }
     if (hurtClip && !hurtAction) {
-      hurtClip = retargetClipToModel(hurtClip)
-      freezeRootXZ(hurtClip)
+      hurtClip = prepareExternalClip(hurtClip)
       hurtAction = mixer.clipAction(hurtClip)
       hurtAction.setLoop(THREE.LoopOnce, 1)
       hurtAction.clampWhenFinished = true
@@ -442,8 +541,7 @@ export function createEnemyNpcFBX(scene, {
       }
     }
     if (deathClip && !deathAction) {
-      deathClip = retargetClipToModel(deathClip)
-      freezeRootXZ(deathClip)
+      deathClip = prepareExternalClip(deathClip)
       deathAction = mixer.clipAction(deathClip)
       deathAction.setLoop(THREE.LoopOnce, 1)
       deathAction.clampWhenFinished = true
@@ -545,9 +643,9 @@ export function createEnemyNpcFBX(scene, {
     }
   }
 
-  cloneFBX(modelPath).then((fbx) => {
+  cloneModel(modelPath).then((fbx) => {
     rootModel = fbx
-    rootModel.scale.setScalar(ENEMY_MODEL_SCALE)
+    rootModel.scale.setScalar(getEnemyModelScale(modelPath))
     const _lights = []
     rootModel.traverse(c => {
       if (c.isMesh) { c.castShadow = true; c.receiveShadow = true }
@@ -789,16 +887,9 @@ export function createEnemyNpcFBX(scene, {
   return {
     isHostile: true,
 
-    update(dt, player, collision) {
-      if (mixer) mixer.update(dt)
+    update(dt, player, collision, options = {}) {
+      if (mixer && !options.skipAnimation) mixer.update(dt)
       if (!alive) return
-
-      if (lockVisualState === 'locked') {
-        lockPulseTime += dt
-        lockRing.scale.setScalar(1 + Math.sin(lockPulseTime * 8.0) * 0.06)
-      } else {
-        lockRing.scale.setScalar(1)
-      }
 
       const shakeYaw = getShakeYaw(dt)
       if (getTerrainHeight) group.position.y = getTerrainHeight(group.position.x, group.position.z)
@@ -882,6 +973,7 @@ export function createEnemyNpcFBX(scene, {
         if (attacking) endAttack()
         if (!returningHome && !hasPatrol) setSeatedPose()
       }
+      updateEnemyAudio(dt, dist, player)
 
       if (returningHome) {
         updateReturnHome(dt, collision)
@@ -984,12 +1076,9 @@ export function createEnemyNpcFBX(scene, {
       triggerDeath()
     },
 
-    setLockVisualState(state) {
-      if (!alive) {
-        applyLockVisualState('hidden')
-        return
-      }
-      applyLockVisualState(state)
+    setLockVisualState(state, camera = null) {
+      lockVisualState = alive ? state : 'hidden'
+      updateLockMarker(camera)
     },
 
     startTalk() {},

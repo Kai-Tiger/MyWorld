@@ -34,6 +34,7 @@ export function createHeightmapTerrain(scene, {
   sharpenPower = 1.75,
   flatAreas = [],
   heightModifiers = [],
+  postHeightModifiers = [],
   heightmapUrl = '/heightmaps/main_height_1024.png',
   onReady = null,
 } = {}) {
@@ -75,12 +76,20 @@ export function createHeightmapTerrain(scene, {
 
   function getHeightAt(x, z) {
     if (!hmData) return 0
-    return applyFlatAreas(x, z, applyHeightModifiers(x, z, sampleBaseHeight(x, z)))
+    return applyPostHeightModifiers(x, z, applyFlatAreas(x, z, applyHeightModifiers(x, z, sampleBaseHeight(x, z))))
   }
 
   function applyHeightModifiers(x, z, height) {
     let result = height
     for (const modifier of heightModifiers) {
+      result = modifier(x, z, result, sampleBaseHeight)
+    }
+    return result
+  }
+
+  function applyPostHeightModifiers(x, z, height) {
+    let result = height
+    for (const modifier of postHeightModifiers) {
       result = modifier(x, z, result, sampleBaseHeight)
     }
     return result
@@ -106,7 +115,7 @@ export function createHeightmapTerrain(scene, {
     for (let i = 0; i < pos.count; i++) {
       const x = pos.getX(i)
       const z = -pos.getY(i)
-      pos.setZ(i, applyFlatAreas(x, z, applyHeightModifiers(x, z, sampleBaseHeight(x, z))))
+      pos.setZ(i, applyPostHeightModifiers(x, z, applyFlatAreas(x, z, applyHeightModifiers(x, z, sampleBaseHeight(x, z)))))
     }
     pos.needsUpdate = true
     geometry.computeVertexNormals()

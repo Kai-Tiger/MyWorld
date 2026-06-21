@@ -1,35 +1,63 @@
 import * as THREE from 'three'
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
-import { WORLD_SIZE, CANYON } from '../config/world.js'
+import { WORLD_SIZE, OUTDOOR_MOUNTAIN_BOUNDS, MOUNTAIN_FALL_FLOOR_Y, CANYON } from '../config/world.js'
 import { createHeightmapTerrain } from './heightmapTerrain.js'
 import { CASTLE_EXTERIOR } from '../config/castle.js'
 import oldChurchRuinsUrl from '../place/old_church_ruins_medium.glb?url'
-import { cloneGLTFScene } from '../systems/modelAssets.js'
+import { cloneGLTFScene, loadGLTF } from '../systems/modelAssets.js'
 import oldChurchRuinsColliders from '../place/old_church_ruins_colliders.json'
 
 
 // ── 工具函数 ──────────────────────────────────────────
-const ROAD_TEXTURE_VERSION = 'v=1'
-const ROAD_TEXTURE_BASE = '/textures/road_paving_stones_150'
-const ROAD_TEXTURE_TILE_METERS = 3.6
+const CURVE_UV_TILE_METERS = 3.6
 const ROCKERY_TEXTURE_VERSION = 'v=1'
 const ROCKERY_TEXTURE_BASE = '/models/rocks/namaqualand_boulder_03/textures'
 const OLD_CHURCH_RUINS_PLACEMENT = { x: -13, z: 35, rotY: 0 }
 const OLD_CHURCH_RUINS_Y_OFFSET = -1.38
-const OLD_CHURCH_GRASS_PATCHES = [
-  { x: -19.2, z: 31.4, rx: 3.8, rz: 1.9, count: 24 },
-  { x: -18.6, z: 38.7, rx: 4.2, rz: 2.3, count: 26 },
-  { x: -12.4, z: 43.2, rx: 4.8, rz: 2.0, count: 22 },
-  { x: -7.7, z: 32.7, rx: 3.1, rz: 2.4, count: 18 },
-  { x: -15.2, z: 28.4, rx: 3.6, rz: 1.7, count: 16 },
-]
 const FOREST_GROVE_ORIGIN = { x: 5, z: -49 }
 const FOREST_SECOND_GROVE_ORIGIN = { x: 47, z: -57 }
 const FOREST_THIRD_GROVE_ORIGIN = { x: 27, z: -34 }
 const FOREST_LINE_GROVE_ORIGIN = { x: 30, z: -70 }
+const FOREST_NORTH_GROVE_ORIGIN = { x: 35, z: 45 }
 const FOREST_LINE_GROVE_LENGTH = 8
 const FOREST_GROVE_CASTLE_TARGET = CASTLE_EXTERIOR.transitionTarget
 const FOREST_GROVE_ASSETS_BASE = '/models/forest_pack'
+const MINE_CAVE_MODEL_URL = '/models/mine_cave/mine_cave.glb'
+const SPAWN_GRASS_MODEL_URL = '/models/grass/grass_clump_low.glb'
+const DISTANT_GRASS_CARD_TEXTURE_URL = '/textures/generated/model_grass_card.png'
+const SPAWN_GRASS_COUNT = 1400
+const GRASS_FIELD_BOUNDS = OUTDOOR_MOUNTAIN_BOUNDS
+const DISTANT_GRASS_BOUNDS = {
+  minX: -WORLD_SIZE * 0.5,
+  maxX: WORLD_SIZE * 0.5,
+  minZ: -WORLD_SIZE * 0.5,
+  maxZ: WORLD_SIZE * 0.5,
+}
+const DISTANT_GRASS_PATCH_COUNT = 360000
+const DISTANT_GRASS_PLANES_PER_PATCH = 2
+const DISTANT_GRASS_MAX_GROUND_Y = 7.5
+const DISTANT_GRASS_CELL_SIZE = 24
+const DISTANT_GRASS_CULL_PADDING = 4
+const GRASS_NEAR_INNER_RADIUS = 6
+const GRASS_NEAR_OUTER_RADIUS = 12
+const GRASS_REBUILD_DISTANCE = 0.85
+const GRASS_FOLLOW_LOOKAHEAD = 1.4
+const GRASS_CAMPFIRE_CLEAR_RADIUS = 4.5
+const GRASS_CAMPFIRE_CLEARINGS = [
+  { x: 0, z: 50 },
+  { x: 19, z: -66 },
+  { x: -18, z: -2 },
+  { x: 22, z: 22 },
+]
+const DISTANT_GRASS_Y_OFFSET = 0.03
+const RANDOM_FOREST_TREE_COUNT = 120
+const RANDOM_FOREST_BOUNDS = { minX: -118, maxX: 112, minZ: -92, maxZ: 86 }
+const RANDOM_FOREST_TREE_MIN_SPACING = 7.5
+const RANDOM_FOREST_SPAWN_CLEAR_RADIUS = 16
+const RANDOM_FOREST_CAMPFIRE_CLEAR_RADIUS = 7.5
+const RANDOM_FOREST_OLD_CHURCH_CLEAR_RADIUS = 15
+const RANDOM_FOREST_CASTLE_APPROACH_CLEARING = { x: 64, z: -5, hx: 25, hz: 22 }
+const RANDOM_FOREST_CASTLE_ENTRANCE_CLEAR_RADIUS = 20
 const FOREST_GROVE_TREE_TYPES = [
   { file: 'tree_01.glb', scale: 0.42, r: 1.35 },
   { file: 'tree_02.glb', scale: 0.50, r: 1.25 },
@@ -53,7 +81,7 @@ const FOREST_GROVE_ROCK_TYPES = [
 const FOREST_TREE_COLLIDER_SCALE = 0.6
 const FOREST_ROCK_COLLIDER_SCALE = 0.85
 const FOREST_CASTLE_GATE_CLEARING = { minX: 39, maxX: 52, minZ: -11, maxZ: 4 }
-const FOREST_GROVE_PLACEMENTS = createForestGrovePlacements()
+const CANYON_FOREST_REPLACEMENT = { minX: -120, maxX: -40, origin: { x: 0, z: 0 } }
 const CASTLE_APPROACH_MOUNDS = [
   { x: 8, z: -13, rx: 5.6, rz: 3.7, h: 4.8, rot: -0.32, r: 5.4 },
   { x: 11, z: 20, rx: 6.2, rz: 4.1, h: 5.4, rot: 0.18, r: 5.8 },
@@ -80,6 +108,20 @@ const CASTLE_APPROACH_ROCKERY_RIDGES = [
     ],
   },
 ]
+const MINE_CAVE = {
+  x: 36,
+  z: 35,
+  clearingRadius: 13,
+  cavernX: 36,
+  cavernZ: 8,
+  cavernRadius: 10,
+  rampStartZ: 35,
+  rampEndZ: 17,
+  rampHalfWidth: 3.2,
+  stairCount: 16,
+  bottomY: -6.4,
+}
+const FOREST_GROVE_PLACEMENTS = createForestGrovePlacements()
 const CURVED_CLIFF_CONTROL_POINTS = [
   [82, 26],
   [59, 69],
@@ -91,6 +133,273 @@ const SOUTH_CURVED_CLIFF_CONTROL_POINTS = [
   [-42, -94],
 ]
 const _roadTextureLoader = new THREE.TextureLoader()
+
+function createSpawnGrassPlacements(center = null) {
+  const placements = []
+  const cx = THREE.MathUtils.clamp(center?.x ?? 0, GRASS_FIELD_BOUNDS.minX, GRASS_FIELD_BOUNDS.maxX)
+  const cz = THREE.MathUtils.clamp(center?.z ?? center?.y ?? 40, GRASS_FIELD_BOUNDS.minZ, GRASS_FIELD_BOUNDS.maxZ)
+  const goldenAngle = Math.PI * (3 - Math.sqrt(5))
+
+  function addPlacement(i, x, z, radius) {
+    if (
+      x < GRASS_FIELD_BOUNDS.minX || x > GRASS_FIELD_BOUNDS.maxX
+      || z < GRASS_FIELD_BOUNDS.minZ || z > GRASS_FIELD_BOUNDS.maxZ
+    ) return
+    if (isNearGrassCampfire(x, z, GRASS_CAMPFIRE_CLEAR_RADIUS)) return
+    if (isInsideMineCaveClearing(x, z, 2.5)) return
+    const seed = 6100 + i * 7
+    const edgeT = THREE.MathUtils.smoothstep(radius, GRASS_NEAR_INNER_RADIUS, GRASS_NEAR_OUTER_RADIUS)
+    const edgeScale = THREE.MathUtils.lerp(1, 0.35, edgeT)
+    placements.push({
+      x: Number(x.toFixed(2)),
+      z: Number(z.toFixed(2)),
+      rotY: Number((forestPlacementNoise(seed + 3) * Math.PI * 2).toFixed(3)),
+      scaleX: Number(THREE.MathUtils.lerp(0.75, 1.35, forestPlacementNoise(seed + 4)).toFixed(3)),
+      scaleY: Number(THREE.MathUtils.lerp(0.75, 1.25, forestPlacementNoise(seed + 5)).toFixed(3)),
+      scaleZ: Number(THREE.MathUtils.lerp(0.75, 1.35, forestPlacementNoise(seed + 6)).toFixed(3)),
+      edgeScale: Number(edgeScale.toFixed(3)),
+      tiltX: Number(THREE.MathUtils.lerp(-0.16, 0.16, forestPlacementNoise(seed + 7)).toFixed(3)),
+      tiltZ: Number(THREE.MathUtils.lerp(-0.16, 0.16, forestPlacementNoise(seed + 8)).toFixed(3)),
+    })
+  }
+
+  for (let i = 0; placements.length < SPAWN_GRASS_COUNT && i < SPAWN_GRASS_COUNT * 2; i++) {
+    const seed = 6100 + i * 7
+    const t = (i + 0.5) / SPAWN_GRASS_COUNT
+    const innerShare = 0.72
+    const radius = t < innerShare
+      ? GRASS_NEAR_INNER_RADIUS * Math.sqrt(t / innerShare)
+      : THREE.MathUtils.lerp(
+        GRASS_NEAR_INNER_RADIUS,
+        GRASS_NEAR_OUTER_RADIUS,
+        Math.sqrt((t - innerShare) / (1 - innerShare)),
+      )
+    const angle = i * goldenAngle + (forestPlacementNoise(seed + 1) - 0.5) * 0.26
+    const x = cx + Math.cos(angle) * radius + (forestPlacementNoise(seed + 2) - 0.5) * 0.55
+    const z = cz + Math.sin(angle) * radius + (forestPlacementNoise(seed + 9) - 0.5) * 0.55
+    addPlacement(i, x, z, radius)
+  }
+
+  for (let attempt = 0; placements.length < SPAWN_GRASS_COUNT && attempt < SPAWN_GRASS_COUNT * 4; attempt++) {
+    const seed = 12300 + attempt * 11
+    const radius = THREE.MathUtils.lerp(0, GRASS_NEAR_OUTER_RADIUS, Math.sqrt(forestPlacementNoise(seed + 1)))
+    const angle = forestPlacementNoise(seed + 2) * Math.PI * 2
+    const x = cx + Math.cos(angle) * radius
+    const z = cz + Math.sin(angle) * radius
+    addPlacement(100000 + attempt, x, z, radius)
+  }
+
+  return placements
+}
+
+function isNearGrassCampfire(x, z, radius = GRASS_CAMPFIRE_CLEAR_RADIUS) {
+  const radiusSq = radius * radius
+  return GRASS_CAMPFIRE_CLEARINGS.some((fire) => {
+    const dx = x - fire.x
+    const dz = z - fire.z
+    return dx * dx + dz * dz < radiusSq
+  })
+}
+
+function isInsideMineCaveClearing(x, z, padding = 0) {
+  const dx = x - MINE_CAVE.x
+  const dz = z - MINE_CAVE.z
+  const radius = MINE_CAVE.clearingRadius + padding
+  if (dx * dx + dz * dz <= radius * radius) return true
+
+  return x >= MINE_CAVE.x - 8 - padding
+    && x <= MINE_CAVE.x + 8 + padding
+    && z >= MINE_CAVE.z - 28 - padding
+    && z <= MINE_CAVE.z + 5 + padding
+}
+
+function findFirstMesh(root) {
+  let firstMesh = null
+  root.traverse((child) => {
+    if (!firstMesh && child.isMesh) firstMesh = child
+  })
+  return firstMesh
+}
+
+let _spawnGrassWindUniform = null
+let _spawnGrassInstancedMesh = null
+let _spawnGrassCenter = null
+let _spawnGrassLastPlayerPosition = null
+const _spawnGrassDummy = new THREE.Object3D()
+
+function configureSpawnGrassMaterial(material) {
+  material.side = THREE.DoubleSide
+  material.onBeforeCompile = (shader) => {
+    shader.uniforms.uTime = { value: 0 }
+    _spawnGrassWindUniform = shader.uniforms.uTime
+    shader.vertexShader = shader.vertexShader
+      .replace(
+        '#include <common>',
+        `#include <common>
+uniform float uTime;`
+      )
+      .replace(
+        '#include <begin_vertex>',
+        `#include <begin_vertex>
+#ifdef USE_INSTANCING
+float grassHeightMask = smoothstep(0.08, 0.82, position.y);
+float grassPhase = instanceMatrix[3].x * 1.37 + instanceMatrix[3].z * 2.11;
+float grassWave = sin(uTime * 1.25 + grassPhase + position.y * 3.4) * 0.028;
+grassWave += sin(uTime * 2.05 + grassPhase * 1.7 + position.y * 5.1) * 0.012;
+transformed.x += grassWave * grassHeightMask;
+transformed.z += cos(uTime * 1.1 + grassPhase * 1.3 + position.y * 2.8) * 0.018 * grassHeightMask;
+#endif`
+      )
+  }
+  material.customProgramCacheKey = () => 'spawn-grass-wind-v1'
+  material.needsUpdate = true
+  return material
+}
+
+function applySpawnGrassPlacements(inst, center) {
+  if (!inst) return
+  const placements = createSpawnGrassPlacements(center)
+  placements.forEach(({ x, z, rotY, scaleX, scaleY, scaleZ, edgeScale, tiltX, tiltZ }, index) => {
+    _spawnGrassDummy.position.set(x, getGroundHeight(x, z), z)
+    _spawnGrassDummy.rotation.set(tiltX, rotY, tiltZ)
+    _spawnGrassDummy.scale.set(scaleX * edgeScale, scaleY * edgeScale, scaleZ * edgeScale)
+    _spawnGrassDummy.updateMatrix()
+    inst.setMatrixAt(index, _spawnGrassDummy.matrix)
+  })
+
+  for (let index = placements.length; index < inst.count; index++) {
+    _spawnGrassDummy.position.set(0, MOUNTAIN_FALL_FLOOR_Y - 10, 0)
+    _spawnGrassDummy.rotation.set(0, 0, 0)
+    _spawnGrassDummy.scale.set(0, 0, 0)
+    _spawnGrassDummy.updateMatrix()
+    inst.setMatrixAt(index, _spawnGrassDummy.matrix)
+  }
+
+  inst.instanceMatrix.needsUpdate = true
+  inst.computeBoundingBox()
+  inst.computeBoundingSphere()
+  _spawnGrassCenter = new THREE.Vector3(center?.x ?? 0, 0, center?.z ?? center?.y ?? 40)
+}
+
+function updateSpawnGrassWindow(playerPosition) {
+  if (!_spawnGrassInstancedMesh || !playerPosition) return
+  const px = playerPosition.x
+  const pz = playerPosition.z ?? playerPosition.y ?? 40
+  const moveX = px - (_spawnGrassLastPlayerPosition?.x ?? px)
+  const moveZ = pz - (_spawnGrassLastPlayerPosition?.z ?? pz)
+  const moveLen = Math.hypot(moveX, moveZ)
+  _spawnGrassLastPlayerPosition = new THREE.Vector3(px, 0, pz)
+
+  const lookahead = moveLen > 0.001 ? GRASS_FOLLOW_LOOKAHEAD / moveLen : 0
+  const targetCenter = {
+    x: THREE.MathUtils.clamp(px + moveX * lookahead, GRASS_FIELD_BOUNDS.minX, GRASS_FIELD_BOUNDS.maxX),
+    z: THREE.MathUtils.clamp(pz + moveZ * lookahead, GRASS_FIELD_BOUNDS.minZ, GRASS_FIELD_BOUNDS.maxZ),
+  }
+  const dx = targetCenter.x - (_spawnGrassCenter?.x ?? Infinity)
+  const dz = targetCenter.z - (_spawnGrassCenter?.z ?? Infinity)
+  if (dx * dx + dz * dz < GRASS_REBUILD_DISTANCE * GRASS_REBUILD_DISTANCE) return
+  applySpawnGrassPlacements(_spawnGrassInstancedMesh, targetCenter)
+}
+
+function createDistantGrassCardMaterial() {
+  const texture = _roadTextureLoader.load(DISTANT_GRASS_CARD_TEXTURE_URL)
+  texture.colorSpace = THREE.SRGBColorSpace
+
+  return new THREE.MeshBasicMaterial({
+    color: 0xffffff,
+    map: texture,
+    alphaTest: 0.32,
+    depthWrite: true,
+    side: THREE.DoubleSide,
+  })
+}
+
+function setDistantGrassPatchMatrices(inst, patch) {
+  for (let plane = 0; plane < DISTANT_GRASS_PLANES_PER_PATCH; plane++) {
+    _spawnGrassDummy.position.set(patch.x, patch.y, patch.z)
+    _spawnGrassDummy.rotation.set(patch.leanX, patch.baseRotY + plane * Math.PI * 0.5, patch.leanZ)
+    _spawnGrassDummy.scale.set(patch.width, patch.height, 1)
+    _spawnGrassDummy.updateMatrix()
+    inst.setMatrixAt(patch.baseIndex + plane, _spawnGrassDummy.matrix)
+  }
+}
+
+function buildDistantGrassCards(scene) {
+  const geometry = new THREE.PlaneGeometry(1, 1, 1, 3)
+  geometry.translate(0, 0.5, 0)
+  const material = createDistantGrassCardMaterial()
+  const totalArea = (DISTANT_GRASS_BOUNDS.maxX - DISTANT_GRASS_BOUNDS.minX)
+    * (DISTANT_GRASS_BOUNDS.maxZ - DISTANT_GRASS_BOUNDS.minZ)
+  const targetDensity = DISTANT_GRASS_PATCH_COUNT / totalArea
+  const cols = Math.ceil((DISTANT_GRASS_BOUNDS.maxX - DISTANT_GRASS_BOUNDS.minX) / DISTANT_GRASS_CELL_SIZE)
+  const rows = Math.ceil((DISTANT_GRASS_BOUNDS.maxZ - DISTANT_GRASS_BOUNDS.minZ) / DISTANT_GRASS_CELL_SIZE)
+
+  for (let row = 0; row < rows; row++) {
+    for (let col = 0; col < cols; col++) {
+      const minX = DISTANT_GRASS_BOUNDS.minX + col * DISTANT_GRASS_CELL_SIZE
+      const minZ = DISTANT_GRASS_BOUNDS.minZ + row * DISTANT_GRASS_CELL_SIZE
+      const maxX = Math.min(minX + DISTANT_GRASS_CELL_SIZE, DISTANT_GRASS_BOUNDS.maxX)
+      const maxZ = Math.min(minZ + DISTANT_GRASS_CELL_SIZE, DISTANT_GRASS_BOUNDS.maxZ)
+      const cellArea = (maxX - minX) * (maxZ - minZ)
+      const patchCount = Math.max(1, Math.round(cellArea * targetDensity))
+      const count = patchCount * DISTANT_GRASS_PLANES_PER_PATCH
+      const inst = new THREE.InstancedMesh(geometry, material, count)
+      inst.name = `distant_grass_card_cell_${col}_${row}`
+      inst.castShadow = false
+      inst.receiveShadow = false
+      inst.frustumCulled = true
+
+      let instanceIndex = 0
+      for (let i = 0; i < patchCount * 3 && instanceIndex < count; i++) {
+        const seed = 71000 + row * 100003 + col * 4099 + i * 19
+        const x = THREE.MathUtils.lerp(minX, maxX, forestPlacementNoise(seed + 1))
+        const z = THREE.MathUtils.lerp(minZ, maxZ, forestPlacementNoise(seed + 2))
+        if (isNearGrassCampfire(x, z, GRASS_CAMPFIRE_CLEAR_RADIUS + 2.5)) continue
+        if (isInsideMineCaveClearing(x, z, 4)) continue
+
+        const groundY = getGroundHeight(x, z)
+        if (groundY > DISTANT_GRASS_MAX_GROUND_Y) continue
+
+        const y = groundY + DISTANT_GRASS_Y_OFFSET
+        const baseRotY = forestPlacementNoise(seed + 3) * Math.PI * 2
+        const width = THREE.MathUtils.lerp(0.72, 1.10, forestPlacementNoise(seed + 4))
+        const height = THREE.MathUtils.lerp(0.62, 1.05, forestPlacementNoise(seed + 5))
+        const leanX = THREE.MathUtils.lerp(-0.08, 0.08, forestPlacementNoise(seed + 6))
+        const leanZ = THREE.MathUtils.lerp(-0.08, 0.08, forestPlacementNoise(seed + 7))
+        const patch = {
+          x,
+          y,
+          z,
+          baseRotY,
+          width,
+          height,
+          leanX,
+          leanZ,
+          baseIndex: instanceIndex,
+        }
+
+        setDistantGrassPatchMatrices(inst, patch)
+        instanceIndex += DISTANT_GRASS_PLANES_PER_PATCH
+      }
+
+      if (instanceIndex === 0) continue
+
+      for (; instanceIndex < count; instanceIndex++) {
+        _spawnGrassDummy.position.set(0, MOUNTAIN_FALL_FLOOR_Y - 10, 0)
+        _spawnGrassDummy.rotation.set(0, 0, 0)
+        _spawnGrassDummy.scale.set(0, 0, 0)
+        _spawnGrassDummy.updateMatrix()
+        inst.setMatrixAt(instanceIndex, _spawnGrassDummy.matrix)
+      }
+
+      inst.instanceMatrix.needsUpdate = true
+      inst.computeBoundingBox()
+      inst.computeBoundingSphere()
+      if (inst.boundingSphere) inst.boundingSphere.radius += DISTANT_GRASS_CULL_PADDING
+      scene.add(inst)
+    }
+  }
+}
 
 function createCurvedCliffRidgePoints(controlPoints, phase = 0) {
   const curve = new THREE.CatmullRomCurve3(
@@ -114,6 +423,13 @@ const CURVED_CLIFF_RIDGES = [
     points: createCurvedCliffRidgePoints(SOUTH_CURVED_CLIFF_CONTROL_POINTS, 1.7),
   },
 ]
+
+function isInsideOutdoorMountainBounds(x, z, padding = 0) {
+  return x >= OUTDOOR_MOUNTAIN_BOUNDS.minX - padding
+    && x <= OUTDOOR_MOUNTAIN_BOUNDS.maxX + padding
+    && z >= OUTDOOR_MOUNTAIN_BOUNDS.minZ - padding
+    && z <= OUTDOOR_MOUNTAIN_BOUNDS.maxZ + padding
+}
 
 function forestPlacementNoise(seed) {
   const n = Math.sin(seed * 157.31 + 19.73) * 43758.5453
@@ -286,6 +602,159 @@ function createForestSegmentPlacementsForTypes(types, count, {
   return placements
 }
 
+function isInCanyonForestReplacementRange(x) {
+  return x >= CANYON_FOREST_REPLACEMENT.minX && x <= CANYON_FOREST_REPLACEMENT.maxX
+}
+
+function createCanyonForestReplacementPlacementsForTypes(types, count, {
+  minSide,
+  maxSide,
+  forwardJitter = 2.2,
+  sideJitter = 1.8,
+  angleOffset = 0,
+  scaleJitter = 0.12,
+  colliderScale = 1,
+  seedOffset = 0,
+} = {}) {
+  const placements = []
+  for (let i = 0; i < count; i++) {
+    const type = types[i % types.length]
+    const t = count === 1 ? 0.5 : i / (count - 1)
+    const side = i % 2 === 0 ? -1 : 1
+    const x = THREE.MathUtils.lerp(CANYON_FOREST_REPLACEMENT.minX, CANYON_FOREST_REPLACEMENT.maxX, t)
+      + (forestPlacementNoise(seedOffset + i * 5 + 1) - 0.5) * forwardJitter
+    const centerZ = canyonCenterZ(x)
+    const sideDistance = THREE.MathUtils.lerp(minSide, maxSide, forestPlacementNoise(seedOffset + i * 5 + 2))
+      + (forestPlacementNoise(seedOffset + i * 5 + 3) - 0.5) * sideJitter
+    const scaleNoise = 1 + (forestPlacementNoise(seedOffset + i * 5 + 4) - 0.5) * 2 * scaleJitter
+    const placement = {
+      file: type.file,
+      origin: CANYON_FOREST_REPLACEMENT.origin,
+      dx: Number(x.toFixed(2)),
+      dz: Number((centerZ + side * sideDistance).toFixed(2)),
+      rotY: Number((angleOffset + forestPlacementNoise(seedOffset + i * 5 + 5) * Math.PI * 2).toFixed(3)),
+      scale: Number((type.scale * scaleNoise).toFixed(3)),
+    }
+    if (type.r) placement.r = Number((type.r * scaleNoise * colliderScale).toFixed(2))
+    placements.push(placement)
+  }
+  return placements
+}
+
+function createCanyonForestReplacementPlacements() {
+  return [
+    ...createCanyonForestReplacementPlacementsForTypes(FOREST_GROVE_TREE_TYPES, 46, {
+      minSide: CANYON.walkHalfWidth + 8.8,
+      maxSide: CANYON.wallHalfGap + 14.5,
+      angleOffset: 0.44,
+      colliderScale: FOREST_TREE_COLLIDER_SCALE,
+      seedOffset: 2900,
+    }),
+    ...createCanyonForestReplacementPlacementsForTypes(FOREST_GROVE_SHRUB_TYPES, 34, {
+      minSide: CANYON.walkHalfWidth + 6.8,
+      maxSide: CANYON.wallHalfGap + 11.0,
+      angleOffset: 1.36,
+      scaleJitter: 0.18,
+      seedOffset: 3100,
+    }),
+    ...createCanyonForestReplacementPlacementsForTypes(FOREST_GROVE_ROCK_TYPES, 20, {
+      minSide: CANYON.walkHalfWidth + 5.2,
+      maxSide: CANYON.wallHalfGap + 9.5,
+      angleOffset: 2.58,
+      scaleJitter: 0.16,
+      colliderScale: FOREST_ROCK_COLLIDER_SCALE,
+      seedOffset: 3300,
+    }),
+  ]
+}
+
+function isInsideRandomForestClearing(x, z) {
+  if (x * x + z * z <= RANDOM_FOREST_SPAWN_CLEAR_RADIUS * RANDOM_FOREST_SPAWN_CLEAR_RADIUS) return true
+
+  const oldChurchDx = x - OLD_CHURCH_RUINS_PLACEMENT.x
+  const oldChurchDz = z - OLD_CHURCH_RUINS_PLACEMENT.z
+  if (oldChurchDx * oldChurchDx + oldChurchDz * oldChurchDz <= RANDOM_FOREST_OLD_CHURCH_CLEAR_RADIUS * RANDOM_FOREST_OLD_CHURCH_CLEAR_RADIUS) return true
+
+  if (
+    Math.abs(x - RANDOM_FOREST_CASTLE_APPROACH_CLEARING.x) <= RANDOM_FOREST_CASTLE_APPROACH_CLEARING.hx
+    && Math.abs(z - RANDOM_FOREST_CASTLE_APPROACH_CLEARING.z) <= RANDOM_FOREST_CASTLE_APPROACH_CLEARING.hz
+  ) {
+    return true
+  }
+
+  const castleEntranceDx = x - CASTLE_EXTERIOR.transitionTarget.x
+  const castleEntranceDz = z - CASTLE_EXTERIOR.transitionTarget.z
+  if (castleEntranceDx * castleEntranceDx + castleEntranceDz * castleEntranceDz <= RANDOM_FOREST_CASTLE_ENTRANCE_CLEAR_RADIUS * RANDOM_FOREST_CASTLE_ENTRANCE_CLEAR_RADIUS) return true
+  if (isInsideMineCaveClearing(x, z, 5)) return true
+
+  const campfires = [
+    { x: 0, z: 50 },
+    { x: 19, z: -66 },
+    { x: -18, z: -2 },
+    { x: 22, z: 22 },
+  ]
+  for (const fire of campfires) {
+    const dx = x - fire.x
+    const dz = z - fire.z
+    if (dx * dx + dz * dz <= RANDOM_FOREST_CAMPFIRE_CLEAR_RADIUS * RANDOM_FOREST_CAMPFIRE_CLEAR_RADIUS) return true
+  }
+
+  if (x >= CANYON.endX && x <= CANYON.startX + 8) {
+    const dz = z - canyonCenterZ(x)
+    if (Math.abs(dz) <= CANYON.wallHalfGap + 5) return true
+  }
+
+  return false
+}
+
+function isTooCloseToForestPlacement(placements, x, z, minSpacing) {
+  const minDistSq = minSpacing * minSpacing
+  for (const placement of placements) {
+    const origin = getForestPlacementOrigin(placement)
+    const px = origin.x + placement.dx
+    const pz = origin.z + placement.dz
+    const dx = x - px
+    const dz = z - pz
+    if (dx * dx + dz * dz < minDistSq) return true
+  }
+  return false
+}
+
+function createRandomForestTreePlacements(existingPlacements) {
+  const placements = []
+  const maxAttempts = RANDOM_FOREST_TREE_COUNT * 18
+  for (let attempt = 0; placements.length < RANDOM_FOREST_TREE_COUNT && attempt < maxAttempts; attempt++) {
+    const seed = 4300 + attempt * 7
+    const x = Number(THREE.MathUtils.lerp(
+      RANDOM_FOREST_BOUNDS.minX,
+      RANDOM_FOREST_BOUNDS.maxX,
+      forestPlacementNoise(seed + 1),
+    ).toFixed(2))
+    const z = Number(THREE.MathUtils.lerp(
+      RANDOM_FOREST_BOUNDS.minZ,
+      RANDOM_FOREST_BOUNDS.maxZ,
+      forestPlacementNoise(seed + 2),
+    ).toFixed(2))
+    if (!isInsideOutdoorMountainBounds(x, z, 0)) continue
+    if (isInsideRandomForestClearing(x, z)) continue
+    if (isTooCloseToForestPlacement(existingPlacements, x, z, RANDOM_FOREST_TREE_MIN_SPACING)) continue
+    if (isTooCloseToForestPlacement(placements, x, z, RANDOM_FOREST_TREE_MIN_SPACING)) continue
+
+    const type = FOREST_GROVE_TREE_TYPES[attempt % FOREST_GROVE_TREE_TYPES.length]
+    const scaleNoise = 1 + (forestPlacementNoise(seed + 3) - 0.5) * 0.28
+    placements.push({
+      file: type.file,
+      origin: { x: 0, z: 0 },
+      dx: x,
+      dz: z,
+      rotY: Number((forestPlacementNoise(seed + 4) * Math.PI * 2).toFixed(3)),
+      scale: Number((type.scale * scaleNoise).toFixed(3)),
+      r: Number((type.r * scaleNoise * FOREST_TREE_COLLIDER_SCALE).toFixed(2)),
+    })
+  }
+  return placements
+}
+
 function createForestGrovePlacements() {
   const targetDx = FOREST_GROVE_CASTLE_TARGET.x - FOREST_GROVE_ORIGIN.x
   const targetDz = FOREST_GROVE_CASTLE_TARGET.z - FOREST_GROVE_ORIGIN.z
@@ -428,30 +897,50 @@ function createForestGrovePlacements() {
       seedOffset: 2700,
     }),
   ], FOREST_LINE_GROVE_ORIGIN)
+  const northGrovePlacements = attachForestOrigin([
+    ...createForestPlacementsForTypes(FOREST_GROVE_TREE_TYPES, 16, {
+      radiusMin: 8.0,
+      radiusMax: 27.2,
+      angleOffset: 0.82,
+      scaleJitter: 0.14,
+      colliderScale: FOREST_TREE_COLLIDER_SCALE,
+      seedOffset: 3500,
+    }),
+    ...createForestPlacementsForTypes(FOREST_GROVE_SHRUB_TYPES, 32, {
+      radiusMin: 6.4,
+      radiusMax: 25.6,
+      angleOffset: 1.76,
+      scaleJitter: 0.18,
+      seedOffset: 3700,
+    }),
+    ...createForestPlacementsForTypes(FOREST_GROVE_ROCK_TYPES, 10, {
+      radiusMin: 7.2,
+      radiusMax: 24.0,
+      angleOffset: 2.68,
+      scaleJitter: 0.16,
+      colliderScale: FOREST_ROCK_COLLIDER_SCALE,
+      seedOffset: 3900,
+    }),
+  ], FOREST_NORTH_GROVE_ORIGIN)
 
-  return [...castleLanePlacements, ...secondGrovePlacements, ...thirdGrovePlacements, ...lineGrovePlacements]
+  const existingPlacements = [
+    ...castleLanePlacements,
+    ...secondGrovePlacements,
+    ...thirdGrovePlacements,
+    ...lineGrovePlacements,
+    ...northGrovePlacements,
+  ]
+  const randomTreePlacements = createRandomForestTreePlacements(existingPlacements)
+
+  return [
+    ...existingPlacements,
+    ...randomTreePlacements,
+  ]
+    .filter((placement) => {
+      const origin = getForestPlacementOrigin(placement)
+      return isInsideOutdoorMountainBounds(origin.x + placement.dx, origin.z + placement.dz, 0)
+    })
     .filter((placement) => !isInForestCastleGateClearing(placement))
-}
-
-function loadRoadTexture(fileName, { color = false } = {}) {
-  const texture = _roadTextureLoader.load(`${ROAD_TEXTURE_BASE}/${fileName}?${ROAD_TEXTURE_VERSION}`)
-  texture.wrapS = THREE.RepeatWrapping
-  texture.wrapT = THREE.RepeatWrapping
-  texture.anisotropy = 8
-  if (color) texture.colorSpace = THREE.SRGBColorSpace
-  return texture
-}
-
-function createRoadMaterial() {
-  return new THREE.MeshStandardMaterial({
-    color: 0x9a9384,
-    map: loadRoadTexture('PavingStones150_1K-JPG_Color.jpg', { color: true }),
-    aoMap: loadRoadTexture('PavingStones150_1K-JPG_AmbientOcclusion.jpg'),
-    normalMap: loadRoadTexture('PavingStones150_1K-JPG_NormalGL.jpg'),
-    normalScale: new THREE.Vector2(0.42, 0.42),
-    roughness: 0.99,
-    metalness: 0,
-  })
 }
 
 function loadRockeryTexture(fileName, { color = false } = {}) {
@@ -480,7 +969,7 @@ function createRockeryMaterial({ dark = false } = {}) {
   })
 }
 
-// 沿 CatmullRom 曲线生成顶点带路面，返回采样点和切线供草地使用
+// 沿 CatmullRom 曲线生成顶点带；峡谷水流仍复用这个几何生成器
 function makeCurvedPath(scene, controlPoints, width = 1.5, material = null, y = 0.08) {
   const curve = new THREE.CatmullRomCurve3(
     controlPoints.map(([x, z]) => new THREE.Vector3(x, 0, z))
@@ -500,8 +989,8 @@ function makeCurvedPath(scene, controlPoints, width = 1.5, material = null, y = 
       p.x - rx * width / 2, y, p.z - rz * width / 2,
       p.x + rx * width / 2, y, p.z + rz * width / 2
     )
-    const uMax = Math.max(1, width / ROAD_TEXTURE_TILE_METERS)
-    const v = lengths[i] / ROAD_TEXTURE_TILE_METERS
+    const uMax = Math.max(1, width / CURVE_UV_TILE_METERS)
+    const v = lengths[i] / CURVE_UV_TILE_METERS
     uvs.push(0, v, uMax, v)
     if (i < SEGS) {
       const a = i * 2
@@ -524,220 +1013,51 @@ function makeCurvedPath(scene, controlPoints, width = 1.5, material = null, y = 
   return { pts, tangents, width }
 }
 
-// 收集路边 + 路缝草地的位置 [x, z, scale]
-function collectPathGrass({ pts, tangents, width }) {
-  const result = []
-  for (let i = 0; i < pts.length; i += 2) {
-    const p = pts[i], t = tangents[i]
-    const rx = -t.z, rz = t.x
+const _forestPackLabelTargets = []
+const _forestPackLabelBox = new THREE.Box3()
 
-    for (const side of [-1, 1]) {
-      const n = 1 + Math.floor(Math.random() * 2)
-      for (let k = 0; k < n; k++) {
-        const eOff = width / 2 * side + (Math.random() - 0.5) * 0.9
-        const aOff = (Math.random() - 0.5) * 1.25
-        result.push([
-          p.x + rx * eOff + t.x * aOff,
-          p.z + rz * eOff + t.z * aOff,
-          0.55 + Math.random() * 0.65,
-        ])
-      }
-    }
-    if (Math.random() < 0.12) {   // 路缝稀疏枯草
-      result.push([
-        p.x + (Math.random() - 0.5) * width * 0.5,
-        p.z + (Math.random() - 0.5) * width * 0.5,
-        0.32 + Math.random() * 0.28,
-      ])
-    }
+function getForestPackLabel(file) {
+  return String(file).replace(/\.glb$/i, '')
+}
+
+function registerForestPackLabelTarget(group, file, range = 3) {
+  _forestPackLabelTargets.push({
+    group,
+    label: getForestPackLabel(file),
+    range,
+  })
+}
+
+function getForestPackLabelPosition(group) {
+  group.updateWorldMatrix(true, true)
+  _forestPackLabelBox.setFromObject(group)
+  if (!_forestPackLabelBox.isEmpty()) {
+    const pos = new THREE.Vector3()
+    _forestPackLabelBox.getCenter(pos)
+    pos.y = _forestPackLabelBox.max.y + 0.25
+    return pos
   }
-  return result
+  return group.getWorldPosition(new THREE.Vector3()).add(new THREE.Vector3(0, 1.2, 0))
 }
 
-function stableNoise(seed) {
-  const n = Math.sin(seed * 127.1 + 311.7) * 43758.5453
-  return n - Math.floor(n)
-}
-
-function stableNoise2(x, z, salt = 0) {
-  const n = Math.sin(x * 12.9898 + z * 78.233 + salt * 37.719) * 43758.5453
-  return n - Math.floor(n)
-}
-
-function collectOldChurchGrass() {
-  const result = []
-  const center = OLD_CHURCH_RUINS_PLACEMENT
-
-  OLD_CHURCH_GRASS_PATCHES.forEach((patch, patchIndex) => {
-    for (let i = 0; i < patch.count; i++) {
-      const seed = patchIndex * 97 + i + 1
-      const angle = stableNoise(seed) * Math.PI * 2
-      const radius = Math.sqrt(stableNoise(seed + 19))
-      const x = patch.x + Math.cos(angle) * patch.rx * radius
-      const z = patch.z + Math.sin(angle) * patch.rz * radius
-      const dx = Math.abs(x - center.x)
-      const dz = Math.abs(z - center.z)
-      if (dx < 2.15 && dz < 2.35) continue
-      result.push([x, z, 1.35 + stableNoise(seed + 43) * 1.15])
-    }
-  })
-
-  return result
-}
-
-const _grassWindMaterials = []
-const _grassInstances = []
-
-function createGrassMaterial({
-  color = 0x8a8462,
-  windStrength = 0.035,
-  flutterStrength = 0.010,
-} = {}) {
-  const uniforms = {
-    uTime: { value: 0 },
-    uWindDir: { value: new THREE.Vector2(0.78, 0.62).normalize() },
-    uWindStrength: { value: windStrength },
-    uFlutterStrength: { value: flutterStrength },
+function getNearbyForestPackLabel(playerPosition, defaultRange = 3) {
+  let nearest = null
+  let nearestDistSq = defaultRange * defaultRange
+  for (const target of _forestPackLabelTargets) {
+    if (!target.group?.parent) continue
+    const range = target.range ?? defaultRange
+    const dx = playerPosition.x - target.group.position.x
+    const dz = playerPosition.z - target.group.position.z
+    const distSq = dx * dx + dz * dz
+    if (distSq > range * range || distSq > nearestDistSq) continue
+    nearest = target
+    nearestDistSq = distSq
   }
-  const mat = new THREE.MeshStandardMaterial({
-    color,
-    roughness: 1,
-    metalness: 0,
-    side: THREE.DoubleSide,
-  })
-
-  mat.onBeforeCompile = (shader) => {
-    Object.assign(shader.uniforms, uniforms)
-    shader.vertexShader = `
-      attribute float windWeight;
-      attribute float instancePhase;
-      attribute float instanceHeightBoost;
-      attribute vec2 instanceBend;
-      uniform float uTime;
-      uniform vec2 uWindDir;
-      uniform float uWindStrength;
-      uniform float uFlutterStrength;
-    ` + shader.vertexShader.replace(
-      '#include <begin_vertex>',
-      `
-      #include <begin_vertex>
-      float windPhase = instancePhase + dot((instanceMatrix * vec4(position, 1.0)).xz, vec2(0.09, 0.13));
-      float broadWind = sin(uTime * 1.15 + windPhase) * 0.65
-                    + sin(uTime * 0.47 + windPhase * 1.7) * 0.35;
-      float flutter = sin(uTime * 7.2 + windPhase * 2.3) * 0.5
-                  + sin(uTime * 11.6 + windPhase * 0.7) * 0.25;
-      float tipMask = windWeight * windWeight;
-      float instanceYScale = max(length(instanceMatrix[1].xyz), 0.001);
-      transformed.y += instanceHeightBoost * windWeight / instanceYScale;
-      transformed.xz += instanceBend * tipMask;
-      transformed.xz += uWindDir * broadWind * uWindStrength * tipMask;
-      transformed.xz += vec2(-uWindDir.y, uWindDir.x) * flutter * uFlutterStrength * tipMask;
-      `
-    )
+  if (!nearest) return null
+  return {
+    label: nearest.label,
+    position: getForestPackLabelPosition(nearest.group),
   }
-  mat.customProgramCacheKey = () => 'wind-grass-v1'
-  mat.userData.windUniforms = uniforms
-  _grassWindMaterials.push(mat)
-  return mat
-}
-
-function updateGrassWind(time) {
-  _grassWindMaterials.forEach((mat) => {
-    mat.userData.windUniforms.uTime.value = time
-  })
-}
-
-function setGrassInstanceMatrix(dummy, [x, z, scale], yOffset) {
-  const groundY = _terrainReady ? getGroundHeight(x, z) : 0
-  dummy.position.set(x, groundY + yOffset, z)
-  dummy.rotation.y = stableNoise2(x, z, 11) * Math.PI * 2
-  dummy.scale.set(
-    scale * (0.85 + stableNoise2(x, z, 21) * 0.3),
-    scale * (0.9 + stableNoise2(x, z, 31) * 0.25),
-    scale * (0.85 + stableNoise2(x, z, 51) * 0.3)
-  )
-  dummy.updateMatrix()
-}
-
-function regroundGrassInstances() {
-  const dummy = new THREE.Object3D()
-  _grassInstances.forEach(({ mesh, placements, yOffset }) => {
-    placements.forEach((placement, i) => {
-      setGrassInstanceMatrix(dummy, placement, yOffset)
-      mesh.setMatrixAt(i, dummy.matrix)
-    })
-    mesh.instanceMatrix.needsUpdate = true
-    mesh.computeBoundingSphere()
-  })
-}
-
-// 用 InstancedMesh 一次性绘制低矮草簇，避免矩形草片看起来像绿色方块。
-function makeGrass(scene, placements, options = {}) {
-  if (!placements.length) return
-
-  const verts = []
-  const weights = []
-  for (let i = 0; i < 7; i++) {
-    const angle = i / 7 * Math.PI * 2
-    const bladeHeight = 0.13 + (i % 3) * 0.035
-    const bladeWidth = 0.018 + (i % 2) * 0.006
-    const rootRadius = 0.018 + (i % 4) * 0.006
-    const lean = 0.026 + (i % 3) * 0.012
-    const cx = Math.cos(angle) * rootRadius
-    const cz = Math.sin(angle) * rootRadius
-    const px = Math.cos(angle + Math.PI * 0.5) * bladeWidth
-    const pz = Math.sin(angle + Math.PI * 0.5) * bladeWidth
-    const tipX = cx + Math.cos(angle) * lean
-    const tipZ = cz + Math.sin(angle) * lean
-    verts.push(
-      cx - px, 0, cz - pz,
-      cx + px, 0, cz + pz,
-      tipX, bladeHeight, tipZ,
-    )
-    weights.push(0, 0, 1)
-  }
-  const geo = new THREE.BufferGeometry()
-  geo.setAttribute('position', new THREE.Float32BufferAttribute(verts, 3))
-  geo.setAttribute('windWeight', new THREE.Float32BufferAttribute(weights, 1))
-  const phases = new Float32Array(placements.length)
-  const heightBoosts = new Float32Array(placements.length)
-  const bends = new Float32Array(placements.length * 2)
-  const heightBoost = options.heightBoost ?? 0
-  const bendStrength = options.bendStrength ?? 0
-  placements.forEach(([x, z], i) => {
-    phases[i] = stableNoise2(x, z, 41) * Math.PI * 2
-    heightBoosts[i] = heightBoost * (0.86 + stableNoise2(x, z, 61) * 0.28)
-    const bendAngle = stableNoise2(x, z, 71) * Math.PI * 2
-    const bend = bendStrength * (0.65 + stableNoise2(x, z, 81) * 0.5)
-    bends[i * 2] = Math.cos(bendAngle) * bend
-    bends[i * 2 + 1] = Math.sin(bendAngle) * bend
-  })
-  geo.setAttribute('instancePhase', new THREE.InstancedBufferAttribute(phases, 1))
-  geo.setAttribute('instanceHeightBoost', new THREE.InstancedBufferAttribute(heightBoosts, 1))
-  geo.setAttribute('instanceBend', new THREE.InstancedBufferAttribute(bends, 2))
-  geo.computeVertexNormals()
-
-  const mat = createGrassMaterial(options)
-  const mesh = new THREE.InstancedMesh(geo, mat, placements.length)
-  const dummy = new THREE.Object3D()
-  const color = new THREE.Color()
-  const yOffset = options.yOffset ?? 0.035
-  const palette = options.palette ?? [0x4b5437, 0x5b5d3f, 0x6f6848, 0x3f4a35, 0x756f50]
-
-  placements.forEach(([x, z, scale], i) => {
-    setGrassInstanceMatrix(dummy, [x, z, scale], yOffset)
-    mesh.setMatrixAt(i, dummy.matrix)
-    mesh.setColorAt(i, color.setHex(palette[i % palette.length]))
-  })
-
-  mesh.instanceMatrix.needsUpdate = true
-  mesh.instanceColor.needsUpdate  = true
-  mesh.computeBoundingSphere()
-  mesh.name = options.name ?? 'wind_grass_instances'
-  mesh.castShadow = false
-  mesh.receiveShadow = true
-  scene.add(mesh)
-  _grassInstances.push({ mesh, placements, yOffset })
 }
 
 function createCheapStaticMaterial(source) {
@@ -754,12 +1074,17 @@ function createCheapStaticMaterial(source) {
   return material
 }
 
-function configureStaticGltfModel(root, { shadows = true, cheapMaterials = false } = {}) {
+function configureStaticGltfModel(root, {
+  shadows = true,
+  castShadows = shadows,
+  receiveShadows = shadows,
+  cheapMaterials = false,
+} = {}) {
   const cheapMaterialCache = new Map()
   root.traverse((child) => {
     if (!child.isMesh) return
-    child.castShadow = shadows
-    child.receiveShadow = shadows
+    child.castShadow = castShadows
+    child.receiveShadow = receiveShadows
     const mats = Array.isArray(child.material) ? child.material : [child.material]
     if (cheapMaterials) {
       const nextMaterials = mats.map((mat) => {
@@ -802,7 +1127,7 @@ function loadOldChurchRuins(scene, collidables, onReady = null) {
     group.position.set(x, 0, z)
     group.rotation.y = rotY
 
-    configureStaticGltfModel(root, { shadows: true, cheapMaterials: false })
+    configureStaticGltfModel(root, { castShadows: false, receiveShadows: true, cheapMaterials: false })
     group.add(root)
     scene.add(group)
     snapObjectToGround(group, OLD_CHURCH_RUINS_Y_OFFSET)
@@ -818,6 +1143,7 @@ function loadForestGrove(scene, collidables) {
     const origin = getForestPlacementOrigin(placement)
     const x = origin.x + placement.dx
     const z = origin.z + placement.dz
+    if (isInsideMineCaveClearing(x, z, 4)) return
 
     if (placement.r) {
       collidables.push({
@@ -834,13 +1160,105 @@ function loadForestGrove(scene, collidables) {
       group.position.set(x, 0, z)
       group.rotation.y = placement.rotY ?? 0
       group.scale.setScalar(placement.scale ?? 1)
-      configureStaticGltfModel(root, { shadows: true, cheapMaterials: false })
+      configureStaticGltfModel(root, { castShadows: false, receiveShadows: true, cheapMaterials: false })
       group.add(root)
       scene.add(group)
       snapObjectToGround(group)
+      registerForestPackLabelTarget(group, placement.file)
     }).catch((error) => {
       console.warn(`Forest grove asset failed: ${placement.file}`, error)
     })
+  })
+}
+
+function addMineCaveColliders(collidables) {
+  const stairDepth = (MINE_CAVE.rampStartZ - MINE_CAVE.rampEndZ) / MINE_CAVE.stairCount
+  const stairHeight = Math.abs(MINE_CAVE.bottomY) / MINE_CAVE.stairCount
+  collidables.push(
+    ...Array.from({ length: MINE_CAVE.stairCount }, (_, index) => ({
+      name: `mine_cave_stair_surface_${index + 1}`,
+      x: MINE_CAVE.x,
+      z: MINE_CAVE.rampStartZ - stairDepth * (index + 0.5),
+      hx: 3.1,
+      hz: stairDepth * 0.5,
+      h: -stairHeight * (index + 1),
+      surface: true,
+    })),
+    {
+      name: 'mine_cave_cavern_surface',
+      x: MINE_CAVE.cavernX,
+      z: MINE_CAVE.cavernZ,
+      hx: 5.4,
+      hz: 9.2,
+      h: MINE_CAVE.bottomY,
+      surface: true,
+    },
+    {
+      name: 'mine_cave_left_wall',
+      x: MINE_CAVE.x - 4.55,
+      z: (MINE_CAVE.rampStartZ + MINE_CAVE.cavernZ) * 0.5,
+      hx: 0.35,
+      hz: 18.5,
+      minY: MINE_CAVE.bottomY - 0.5,
+      maxY: 0.8,
+    },
+    {
+      name: 'mine_cave_right_wall',
+      x: MINE_CAVE.x + 4.55,
+      z: (MINE_CAVE.rampStartZ + MINE_CAVE.cavernZ) * 0.5,
+      hx: 0.35,
+      hz: 18.5,
+      minY: MINE_CAVE.bottomY - 0.5,
+      maxY: 0.8,
+    },
+    {
+      name: 'mine_cave_back_wall',
+      x: MINE_CAVE.x,
+      z: MINE_CAVE.cavernZ - 8.4,
+      hx: 7.0,
+      hz: 0.35,
+      minY: MINE_CAVE.bottomY - 0.5,
+      maxY: 0.8,
+    },
+  )
+}
+
+function loadMineCave(scene, collidables, onReady = null) {
+  addMineCaveColliders(collidables)
+  cloneGLTFScene(MINE_CAVE_MODEL_URL).then((root) => {
+    const group = new THREE.Group()
+    group.name = 'mine_cave'
+    group.position.set(MINE_CAVE.x, 0, MINE_CAVE.z)
+    configureStaticGltfModel(root, { castShadows: false, receiveShadows: true, cheapMaterials: false })
+    group.add(root)
+    scene.add(group)
+    onReady?.(group)
+  }).catch((error) => {
+    console.warn(`Mine cave model fallback active: ${MINE_CAVE_MODEL_URL}`, error)
+  })
+}
+
+function loadSpawnGrass(scene) {
+  loadGLTF(SPAWN_GRASS_MODEL_URL).then((gltf) => {
+    const templateMesh = findFirstMesh(gltf.scene)
+    if (!templateMesh) return
+
+    const material = configureSpawnGrassMaterial(new THREE.MeshBasicMaterial({
+      vertexColors: true,
+      side: THREE.DoubleSide,
+      depthWrite: true,
+    }))
+
+    const inst = new THREE.InstancedMesh(templateMesh.geometry, material, SPAWN_GRASS_COUNT)
+    inst.name = 'spawn_grass_clump_low_instances'
+    inst.castShadow = false
+    inst.receiveShadow = false
+    inst.frustumCulled = true
+    _spawnGrassInstancedMesh = inst
+    applySpawnGrassPlacements(inst, { x: 0, z: 40 })
+    scene.add(inst)
+  }).catch((error) => {
+    console.warn(`Spawn grass asset failed: ${SPAWN_GRASS_MODEL_URL}`, error)
   })
 }
 
@@ -892,6 +1310,40 @@ function applyCastleApproachHeight(x, z, height) {
   return result
 }
 
+function applyMineCaveHeight(x, z, height) {
+  let result = height
+  const dx = x - MINE_CAVE.x
+
+  const stairMinZ = Math.min(MINE_CAVE.rampStartZ, MINE_CAVE.rampEndZ)
+  const stairMaxZ = Math.max(MINE_CAVE.rampStartZ, MINE_CAVE.rampEndZ)
+  const stairEdge = Math.max(0, stairMinZ - z, z - stairMaxZ)
+  const stairSide = Math.abs(dx)
+  const stairBlend = (1 - THREE.MathUtils.smoothstep(stairSide, MINE_CAVE.rampHalfWidth + 0.8, MINE_CAVE.rampHalfWidth + 4.4))
+    * (1 - THREE.MathUtils.smoothstep(stairEdge, 0, 4.2))
+  if (stairBlend > 0) {
+    const t = THREE.MathUtils.clamp((MINE_CAVE.rampStartZ - z) / (MINE_CAVE.rampStartZ - MINE_CAVE.rampEndZ), 0, 1)
+    const stairIndex = Math.min(MINE_CAVE.stairCount, Math.max(1, Math.ceil(t * MINE_CAVE.stairCount)))
+    const target = MINE_CAVE.bottomY * (stairIndex / MINE_CAVE.stairCount)
+    result = Math.min(result, THREE.MathUtils.lerp(result, target, stairBlend))
+  }
+
+  const cavernDx = x - MINE_CAVE.cavernX
+  const cavernDz = z - MINE_CAVE.cavernZ
+  const cavernDistance = Math.hypot(cavernDx / 1.0, cavernDz / 1.15)
+  const cavernBlend = 1 - THREE.MathUtils.smoothstep(cavernDistance, MINE_CAVE.cavernRadius * 0.72, MINE_CAVE.cavernRadius + 3.5)
+  if (cavernBlend > 0) {
+    result = Math.min(result, THREE.MathUtils.lerp(result, MINE_CAVE.bottomY, cavernBlend))
+  }
+
+  const entryDistance = Math.hypot(dx / 7.4, (z - MINE_CAVE.z) / 4.4)
+  const entryBlend = 1 - THREE.MathUtils.smoothstep(entryDistance, 0.5, 1.7)
+  if (entryBlend > 0) {
+    result = Math.min(result, THREE.MathUtils.lerp(result, -1.15, entryBlend))
+  }
+
+  return result
+}
+
 function applyCurvedCliffHeight(x, z, height) {
   let result = height
   CURVED_CLIFF_RIDGES.forEach((ridge) => {
@@ -908,6 +1360,24 @@ function applyCurvedCliffHeight(x, z, height) {
     }
   })
   return result
+}
+
+function mountainEdgeNoise(x, z) {
+  return Math.sin(x * 0.071 + z * 0.113) * 0.5
+    + Math.sin(x * 0.173 - z * 0.049) * 0.32
+    + Math.sin(x * 0.029 + z * 0.211) * 0.18
+}
+
+function applyMountainEdgeHeight(x, z, height) {
+  const b = OUTDOOR_MOUNTAIN_BOUNDS
+  const outsideX = Math.max(b.minX - x, 0, x - b.maxX)
+  const outsideZ = Math.max(b.minZ - z, 0, z - b.maxZ)
+  const outside = Math.max(outsideX, outsideZ)
+  if (outside <= 0) return height
+
+  const drop = Math.pow(THREE.MathUtils.smoothstep(outside, 0, 18), 0.58)
+  const floor = MOUNTAIN_FALL_FLOOR_Y + mountainEdgeNoise(x, z) * 4.5
+  return THREE.MathUtils.lerp(height, floor, drop)
 }
 
 function createRockeryRidgeNetworkGeometry(ridges) {
@@ -1004,7 +1474,7 @@ function createRockeryRidgeNetworkGeometry(ridges) {
 function makeApproachRockery(scene, material) {
   const rockery = new THREE.Mesh(createRockeryRidgeNetworkGeometry(CASTLE_APPROACH_ROCKERY_RIDGES), material)
   rockery.name = 'approach-rockery-continuous-mountain'
-  rockery.castShadow = true
+  rockery.castShadow = false
   rockery.receiveShadow = true
   scene.add(rockery)
 }
@@ -1012,7 +1482,68 @@ function makeApproachRockery(scene, material) {
 function makeCurvedCliff(scene, material) {
   const cliff = new THREE.Mesh(createRockeryRidgeNetworkGeometry(CURVED_CLIFF_RIDGES), material)
   cliff.name = 'curved-cliffs'
-  cliff.castShadow = true
+  cliff.castShadow = false
+  cliff.receiveShadow = true
+  scene.add(cliff)
+}
+
+function makeMountainCliffSkirt(scene, sampleHeight, material) {
+  const b = OUTDOOR_MOUNTAIN_BOUNDS
+  const bottomY = MOUNTAIN_FALL_FLOOR_Y - 8
+  const samples = 84
+  const verts = []
+  const uvs = []
+  const idx = []
+
+  const addSide = (name, start, end, outwardX, outwardZ) => {
+    const base = verts.length / 3
+    const length = Math.hypot(end.x - start.x, end.z - start.z)
+    for (let i = 0; i <= samples; i++) {
+      const t = i / samples
+      const x = THREE.MathUtils.lerp(start.x, end.x, t)
+      const z = THREE.MathUtils.lerp(start.z, end.z, t)
+      const topY = sampleHeight(x, z)
+      const n = mountainEdgeNoise(x + i * 1.7, z - i * 1.3)
+      const shelf = 1.2 + Math.abs(n) * 2.2
+      const midY = THREE.MathUtils.lerp(topY, bottomY, 0.42) + n * 3.0
+      const bottomOffset = shelf + 8.5 + Math.abs(Math.sin(i * 0.47)) * 5.0
+      const u = (length * t) / 7
+
+      verts.push(
+        x, topY - 0.08, z,
+        x + outwardX * shelf, midY, z + outwardZ * shelf,
+        x + outwardX * bottomOffset, bottomY + n * 2.0, z + outwardZ * bottomOffset,
+      )
+      uvs.push(u, 0, u + n * 0.08, 5.8, u, 12.5)
+
+      if (i < samples) {
+        const a = base + i * 3
+        const c = a + 3
+        if (name === 'north' || name === 'west') {
+          idx.push(a, c, a + 1, a + 1, c, c + 1, a + 1, c + 1, a + 2, a + 2, c + 1, c + 2)
+        } else {
+          idx.push(a, a + 1, c, a + 1, c + 1, c, a + 1, a + 2, c + 1, a + 2, c + 2, c + 1)
+        }
+      }
+    }
+  }
+
+  addSide('south', { x: b.minX, z: b.minZ }, { x: b.maxX, z: b.minZ }, 0, -1)
+  addSide('east', { x: b.maxX, z: b.minZ }, { x: b.maxX, z: b.maxZ }, 1, 0)
+  addSide('north', { x: b.maxX, z: b.maxZ }, { x: b.minX, z: b.maxZ }, 0, 1)
+  addSide('west', { x: b.minX, z: b.maxZ }, { x: b.minX, z: b.minZ }, -1, 0)
+
+  const geometry = new THREE.BufferGeometry()
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(verts, 3))
+  geometry.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2))
+  geometry.setAttribute('uv2', new THREE.Float32BufferAttribute(uvs, 2))
+  geometry.setIndex(idx)
+  geometry.computeVertexNormals()
+  geometry.computeBoundingSphere()
+
+  const cliff = new THREE.Mesh(geometry, material)
+  cliff.name = 'outdoor-mountain-textured-cliff-skirt'
+  cliff.castShadow = false
   cliff.receiveShadow = true
   scene.add(cliff)
 }
@@ -1091,18 +1622,10 @@ function addApproachRockeryColliders(collidables) {
   })
 }
 
-function buildCastleApproach(scene, collidables, roadMaterial, castleGateX, castleGateZ) {
-  const path = makeCurvedPath(scene, [
-    [-20, 1.5], [-12, 0.6], [-4, -0.8], [1.5, 4.4], [8.5, 9.2],
-    [18.5, 8.2], [26.0, -4.8], [37.5, -11.4], [49.0, -4.2],
-    [56.5, 5.8], [64.5, 0.8], [castleGateX - 4.8, castleGateZ - 0.8],
-    [castleGateX, castleGateZ],
-  ], 2.05, roadMaterial, 0.115)
-
+function buildCastleApproach(scene, collidables) {
   const moundMaterial = createRockeryMaterial()
   makeApproachRockery(scene, moundMaterial)
   addApproachRockeryColliders(collidables)
-  makeGrass(scene, collectPathGrass(path))
 }
 
 function createTerrainBlendMaterial(texLoader) {
@@ -1232,7 +1755,7 @@ function _buildRockInstancedMesh(scene, rocks) {
   if (!templateMesh) return
 
   const inst = new THREE.InstancedMesh(templateMesh.geometry, templateMesh.material, rocks.length)
-  inst.castShadow = true
+  inst.castShadow = false
   inst.receiveShadow = true
   inst.userData.editorMeta = { type: 'rock_instanced', rocks }
 
@@ -1278,7 +1801,7 @@ export function cloneTreeForEditor(scene, x, z, scale = 1.0) {
     const mesh = _treeGltfScene.clone()
     mesh.scale.setScalar(scale * TREE_MODEL_SCALE)
     mesh.traverse(c => {
-      if (c.isMesh) { c.castShadow = true; c.receiveShadow = false }
+      if (c.isMesh) { c.castShadow = false; c.receiveShadow = false }
     })
     group.add(mesh)
   } else {
@@ -1297,7 +1820,7 @@ export function cloneRockForEditor(scene, x, z, scale = 1.0) {
     const mesh = _rockGltfScene.clone(true)
     mesh.scale.setScalar(scale)
     mesh.traverse(c => {
-      if (c.isMesh) { c.castShadow = true; c.receiveShadow = true }
+      if (c.isMesh) { c.castShadow = false; c.receiveShadow = true }
     })
     group.add(mesh)
   } else {
@@ -1346,13 +1869,13 @@ export function makeHouse(scene, x, z, rotY = 0) {
     new THREE.MeshLambertMaterial({ color: 0x8b5030 })
   )
   eave.position.y = 2.25
-  eave.castShadow = true
+  eave.castShadow = false
   group.add(eave)
 
   // 烟囱
   const chimney = new THREE.Mesh(new THREE.BoxGeometry(0.35, 1.0, 0.35), stoneMat)
   chimney.position.set(0.7, 3.2, -0.4)
-  chimney.castShadow = true
+  chimney.castShadow = false
   group.add(chimney)
   const chimneyTop = new THREE.Mesh(new THREE.BoxGeometry(0.45, 0.1, 0.45), stoneMat)
   chimneyTop.position.set(0.7, 3.75, -0.4)
@@ -1693,7 +2216,7 @@ function makeCanyonCliffFace(scene, side, material) {
   geometry.setIndex(idxs)
   geometry.computeVertexNormals()
   const mesh = new THREE.Mesh(geometry, material)
-  mesh.castShadow = true
+  mesh.castShadow = false
   mesh.receiveShadow = true
   scene.add(mesh)
 }
@@ -1701,21 +2224,6 @@ function makeCanyonCliffFace(scene, side, material) {
 function buildCanyonDetails(scene) {
   const rockMat = new THREE.MeshStandardMaterial({ color: 0x4c4942, roughness: 1, flatShading: true })
   const grassMat = new THREE.MeshStandardMaterial({ color: 0x3c4b32, roughness: 1 })
-  const waterMat = new THREE.MeshStandardMaterial({
-    color: 0x243c3f,
-    roughness: 0.55,
-    metalness: 0,
-    transparent: true,
-    opacity: 0.46,
-  })
-
-  const streamPoints = []
-  for (let i = 0; i <= 18; i++) {
-    const t = i / 18
-    const x = THREE.MathUtils.lerp(CANYON.startX + 2, CANYON.endX + 12, t)
-    streamPoints.push([x, canyonCenterZ(x) + Math.sin(t * Math.PI * 8) * 0.55])
-  }
-  makeCurvedPath(scene, streamPoints, 2.0, waterMat, 0.105)
 
   for (let i = 0; i < 72; i++) {
     const t = i / 71
@@ -1725,6 +2233,8 @@ function buildCanyonDetails(scene) {
     const lateral = CANYON.walkHalfWidth + 3 + (i % 5) * 2.4 + Math.abs(Math.sin(i * 1.7)) * 2.2
     const z = centerZ + side * lateral
     const rockX = x + Math.sin(i * 2.4) * 1.8
+    if (isInCanyonForestReplacementRange(rockX)) continue
+
     const radius = 0.7 + (i % 4) * 0.22
     const scaleY = 0.55 + (i % 4) * 0.18
     const groundY = sampleCanyonHeight(rockX, z)
@@ -1735,7 +2245,7 @@ function buildCanyonDetails(scene) {
     rock.position.set(rockX, groundY + radius * scaleY * 0.68, z)
     rock.scale.set(1.3 + (i % 3) * 0.5, scaleY, 0.9 + (i % 5) * 0.25)
     rock.rotation.set(i * 0.37, i * 0.71, i * 0.19)
-    rock.castShadow = true
+    rock.castShadow = false
     rock.receiveShadow = true
     scene.add(rock)
 
@@ -1746,31 +2256,21 @@ function buildCanyonDetails(scene) {
       const grass = new THREE.Mesh(new THREE.ConeGeometry(0.28 + (i % 3) * 0.08, grassHeight, 5), grassMat)
       grass.position.set(grassX, sampleCanyonHeight(grassX, grassZ) + grassHeight * 0.5, grassZ)
       grass.rotation.y = i * 0.53
-      grass.castShadow = true
+      grass.castShadow = false
       scene.add(grass)
     }
   }
 }
 
 function buildCanyon(scene, collidables) {
-  const pathMaterial = new THREE.MeshStandardMaterial({
-    color: 0x6a6253,
-    roughness: 0.99,
-    metalness: 0,
-  })
-  const points = []
-  for (let i = 0; i <= 12; i++) {
-    const t = i / 12
-    const x = THREE.MathUtils.lerp(CANYON.startX + 4, CANYON.endX + 16, t)
-    points.push([x, canyonCenterZ(x)])
-  }
-  makeCurvedPath(scene, points, CANYON.walkHalfWidth * 1.45, pathMaterial, 0.18)
   buildCanyonDetails(scene)
 
   const markerMat = new THREE.MeshStandardMaterial({ color: 0x262728, roughness: 0.95 })
   for (let i = 0; i < 20; i++) {
     const t = i / 19
     const x = THREE.MathUtils.lerp(CANYON.startX - 10, CANYON.endX + 14, t)
+    if (isInCanyonForestReplacementRange(x)) continue
+
     const z = canyonCenterZ(x)
     const side = i % 2 === 0 ? -1 : 1
     const pillarZ = z + side * (CANYON.wallHalfGap + 14 + (i % 4) * 2.2)
@@ -1778,7 +2278,7 @@ function buildCanyon(scene, collidables) {
     const pillar = new THREE.Mesh(new THREE.ConeGeometry(1.4 + (i % 3) * 0.45, pillarHeight, 6), markerMat)
     pillar.position.set(x, sampleCanyonHeight(x, pillarZ) + pillarHeight * 0.5 - 0.18, pillarZ)
     pillar.rotation.set(0.15 * side, (i * 0.83) % (Math.PI * 2), -0.08 * side)
-    pillar.castShadow = true
+    pillar.castShadow = false
     pillar.receiveShadow = true
     scene.add(pillar)
   }
@@ -1816,7 +2316,8 @@ export function createMap(scene, { onStaticModelReady = null } = {}) {
         height: 0,
       },
     ],
-    heightModifiers: [applyCanyonHeight, applyCastleApproachHeight, applyCurvedCliffHeight],
+    heightModifiers: [applyCastleApproachHeight, applyCurvedCliffHeight, applyMountainEdgeHeight],
+    postHeightModifiers: [applyMineCaveHeight],
     heightmapUrl: '/heightmaps/main_height_1024.png',
     onReady: (sampleHeight) => {
       _sampleTerrainHeight = sampleHeight
@@ -1833,49 +2334,18 @@ export function createMap(scene, { onStaticModelReady = null } = {}) {
       pending.forEach(({ group, yOffset }) => {
         if (group.parent) _applyGrounding(group, yOffset)
       })
-      regroundGrassInstances()
+      makeMountainCliffSkirt(scene, sampleHeight, createRockeryMaterial({ dark: true }))
+      buildDistantGrassCards(scene)
+      loadSpawnGrass(scene)
     },
   })
 
-  // 曲线路面 + 路边草
-  const roadMaterial = createRoadMaterial()
-  const castleGateX = CASTLE_EXTERIOR.origin.x + CASTLE_EXTERIOR.fogDoor.x
-  const castleGateZ = CASTLE_EXTERIOR.origin.z + CASTLE_EXTERIOR.fogDoor.z
-  // 主横路西段：连接村庄和峡谷入口。
-  makeCurvedPath(scene, [
-    [-96, 2.8], [-78, 2.4], [-58, 1.5], [-38, 0.6], [-20, 1.5],
-  ], 2.15, roadMaterial, 0.105)
-  buildCastleApproach(scene, collidables, roadMaterial, castleGateX, castleGateZ)
-  // 主纵路：从南北两侧延伸进村庄，形成更长的穿村道路。
-  makeCurvedPath(scene, [
-    [2.4, -86], [2.0, -66], [1.2, -46], [1.5, -20], [0.6, -12],
-    [-0.8, -4], [0.4, 4], [-0.6, 12], [-0.3, 20], [-1.4, 40],
-    [-2.8, 62], [-4.5, 84],
-  ], 2.0, roadMaterial, 0.11)
-  // 东南支路：连接外缘空地。
-  makeCurvedPath(scene, [[10, 0], [12, -4], [14, -9], [20, -16], [30, -25], [43, -35], [58, -43]], 1.55, roadMaterial, 0.108)
-  // 东北支路：让村庄东侧不再只有城堡方向一条短路。
-  makeCurvedPath(scene, [[8, 5], [18, 12], [30, 20], [44, 29], [60, 36]], 1.45, roadMaterial, 0.108)
-  // 通往峡谷的西侧岔路。
-  makeCurvedPath(scene, [[-18, 0.8], [-26, -1.8], [-34, -5.0], [CANYON.startX + 3, CANYON.centerZ]], 1.55, roadMaterial, 0.112)
-  // 西北支路。
-  makeCurvedPath(scene, [[-10, 0], [-14, 6], [-20, 13], [-30, 22], [-44, 31], [-60, 39]], 1.45, roadMaterial, 0.108)
-  // 西南支路。
-  makeCurvedPath(scene, [[0, 10], [-7, 15], [-16, 21], [-28, 29], [-42, 37], [-56, 47]], 1.45, roadMaterial, 0.108)
-  buildCanyon(scene, collidables)
+  buildCastleApproach(scene, collidables)
+  loadMineCave(scene, collidables, onStaticModelReady)
   makeCurvedCliff(scene, createRockeryMaterial({ dark: true }))
   addCurvedCliffColliders(collidables)
   loadOldChurchRuins(scene, collidables, onStaticModelReady)
   loadForestGrove(scene, collidables)
-  makeGrass(scene, collectOldChurchGrass(), {
-    name: 'old_church_wind_grass',
-    color: 0x817a57,
-    palette: [0x4a5138, 0x5f5d3f, 0x756d49, 0x8a7b55, 0x3f4b34],
-    windStrength: 0.052,
-    flutterStrength: 0.015,
-    heightBoost: 0.3,
-    bendStrength: 0.08,
-  })
 
   // ── 树木 ─────────────────────────────────────────
   // 仅预加载 GLB 模板，供编辑器/地图文件使用；不再硬编码任何树木位置
@@ -1884,7 +2354,7 @@ export function createMap(scene, { onStaticModelReady = null } = {}) {
     _pendingTreeClones.forEach(({ group, scale }) => {
       const mesh = _treeGltfScene.clone()
       mesh.scale.setScalar(scale * TREE_MODEL_SCALE)
-      mesh.traverse(c => { if (c.isMesh) { c.castShadow = true; c.receiveShadow = false } })
+      mesh.traverse(c => { if (c.isMesh) { c.castShadow = false; c.receiveShadow = false } })
       group.add(mesh)
     })
     _pendingTreeClones.length = 0
@@ -1900,7 +2370,7 @@ export function createMap(scene, { onStaticModelReady = null } = {}) {
     _pendingRockClones.forEach(({ group, scale }) => {
       const mesh = _rockGltfScene.clone(true)
       mesh.scale.setScalar(scale)
-      mesh.traverse(c => { if (c.isMesh) { c.castShadow = true; c.receiveShadow = true } })
+      mesh.traverse(c => { if (c.isMesh) { c.castShadow = false; c.receiveShadow = true } })
       group.add(mesh)
     })
     _pendingRockClones.length = 0
@@ -1917,10 +2387,11 @@ export function createMap(scene, { onStaticModelReady = null } = {}) {
 
   // ── 风动画 + 火堆动画更新函数 ─────────
   let _lastTime = 0
-  function update(time) {
+  function update(time, playerPosition = null) {
     const dt = Math.min(time - _lastTime, 0.05)
     _lastTime = time
-    updateGrassWind(time)
+    if (_spawnGrassWindUniform) _spawnGrassWindUniform.value = time
+    updateSpawnGrassWindow(playerPosition)
 
     for (const { flames, light, glow, phase, group } of _campfireStates) {
       if (!group.parent) continue   // 已从场景移除，跳过
@@ -1945,5 +2416,12 @@ export function createMap(scene, { onStaticModelReady = null } = {}) {
 
   }
 
-  return { collidables, update, ponds: [], spawnRipple: () => {}, getTerrainHeight: getGroundHeight }
+  return {
+    collidables,
+    update,
+    ponds: [],
+    spawnRipple: () => {},
+    getTerrainHeight: getGroundHeight,
+    getNearbyForestPackLabel,
+  }
 }

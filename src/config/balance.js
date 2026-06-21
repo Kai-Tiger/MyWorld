@@ -1,9 +1,9 @@
 export const BALANCE = {
   combat: {
     lock: {
-      maxDistance: 16,
-      releaseDistance: 18,
-      uiRange: 16,
+      maxDistance: 24,
+      releaseDistance: 27,
+      uiRange: 24,
     },
     aimAssist: {
       angleDeg: 18,
@@ -34,6 +34,12 @@ export const BALANCE = {
       animFade: 0.18,
       alertDuration: 0.45,
       attackEndGrace: 0.06,
+    },
+    enemyAudio: {
+      maxVolume: 0.585,
+      fullVolumeDistance: 4,
+      fadeOutDistance: 22,
+      fadeSeconds: 0.25,
     },
     melee: {
       hitRange: 2.64,
@@ -112,8 +118,10 @@ export const BALANCE = {
       cooldown: 0.72,
       damage: 32,
       radius: 0.34,
-      speed: 15.5,
-      lifeTime: 2.4,
+      speed: 15.65,
+      lifeTime: 1.55,
+      launchUpVelocity: 4.0,
+      gravity: 8.5,
       spawnForward: 0.72,
       spawnHeight: 1.18,
       hitRadiusBonus: 0.18,

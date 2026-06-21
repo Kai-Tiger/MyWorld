@@ -1,16 +1,20 @@
 import * as THREE from 'three'
 import { BALANCE } from '../config/balance.js'
 import { cloneFBX, cloneGLTFScene, loadFBXClips } from '../systems/modelAssets.js'
+import { playSfx } from '../systems/audio.js'
 import standFbxUrl from '../characters/player/stand.fbx?url'
 import walkFbxUrl from '../characters/player/walk.fbx?url'
 import runFbxUrl from '../characters/player/run.fbx?url'
 import attackFbxUrl from '../characters/player/attack.fbx?url'
 import attack2FbxUrl from '../characters/player/SwordAttack2.fbx?url'
 import jumpFbxUrl from '../characters/player/jump.fbx?url'
+import rollFbxUrl from '../characters/player/roll.fbx?url'
 import throwMagicFbxUrl from '../characters/player/throwMagic.fbx?url'
 import defenseFbxUrl from '../characters/player/defense.fbx?url'
 import defenseMoveFbxUrl from '../characters/player/defenseMove.fbx?url'
 import hurtFbxUrl from '../characters/player/hurt.fbx?url'
+import healFbxUrl from '../characters/player/heal.fbx?url'
+import pickFbxUrl from '../characters/player/pick.fbx?url'
 import sitFbxUrl from '../characters/player/sit.fbx?url'
 import deathFbxUrl from '../characters/enemy/death.fbx?url'
 import hammerGlbUrl from '../weapons/hammer.glb?url'
@@ -47,7 +51,7 @@ function getTrackPropertyName(trackName) {
 
 export function createPlayer(scene) {
   const SPEED = 5.0
-  const DEFENSE_MOVE_SPEED_MULTIPLIER = 0.45
+  const DEFENSE_MOVE_SPEED_MULTIPLIER = 0.675
   const BONFIRE_SIT_SECONDS = 4.2
   const BONFIRE_STAND_SECONDS = 2.2
   const BONFIRE_STAND_SKIP_SECONDS = 0.8
@@ -63,10 +67,13 @@ export function createPlayer(scene) {
   let attackClip = null
   let attack2Clip = null
   let jumpClip = null
+  let rollClip = null
   let throwMagicClip = null
   let defenseClip = null
   let defenseMoveClip = null
   let hurtClip = null
+  let healClip = null
+  let pickClip = null
   let sitClip = null
   let deathClip = null
   let idleAction = null
@@ -75,10 +82,13 @@ export function createPlayer(scene) {
   let attackAction = null
   let attack2Action = null
   let jumpAction = null
+  let rollAction = null
   let throwMagicAction = null
   let defenseAction = null
   let defenseMoveAction = null
   let hurtAction = null
+  let healAction = null
+  let pickAction = null
   let sitAction = null
   let deathAction = null
   let currentAction = null
@@ -86,20 +96,34 @@ export function createPlayer(scene) {
   const retargetedClipCache = new WeakMap()
   let attacking = false
   let throwMagicPlaying = false
+  let throwMagicWarmupRequested = false
+  let throwMagicWarmed = false
   let attackHitConsumed = false
-  let attackHitPending = false
-  let attackHitInfo = null
+  const attackHitEvents = []
+  let attackHitEventId = 0
+  let swordAirCueConsumed = false
+  const swordAirCueEvents = []
+  let swordAirCueEventId = 0
+  let attackStepId = 0
   let attackPrevNorm = 0
   let activeAttackAction = null
   let comboIndex = 0
   let comboQueued = false
   let jumping = false
+  let jumpWindupTimer = 0
+  let jumpTakeoffPending = false
+  let rolling = false
+  let rollTimer = 0
+  let rollDirX = 0
+  let rollDirZ = 0
   let attackLungeRemain = 0
   let attackLungeTimer = 0
   let attackLungeDirX = 0
   let attackLungeDirZ = 0
   let defending = false
   let hurting = false
+  let healing = false
+  let picking = false
   let dying = false
   let deathComplete = false
   let bonfireResting = false
@@ -109,6 +133,7 @@ export function createPlayer(scene) {
   let bonfireRestTimer = 0
   let bonfireStandTimer = 0
   let jWasPressed = false
+  let rollComboWasPressed = false
   let locomotionState = 'idle'
   let forcedLocomotion = null
   let moveHoldTime = 0
@@ -136,10 +161,16 @@ export function createPlayer(scene) {
   const SECOND_ATTACK_LUNGE_DISTANCE = Math.max(0, _playerAttackCfg.secondLungeDistance ?? 0.6)
   const SECOND_ATTACK_LUNGE_DURATION = Math.max(0.01, _playerAttackCfg.secondLungeDuration ?? 0.18)
   const PLAYER_ATTACK_TIME_SCALE = Math.max(0.01, _playerAttackCfg.timeScale ?? 1.5)
-  const BLOCK_SHAKE_DURATION = 0.1
-  const BLOCK_SHAKE_AMPLITUDE = 0.08
-  const BLOCK_RECOIL_DISTANCE = 0.24
-  const BLOCK_RECOIL_SPEED = 2.8
+  const PICK_TIME_SCALE = 5
+  const SWORD_AIR_CUE_LEAD_SECONDS = 0.2
+  const BLOCK_SHAKE_DURATION = 0.16
+  const BLOCK_SHAKE_AMPLITUDE = 0.16
+  const BLOCK_RECOIL_DISTANCE = 0.48
+  const BLOCK_RECOIL_SPEED = 4.8
+  const ROLL_DURATION_SECONDS = 0.62
+  const ROLL_DISTANCE = 2.8
+  const ROLL_INVINCIBLE_START = 0.08
+  const ROLL_INVINCIBLE_END = 0.42
   const HAMMER_SOCKET_OFFSET = new THREE.Vector3(0, -33, 0)
   const HAMMER_SOCKET_ROTATION = new THREE.Euler(0, Math.PI, 0)
   const HAMMER_MODEL_SCALE = 126
@@ -321,9 +352,13 @@ export function createPlayer(scene) {
 
   function resetAttackHitState() {
     attackHitConsumed = false
-    attackHitPending = false
-    attackHitInfo = null
+    swordAirCueConsumed = false
     attackPrevNorm = 0
+  }
+
+  function clearAttackHitEvents() {
+    attackHitEvents.length = 0
+    swordAirCueEvents.length = 0
   }
 
   function resetAttackLunge() {
@@ -340,6 +375,7 @@ export function createPlayer(scene) {
     comboQueued = false
     resetAttackLunge()
     resetAttackHitState()
+    clearAttackHitEvents()
   }
 
   function startAttackLunge() {
@@ -358,6 +394,7 @@ export function createPlayer(scene) {
     attacking = true
     activeAttackAction = action
     comboIndex = index
+    attackStepId += 1
     comboQueued = false
     resetAttackHitState()
     action.paused = false
@@ -369,6 +406,7 @@ export function createPlayer(scene) {
     } else {
       switchAction(action, true)
     }
+    if (weaponId === 'hammer') playSfx('hammerAir', { volume: 0.7 })
     if (index === 1) startAttackLunge()
     return true
   }
@@ -394,6 +432,22 @@ export function createPlayer(scene) {
     }
   }
 
+  function canCancelAttackIntoDefense() {
+    if (!defenseAction || !attacking || !activeAttackAction || comboIndex !== 0) return false
+    const duration = activeAttackAction.getClip?.()?.duration ?? 0
+    if (duration <= 0) return false
+    const hitWindow = ATTACK_HIT_WINDOWS[0]
+    return activeAttackAction.time / duration >= hitWindow.end
+  }
+
+  function cancelAttackIntoDefense() {
+    if (!canCancelAttackIntoDefense()) return false
+    resetAttackState()
+    defending = true
+    switchAction(defenseAction, true)
+    return true
+  }
+
   function updateAttackHitWindow() {
     if (!attacking || !activeAttackAction || attackHitConsumed) return
     const clip = activeAttackAction.getClip?.()
@@ -404,16 +458,103 @@ export function createPlayer(scene) {
     const overlaps = currNorm >= hitWindow.start && attackPrevNorm <= hitWindow.end
     if (overlaps) {
       attackHitConsumed = true
-      attackHitPending = true
-      attackHitInfo = comboIndex === 1
-        ? { damageMul: SECOND_ATTACK_DAMAGE_MUL, rangeMul: SECOND_ATTACK_RANGE_MUL }
-        : { damageMul: 1, rangeMul: 1 }
+      attackHitEventId += 1
+      attackHitEvents.push({
+        id: attackHitEventId,
+        stepId: attackStepId,
+        comboIndex,
+        ...(comboIndex === 1
+          ? { damageMul: SECOND_ATTACK_DAMAGE_MUL, rangeMul: SECOND_ATTACK_RANGE_MUL }
+          : { damageMul: 1, rangeMul: 1 }),
+      })
     }
     attackPrevNorm = currNorm
   }
 
+  function updateSwordAirCueWindow() {
+    if (!attacking || !activeAttackAction || swordAirCueConsumed || weaponId !== 'sword') return
+    const clip = activeAttackAction.getClip?.()
+    const duration = clip?.duration ?? 0
+    if (duration <= 0) return
+    const hitWindow = ATTACK_HIT_WINDOWS[comboIndex] ?? ATTACK_HIT_WINDOWS[0]
+    const leadNorm = (SWORD_AIR_CUE_LEAD_SECONDS * Math.max(0.01, activeAttackAction.timeScale ?? PLAYER_ATTACK_TIME_SCALE)) / duration
+    const cueNorm = Math.max(0, hitWindow.start - leadNorm)
+    const currNorm = activeAttackAction.time / duration
+    if (currNorm < cueNorm) return
+    swordAirCueConsumed = true
+    swordAirCueEventId += 1
+    swordAirCueEvents.push({
+      id: swordAirCueEventId,
+      stepId: attackStepId,
+      comboIndex,
+      rangeMul: comboIndex === 1 ? SECOND_ATTACK_RANGE_MUL : 1,
+    })
+  }
+
   function resetJumpState() {
     jumping = false
+    jumpWindupTimer = 0
+    jumpTakeoffPending = false
+  }
+
+  function resetRollState() {
+    rolling = false
+    rollTimer = 0
+    rollDirX = 0
+    rollDirZ = 0
+    if (rollAction) rollAction.stop()
+  }
+
+  function finishRoll() {
+    if (!rolling) return
+    rolling = false
+    rollTimer = 0
+    rollDirX = 0
+    rollDirZ = 0
+    currentSpeed = 0
+    if (idleAction) {
+      chooseLocomotionAction(false)
+      return
+    }
+    if (rollAction) rollAction.stop()
+    if (currentAction === rollAction) currentAction = null
+  }
+
+  function isRollInvincible() {
+    return rolling && rollTimer >= ROLL_INVINCIBLE_START && rollTimer <= ROLL_INVINCIBLE_END
+  }
+
+  function startRoll(dirX, dirZ) {
+    if (!rollAction || !onGround || rolling || attacking || throwMagicPlaying || hurting || healing || picking || dying || bonfireResting || bonfireStandingUp) return false
+    if (jumping || jumpTakeoffPending) return false
+    const len = Math.sqrt(dirX * dirX + dirZ * dirZ)
+    if (len <= 0.0001) return false
+    if (!spendStamina(ATTACK_STAMINA_COST)) return false
+
+    rolling = true
+    defending = false
+    forcedLocomotion = null
+    locomotionState = 'idle'
+    moveHoldTime = 0
+    runToWalkTimer = 0
+    runToWalkDriftRemain = 0
+    rollTimer = 0
+    rollDirX = dirX / len
+    rollDirZ = dirZ / len
+    lastMoveDirX = rollDirX
+    lastMoveDirZ = rollDirZ
+    currentSpeed = 0
+    group.rotation.y = Math.atan2(rollDirX, rollDirZ)
+
+    rollAction.stop()
+    rollAction.reset()
+    rollAction.enabled = true
+    rollAction.paused = false
+    rollAction.setLoop(THREE.LoopOnce, 1)
+    rollAction.clampWhenFinished = true
+    rollAction.timeScale = getScaledTimeScale(rollAction, ROLL_DURATION_SECONDS, 1)
+    switchAction(rollAction, false)
+    return true
   }
 
   function startJumpAnimation() {
@@ -432,6 +573,42 @@ export function createPlayer(scene) {
 
   function chooseLocomotionAction(moving, suppressRun = false) {
     if (dying) return
+    if (healing && healAction) {
+      healAction.paused = false
+      healAction.enabled = true
+      healAction.setLoop(THREE.LoopOnce, 1)
+      healAction.clampWhenFinished = true
+      if (currentAction !== healAction) {
+        switchAction(healAction, true)
+      } else if (!healAction.isRunning()) {
+        healAction.reset().play()
+      }
+      return
+    }
+    if (picking && pickAction) {
+      pickAction.paused = false
+      pickAction.enabled = true
+      pickAction.setLoop(THREE.LoopOnce, 1)
+      pickAction.clampWhenFinished = true
+      if (currentAction !== pickAction) {
+        switchAction(pickAction, true)
+      } else if (!pickAction.isRunning()) {
+        pickAction.reset().play()
+      }
+      return
+    }
+    if (rolling && rollAction) {
+      rollAction.paused = false
+      rollAction.enabled = true
+      rollAction.setLoop(THREE.LoopOnce, 1)
+      rollAction.clampWhenFinished = true
+      if (currentAction !== rollAction) {
+        switchAction(rollAction, true)
+      } else if (!rollAction.isRunning()) {
+        rollAction.reset().play()
+      }
+      return
+    }
     if (defending) {
       const action = moving && defenseMoveAction ? defenseMoveAction : defenseAction
       if (action) {
@@ -600,6 +777,14 @@ export function createPlayer(scene) {
       jumpAction.timeScale = 1.0
       jumpAction.enabled = true
     }
+    if (rollClip && !rollAction) {
+      freezeRootXZ(rollClip)
+      rollAction = mixer.clipAction(rollClip, rootModel)
+      rollAction.setLoop(THREE.LoopOnce, 1)
+      rollAction.clampWhenFinished = true
+      rollAction.timeScale = getScaledTimeScale(rollAction, ROLL_DURATION_SECONDS, 1)
+      rollAction.enabled = true
+    }
     if (throwMagicClip && !throwMagicAction) {
       freezeRootXZ(throwMagicClip)
       throwMagicAction = mixer.clipAction(throwMagicClip, rootModel)
@@ -607,13 +792,14 @@ export function createPlayer(scene) {
       throwMagicAction.clampWhenFinished = false
       throwMagicAction.timeScale = 1.2
       throwMagicAction.enabled = true
+      if (throwMagicWarmupRequested) warmupThrowMagicAction()
     }
     if (defenseClip && !defenseAction) {
       freezeRootXZ(defenseClip)
       defenseAction = mixer.clipAction(defenseClip, rootModel)
       defenseAction.setLoop(THREE.LoopOnce, 1)
       defenseAction.clampWhenFinished = true
-      defenseAction.timeScale = 1.0
+      defenseAction.timeScale = 5
       defenseAction.enabled = true
     }
     if (defenseMoveClip && !defenseMoveAction) {
@@ -632,6 +818,22 @@ export function createPlayer(scene) {
       hurtAction.timeScale = 1.0
       hurtAction.enabled = true
     }
+    if (healClip && !healAction) {
+      freezeRootXZ(healClip)
+      healAction = mixer.clipAction(healClip, rootModel)
+      healAction.setLoop(THREE.LoopOnce, 1)
+      healAction.clampWhenFinished = true
+      healAction.timeScale = 1.0
+      healAction.enabled = true
+    }
+    if (pickClip && !pickAction) {
+      freezeRootXZ(pickClip)
+      pickAction = mixer.clipAction(pickClip, rootModel)
+      pickAction.setLoop(THREE.LoopOnce, 1)
+      pickAction.clampWhenFinished = true
+      pickAction.timeScale = PICK_TIME_SCALE
+      pickAction.enabled = true
+    }
     if (sitClip && !sitAction) {
       freezeRootXZ(sitClip)
       sitAction = mixer.clipAction(sitClip, rootModel)
@@ -649,6 +851,29 @@ export function createPlayer(scene) {
       deathAction.timeScale = 1.0
       deathAction.enabled = true
     }
+  }
+
+  function warmupThrowMagicAction() {
+    if (throwMagicWarmed || !throwMagicAction || !mixer) return false
+    const previousEnabled = throwMagicAction.enabled
+    const previousPaused = throwMagicAction.paused
+    const previousTime = throwMagicAction.time
+    throwMagicAction.stop()
+    throwMagicAction.reset()
+    throwMagicAction.enabled = true
+    throwMagicAction.paused = false
+    throwMagicAction.setLoop(THREE.LoopOnce, 1)
+    throwMagicAction.clampWhenFinished = false
+    throwMagicAction.timeScale = 1.2
+    throwMagicAction.play()
+    mixer.update(0)
+    throwMagicAction.stop()
+    throwMagicAction.reset()
+    throwMagicAction.enabled = previousEnabled
+    throwMagicAction.paused = previousPaused
+    throwMagicAction.time = previousTime
+    throwMagicWarmed = true
+    return true
   }
 
   cloneFBX(standFbxUrl).then((object) => {
@@ -674,8 +899,22 @@ export function createPlayer(scene) {
         finishThrowMagic()
         return
       }
+      if (e.action === rollAction) {
+        finishRoll()
+        return
+      }
       if (e.action === hurtAction) {
         hurting = false
+        return
+      }
+      if (e.action === healAction) {
+        healing = false
+        chooseLocomotionAction(false)
+        return
+      }
+      if (e.action === pickAction) {
+        picking = false
+        chooseLocomotionAction(false)
         return
       }
       if (e.action === deathAction) {
@@ -719,6 +958,11 @@ export function createPlayer(scene) {
     tryBuildActions()
   })
 
+  loadFBXClips(rollFbxUrl).then((clips) => {
+    rollClip = pickPrimaryClip(clips)
+    tryBuildActions()
+  })
+
   loadFBXClips(throwMagicFbxUrl).then((clips) => {
     throwMagicClip = pickPrimaryClip(clips)
     tryBuildActions()
@@ -739,6 +983,16 @@ export function createPlayer(scene) {
     tryBuildActions()
   })
 
+  loadFBXClips(healFbxUrl).then((clips) => {
+    healClip = pickPrimaryClip(clips)
+    tryBuildActions()
+  })
+
+  loadFBXClips(pickFbxUrl).then((clips) => {
+    pickClip = pickPrimaryClip(clips)
+    tryBuildActions()
+  })
+
   loadFBXClips(sitFbxUrl).then((clips) => {
     sitClip = pickPrimaryClip(clips)
     tryBuildActions()
@@ -750,9 +1004,10 @@ export function createPlayer(scene) {
   })
 
   // ── 内部状态 ──────────────────────────────────────
-  const MODEL_HEIGHT = 1.8                                   // FBX 厘米 × 0.01 ≈ 1.8m
+  const MODEL_HEIGHT = 1.44                                  // 跳跃目标高度，原 1.8m 降低 20%
   const GRAVITY     = 20
   const JUMP_SPEED  = Math.sqrt(2 * GRAVITY * MODEL_HEIGHT)  // v² = 2gh → 约 8.5
+  const JUMP_WINDUP_SECONDS = 0.12
   const AUTO_STEP   = 0.55
 
   let currentSpeed    = 0
@@ -765,6 +1020,7 @@ export function createPlayer(scene) {
   let _smoothGroundY  = 0   // 平滑后的地面高度，避免台阶边缘瞬间跳变
   const maxHp = BALANCE.player.maxHp
   let hp = maxHp
+  let deathCuePending = false
   const maxMp = BALANCE.player.maxMp
   let mp = maxMp
   const atk = BALANCE.player.atk
@@ -807,10 +1063,17 @@ export function createPlayer(scene) {
   function playHurtReaction(amount) {
     hurting = true
     defending = false
+    healing = false
+    picking = false
+    if (healAction) healAction.stop()
+    if (pickAction) pickAction.stop()
     resetAttackState()
     resetJumpState()
+    resetRollState()
     if (hurtAction) switchAction(hurtAction, true)
+    const prevHp = hp
     hp = Math.max(0, hp - Math.max(0, amount))
+    if (prevHp > 0 && hp <= 0) deathCuePending = true
     return hp
   }
 
@@ -842,11 +1105,17 @@ export function createPlayer(scene) {
       const jNow = input.isPressed('KeyJ')
       const kNow = input.isPressed('KeyK')
       const jPressed = jNow && !jWasPressed
+      const rollPressed = input.consumePressed?.('KeyL') ?? false
+      const rollComboPressed = moving && (input.isPressed('KeyL') || rollPressed)
 
-      if (kNow && !attacking && !throwMagicPlaying && !hurting) defending = true
-      if (!kNow) defending = false
+      if (rollComboPressed && !rollComboWasPressed) startRoll(dx, dz)
+      rollComboWasPressed = rollComboPressed
 
-      if (jPressed && !attacking && !throwMagicPlaying && !defending && attackAction) {
+      if (kNow && canCancelAttackIntoDefense()) cancelAttackIntoDefense()
+      if (kNow && !rolling && !attacking && !throwMagicPlaying && !hurting && !healing && !picking) defending = true
+      if (!kNow || rolling) defending = false
+
+      if (jPressed && !rolling && !attacking && !throwMagicPlaying && !defending && !healing && !picking && attackAction) {
         startAttackStep(0)
       }
       updateAttackCombo(jPressed, false)
@@ -856,7 +1125,7 @@ export function createPlayer(scene) {
         resetAttackState()
       }
 
-      const canControlMovement = !attacking && !throwMagicPlaying && !hurting
+      const canControlMovement = !rolling && !attacking && !throwMagicPlaying && !hurting && !healing && !picking
       const canLocomotion = !defending && canControlMovement
       if (defending) {
         moveHoldTime = 0
@@ -909,6 +1178,31 @@ export function createPlayer(scene) {
           onGround = true
         }
         return true
+      }
+
+      if (rolling) {
+        rollTimer += dt
+        const rollDistance = (ROLL_DISTANCE / ROLL_DURATION_SECONDS) * dt
+        const moveSteps = Math.max(1, Math.ceil(rollDistance / 0.18))
+        const stepX = rollDirX * rollDistance / moveSteps
+        const stepZ = rollDirZ * rollDistance / moveSteps
+        let movedDist = 0
+
+        for (let i = 0; i < moveSteps; i++) {
+          const nx = group.position.x + stepX
+          const nz = group.position.z + stepZ
+          if (tryMove(nx, nz)) {
+            movedDist += rollDistance / moveSteps
+            continue
+          }
+          const movedX = Math.abs(stepX) > 0.0001 && tryMove(group.position.x + stepX, group.position.z)
+          const movedZ = Math.abs(stepZ) > 0.0001 && tryMove(group.position.x, group.position.z + stepZ)
+          if (movedX || movedZ) movedDist += rollDistance / moveSteps
+        }
+
+        if (movedDist > 0) currentSpeed = Math.max(currentSpeed, movedDist / Math.max(dt, 0.0001))
+        group.rotation.y = Math.atan2(rollDirX, rollDirZ)
+        if (rollTimer >= ROLL_DURATION_SECONDS) finishRoll()
       }
 
       if (moving && canControlMovement) {
@@ -1015,12 +1309,31 @@ export function createPlayer(scene) {
 
       // 跳跃
       const spaceNow = input.isPressed('Space')
-      if (spaceNow && !spaceWasPressed && onGround && !attacking && !throwMagicPlaying) {
-        vy = JUMP_SPEED
-        onGround = false
-        startJumpAnimation()
+      if (spaceNow && !spaceWasPressed && onGround && !rolling && !attacking && !throwMagicPlaying && !healing && !picking) {
+        if (jumpAction) {
+          startJumpAnimation()
+          jumpTakeoffPending = true
+          jumpWindupTimer = JUMP_WINDUP_SECONDS
+        } else {
+          vy = JUMP_SPEED
+          onGround = false
+        }
       }
       spaceWasPressed = spaceNow
+
+      if (jumpTakeoffPending) {
+        if (!onGround || attacking || throwMagicPlaying || hurting || healing || picking || dying) {
+          resetJumpState()
+        } else {
+          jumpWindupTimer -= dt
+          if (jumpWindupTimer <= 0) {
+            jumpTakeoffPending = false
+            jumpWindupTimer = 0
+            vy = JUMP_SPEED
+            onGround = false
+          }
+        }
+      }
 
       // 重力
       const terrainH = getTerrainHeight ? getTerrainHeight(group.position.x, group.position.z) : 0
@@ -1077,6 +1390,7 @@ export function createPlayer(scene) {
         completeBonfireStandUp()
       }
 
+      updateSwordAirCueWindow()
       updateAttackHitWindow()
       updateAttackCombo(false)
 
@@ -1125,17 +1439,21 @@ export function createPlayer(scene) {
     },
 
     takeDamage(amount) {
+      const prevHp = hp
       hp = Math.max(0, hp - Math.max(0, amount))
+      if (prevHp > 0 && hp <= 0) deathCuePending = true
       return hp
     },
 
     heal(amount) {
       hp = Math.min(maxHp, hp + Math.max(0, amount))
+      if (hp > 0) deathCuePending = false
       return hp
     },
 
     restoreFullHp() {
       hp = maxHp
+      deathCuePending = false
       return hp
     },
 
@@ -1172,6 +1490,14 @@ export function createPlayer(scene) {
       return weaponId
     },
 
+    getLocomotionState() {
+      return locomotionState
+    },
+
+    getMoveHoldTime() {
+      return moveHoldTime
+    },
+
     getEquipmentState() {
       return {
         spell: 'fireball',
@@ -1187,6 +1513,7 @@ export function createPlayer(scene) {
       onGround = true
       resetAttackLunge()
       resetJumpState()
+      resetRollState()
       _smoothGroundY = group.position.y
     },
 
@@ -1199,11 +1526,16 @@ export function createPlayer(scene) {
       if (!idleAction) return
       dying = false
       deathComplete = false
+      deathCuePending = false
       if (deathAction) deathAction.stop()
       resetAttackState()
       resetJumpState()
+      resetRollState()
       defending = false
       hurting = false
+      healing = false
+      picking = false
+      if (pickAction) pickAction.stop()
       bonfireResting = false
       bonfireRestComplete = false
       bonfireStandingUp = false
@@ -1222,8 +1554,12 @@ export function createPlayer(scene) {
       forcedLocomotion = 'walk'
       defending = false
       hurting = false
+      healing = false
+      picking = false
+      if (pickAction) pickAction.stop()
       resetAttackState()
       resetJumpState()
+      resetRollState()
       locomotionState = 'walk'
       if (walkAction) switchAction(walkAction, true)
     },
@@ -1233,8 +1569,10 @@ export function createPlayer(scene) {
       forcedLocomotion = null
       resetAttackState()
       resetJumpState()
+      resetRollState()
       defending = false
       hurting = false
+      healing = false
       bonfireResting = true
       bonfireRestComplete = false
       bonfireStandingUp = false
@@ -1267,8 +1605,10 @@ export function createPlayer(scene) {
       forcedLocomotion = null
       resetAttackState()
       resetJumpState()
+      resetRollState()
       defending = false
       hurting = false
+      healing = false
       bonfireResting = false
       bonfireRestComplete = false
       bonfireStandingUp = true
@@ -1312,12 +1652,17 @@ export function createPlayer(scene) {
     },
 
     startAttack() {
-      if (!attackAction || attacking || throwMagicPlaying || defending || hurting || dying) return false
+      if (!attackAction || rolling || attacking || throwMagicPlaying || defending || hurting || healing || picking || dying) return false
       return startAttackStep(0)
     },
 
+    warmupThrowMagic() {
+      throwMagicWarmupRequested = true
+      return warmupThrowMagicAction()
+    },
+
     playThrowMagic() {
-      if (!throwMagicAction || dying) return false
+      if (!throwMagicAction || rolling || dying || healing || picking) return false
       throwMagicPlaying = true
       if (currentAction && currentAction !== throwMagicAction) currentAction.fadeOut(0.08)
       throwMagicAction.stop()
@@ -1333,9 +1678,54 @@ export function createPlayer(scene) {
     },
 
     startDefense() {
-      if (!defenseAction || attacking || throwMagicPlaying || hurting || dying) return false
+      if (attacking) return cancelAttackIntoDefense()
+      if (!defenseAction || rolling || attacking || throwMagicPlaying || hurting || healing || picking || dying) return false
       defending = true
       switchAction(defenseAction, true)
+      return true
+    },
+
+    playHeal() {
+      if (!healAction || rolling || attacking || throwMagicPlaying || defending || hurting || picking || dying || bonfireResting || bonfireStandingUp) return false
+      healing = true
+      forcedLocomotion = null
+      currentSpeed = 0
+      resetAttackState()
+      resetJumpState()
+      resetAttackLunge()
+      resetRollState()
+      healAction.stop()
+      healAction.reset()
+      healAction.enabled = true
+      healAction.paused = false
+      healAction.setLoop(THREE.LoopOnce, 1)
+      healAction.clampWhenFinished = true
+      healAction.timeScale = 1.0
+      if (currentAction && currentAction !== healAction) currentAction.fadeOut(0.08)
+      healAction.fadeIn(0.08).play()
+      currentAction = healAction
+      return true
+    },
+
+    playPick() {
+      if (!pickAction || rolling || attacking || throwMagicPlaying || defending || hurting || healing || dying || bonfireResting || bonfireStandingUp) return false
+      picking = true
+      forcedLocomotion = null
+      currentSpeed = 0
+      resetAttackState()
+      resetJumpState()
+      resetAttackLunge()
+      resetRollState()
+      pickAction.stop()
+      pickAction.reset()
+      pickAction.enabled = true
+      pickAction.paused = false
+      pickAction.setLoop(THREE.LoopOnce, 1)
+      pickAction.clampWhenFinished = true
+      pickAction.timeScale = PICK_TIME_SCALE
+      if (currentAction && currentAction !== pickAction) currentAction.fadeOut(0.08)
+      pickAction.fadeIn(0.08).play()
+      currentAction = pickAction
       return true
     },
 
@@ -1346,25 +1736,54 @@ export function createPlayer(scene) {
     },
 
     consumeAttackHitWindow() {
-      if (!attackHitPending) return false
-      const info = attackHitInfo ?? { damageMul: 1, rangeMul: 1 }
-      attackHitPending = false
-      attackHitInfo = null
-      return info
+      if (!attacking || !activeAttackAction) {
+        clearAttackHitEvents()
+        return false
+      }
+      return attackHitEvents.shift() ?? false
+    },
+
+    consumeSwordAirCue() {
+      if (!attacking || !activeAttackAction) {
+        swordAirCueEvents.length = 0
+        return false
+      }
+      return swordAirCueEvents.shift() ?? false
     },
 
     isDefending() {
       return defending
     },
 
+    isAttacking() {
+      return attacking
+    },
+
+    isThrowMagicPlaying() {
+      return throwMagicPlaying
+    },
+
+    isHealing() {
+      return healing
+    },
+
+    isPicking() {
+      return picking
+    },
+
+    isRolling() {
+      return rolling
+    },
+
     receiveEnemyAttack(amount = 0) {
       if (dying || hp <= 0) return { blocked: false, hp }
+      if (isRollInvincible()) return { blocked: false, hp }
       if (defending) {
         const blockCost = Math.max(0, amount) * BLOCK_STAMINA_COST_DAMAGE_MULTIPLIER
         if (blockCost <= 0 || stamina > blockCost) {
           spendStamina(blockCost)
-          blockShakeTime = Math.min(BLOCK_SHAKE_DURATION * 1.8, blockShakeTime + BLOCK_SHAKE_DURATION)
-          blockRecoilRemain = Math.min(BLOCK_RECOIL_DISTANCE * 2.2, blockRecoilRemain + BLOCK_RECOIL_DISTANCE)
+          blockShakeTime = Math.min(BLOCK_SHAKE_DURATION * 2.0, blockShakeTime + BLOCK_SHAKE_DURATION)
+          blockRecoilRemain = Math.min(BLOCK_RECOIL_DISTANCE * 2.0, blockRecoilRemain + BLOCK_RECOIL_DISTANCE)
           blockImpactCount += 1
           return { blocked: true, hp }
         }
@@ -1385,6 +1804,8 @@ export function createPlayer(scene) {
       currentSpeed = 0
       defending = false
       hurting = false
+      healing = false
+      picking = false
       throwMagicPlaying = false
       bonfireResting = false
       bonfireRestComplete = false
@@ -1395,11 +1816,15 @@ export function createPlayer(scene) {
       resetAttackState()
       resetJumpState()
       resetAttackLunge()
+      resetRollState()
       if (throwMagicAction) throwMagicAction.stop()
       if (hurtAction) hurtAction.stop()
+      if (healAction) healAction.stop()
+      if (pickAction) pickAction.stop()
       if (defenseAction) defenseAction.stop()
       if (defenseMoveAction) defenseMoveAction.stop()
       if (jumpAction) jumpAction.stop()
+      if (rollAction) rollAction.stop()
       if (walkAction) walkAction.stop()
       if (runAction) runAction.stop()
       if (idleAction) idleAction.stop()
@@ -1430,6 +1855,12 @@ export function createPlayer(scene) {
 
     isDeathComplete() {
       return deathComplete
+    },
+
+    consumeDeathCue() {
+      if (!deathCuePending) return false
+      deathCuePending = false
+      return true
     },
 
     consumeBlockImpact() {

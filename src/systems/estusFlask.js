@@ -25,14 +25,16 @@ export class EstusFlaskSystem {
     return this.charges
   }
 
+  canUse(player) {
+    return this.charges > 0 && Boolean(player) && !this._active && !player.isDead?.()
+  }
+
   tryUse(player) {
-    if (this.charges <= 0 || !player) return false
-    if (this._active || player.isDead?.()) return false
+    if (!this.canUse(player)) return false
     const maxHp = player.getMaxHp?.() ?? 0
     const maxMp = player.getMaxMp?.() ?? 0
     const hpMissing = maxHp - (player.getHp?.() ?? maxHp)
     const mpMissing = maxMp - (player.getMp?.() ?? maxMp)
-    if (hpMissing <= 0 && mpMissing <= 0) return false
 
     this.charges -= 1
     const hpAmount = Math.min(hpMissing, maxHp * this.hpRestoreRatio)

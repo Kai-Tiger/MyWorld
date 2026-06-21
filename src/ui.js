@@ -271,10 +271,36 @@ export function createUI(container, handlers = {}) {
       display: flex;
       animation: area-title-fade 4s ease-in-out forwards;
     }
+    #pickup-toast {
+      position: absolute;
+      left: 50%;
+      bottom: 22%;
+      transform: translateX(-50%);
+      z-index: 260;
+      min-width: 180px;
+      max-width: min(420px, calc(100vw - 48px));
+      box-sizing: border-box;
+      padding: 12px 24px;
+      border: 1px solid rgba(216,182,106,0.72);
+      border-radius: 4px;
+      background:
+        linear-gradient(180deg, rgba(18,14,10,0.94), rgba(8,7,6,0.92)),
+        radial-gradient(circle at 50% 0%, rgba(216,124,38,0.22), transparent 58%);
+      color: #fff0bd;
+      font-family: Georgia, 'Times New Roman', serif;
+      font-size: 17px;
+      letter-spacing: 0.08em;
+      text-align: center;
+      text-shadow: 0 2px 4px rgba(0,0,0,0.95);
+      pointer-events: none;
+      box-shadow:
+        inset 0 0 0 1px rgba(255,236,180,0.07),
+        0 16px 34px rgba(0,0,0,0.62);
+    }
     @keyframes area-title-fade {
       0% { opacity: 0; transform: translateY(10px); }
-      20% { opacity: 1; transform: translateY(0); }
-      70% { opacity: 1; transform: translateY(0); }
+      20% { opacity: 0.8; transform: translateY(0); }
+      70% { opacity: 0.8; transform: translateY(0); }
       100% { opacity: 0; transform: translateY(-6px); }
     }
   `
@@ -320,6 +346,29 @@ export function createUI(container, handlers = {}) {
     }
     #enter-prompt button:hover {
       background: linear-gradient(135deg, #ff8fab, #ff6b8a);
+    }
+    #object-name-label {
+      position: absolute;
+      min-width: 96px;
+      padding: 6px 14px;
+      border: 1px solid rgba(176, 145, 82, 0.74);
+      border-radius: 2px;
+      background:
+        linear-gradient(180deg, rgba(8, 7, 6, 0.88), rgba(26, 21, 14, 0.8)),
+        radial-gradient(circle at 50% 0%, rgba(176,145,82,0.18), transparent 62%);
+      color: #d8c89b;
+      font-family: Georgia, 'Times New Roman', serif;
+      font-size: 12px;
+      letter-spacing: 0.08em;
+      text-align: center;
+      text-shadow: 0 1px 2px rgba(0,0,0,0.95);
+      white-space: nowrap;
+      pointer-events: none;
+      transform: translateX(-50%);
+      z-index: 98;
+      box-shadow:
+        inset 0 0 0 1px rgba(255,230,160,0.07),
+        0 8px 20px rgba(0,0,0,0.54);
     }
     #exit-btn {
       position: absolute;
@@ -745,42 +794,142 @@ export function createUI(container, handlers = {}) {
     }
     #bag-panel {
       position: absolute;
-      bottom: 252px; left: 28px;
-      min-width: 204px;
-      background:
-        linear-gradient(180deg, rgba(13,11,9,0.96), rgba(23,17,11,0.94)),
-        radial-gradient(circle at 18% 0%, rgba(216,124,38,0.16), transparent 48%);
-      border: 1px solid rgba(216,182,106,0.58);
-      border-radius: 4px;
-      padding: 14px 16px;
-      font-family: Georgia, 'Times New Roman', serif;
-      z-index: 101;
-      box-shadow:
-        inset 0 0 0 1px rgba(255,236,180,0.06),
-        0 18px 36px rgba(0,0,0,0.62);
-    }
-    #bag-panel h4 {
-      margin: 0 0 10px;
-      font-size: 13px;
-      color: var(--ui-gold);
-      font-weight: normal;
-      letter-spacing: 0.16em;
-    }
-    .bag-item {
+      inset: 0;
       display: flex;
       align-items: center;
-      gap: 8px;
-      font-size: 14px;
-      color: #d8d0bd;
-      padding: 6px 0;
-      border-top: 1px solid rgba(216,182,106,0.12);
+      justify-content: center;
+      padding: 28px;
+      box-sizing: border-box;
+      background: rgba(0,0,0,0.38);
+      backdrop-filter: blur(2px);
+      z-index: 180;
+      pointer-events: auto;
+      font-family: Georgia, 'Times New Roman', serif;
     }
-    .bag-item .bag-count {
-      margin-left: auto;
-      color: rgba(255,227,160,0.72);
+    .bag-modal {
+      width: min(760px, calc(100vw - 40px));
+      min-height: min(520px, calc(100vh - 56px));
+      background:
+        linear-gradient(180deg, rgba(17,13,9,0.98), rgba(37,27,16,0.96)),
+        radial-gradient(circle at 50% 0%, rgba(216,124,38,0.20), transparent 50%);
+      border: 1px solid rgba(216,182,106,0.68);
+      border-radius: 6px;
+      padding: 18px;
+      box-sizing: border-box;
+      box-shadow:
+        inset 0 0 0 1px rgba(255,236,180,0.08),
+        inset 0 0 42px rgba(0,0,0,0.44),
+        0 24px 58px rgba(0,0,0,0.72);
+    }
+    .bag-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 14px;
+    }
+    .bag-title {
+      margin: 0;
+      font-size: 18px;
+      color: var(--ui-gold);
+      font-weight: normal;
+      letter-spacing: 0.12em;
+      text-shadow: 0 2px 3px rgba(0,0,0,0.95);
+    }
+    .bag-close {
+      width: 34px;
+      height: 34px;
+      border: 1px solid rgba(216,182,106,0.62);
+      border-radius: 4px;
+      background: rgba(8,7,6,0.72);
+      color: #ffe3a0;
+      font-size: 20px;
+      line-height: 1;
+      cursor: pointer;
+    }
+    .bag-tabs {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-bottom: 16px;
+    }
+    .bag-tab {
+      min-width: 86px;
+      height: 34px;
+      border: 1px solid rgba(216,182,106,0.44);
+      border-radius: 4px;
+      background: linear-gradient(180deg, rgba(28,22,15,0.92), rgba(10,8,6,0.92));
+      color: rgba(232,218,181,0.82);
+      font-family: inherit;
       font-size: 13px;
+      cursor: pointer;
+    }
+    .bag-tab.is-active {
+      border-color: rgba(255,227,160,0.92);
+      color: #fff0bd;
+      box-shadow: inset 0 0 18px rgba(216,124,38,0.20);
+    }
+    .bag-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(88px, 1fr));
+      gap: 10px;
+    }
+    .bag-cell {
+      position: relative;
+      aspect-ratio: 1;
+      min-height: 88px;
+      border: 1px solid rgba(216,182,106,0.30);
+      border-radius: 5px;
+      background:
+        radial-gradient(circle at 50% 35%, rgba(216,124,38,0.18), transparent 58%),
+        linear-gradient(180deg, rgba(11,9,7,0.78), rgba(3,3,3,0.70));
+      box-shadow: inset 0 0 0 1px rgba(255,236,180,0.04);
+      overflow: hidden;
+    }
+    .bag-cell.is-filled {
+      border-color: rgba(216,182,106,0.54);
+    }
+    .bag-cell-icon {
+      width: 48px;
+      height: 48px;
+      object-fit: contain;
+      position: absolute;
+      left: 50%;
+      top: 42%;
+      transform: translate(-50%, -50%);
+      filter: drop-shadow(0 4px 6px rgba(0,0,0,0.74));
+    }
+    .bag-cell-name {
+      position: absolute;
+      left: 6px;
+      right: 6px;
+      bottom: 7px;
+      color: rgba(232,218,181,0.84);
+      font-size: 11px;
+      line-height: 1.2;
+      text-align: center;
+      white-space: normal;
+    }
+    .bag-cell-count {
+      position: absolute;
+      right: 6px;
+      top: 6px;
+      min-width: 22px;
+      height: 20px;
+      padding: 0 5px;
+      box-sizing: border-box;
+      border: 1px solid rgba(255,227,160,0.48);
+      border-radius: 999px;
+      background: rgba(8,7,6,0.84);
+      color: #ffe3a0;
+      font-size: 11px;
+      line-height: 18px;
+      text-align: center;
     }
     #bag-empty {
+      grid-column: 1 / -1;
+      padding: 32px 0;
+      text-align: center;
       font-size: 13px;
       color: rgba(216,208,189,0.44);
       letter-spacing: 0.06em;
@@ -792,10 +941,12 @@ export function createUI(container, handlers = {}) {
         transform: scale(0.84);
         transform-origin: left bottom;
       }
-      #bag-panel {
-        left: 16px;
-        bottom: 206px;
-      }
+      #bag-panel { padding: 16px; }
+      .bag-modal { width: calc(100vw - 32px); min-height: min(500px, calc(100vh - 32px)); padding: 14px; }
+      .bag-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+      .bag-cell { min-height: 72px; }
+      .bag-cell-icon { width: 38px; height: 38px; }
+      .bag-cell-name { font-size: 10px; }
     }
     #fish-btn {
       position: absolute;
@@ -1025,6 +1176,7 @@ export function createUI(container, handlers = {}) {
   let exitBtn = null
   let actionBtn = null
   let bonfireMenu = null
+  let objectNameLabel = null
   const interactionPromptRadius = 110
 
   function cleanInteractionLabel(label) {
@@ -1045,6 +1197,8 @@ export function createUI(container, handlers = {}) {
   let pickBtn = null
   let fishBtn = null
   let fishResultEl = null
+  let pickupToast = null
+  let pickupToastTimer = null
   let dialoguePanel = null
   const npcHpBars = new Map()
   const damageFloats = []
@@ -1177,6 +1331,13 @@ export function createUI(container, handlers = {}) {
   }
   let bagPanel = null
   let bagItems = []
+  let bagActiveTab = 'spell'
+  const bagTabs = [
+    { id: 'weapon', label: '武器' },
+    { id: 'shield', label: '盾牌' },
+    { id: 'spell', label: '法术' },
+    { id: 'item', label: '物品' },
+  ]
 
   function toggleBagPanel() {
     if (bagPanel) {
@@ -1225,14 +1386,42 @@ export function createUI(container, handlers = {}) {
 
   function renderBagPanel() {
     if (!bagPanel) return
-    if (bagItems.length === 0) {
-      bagPanel.innerHTML = `<h4>背包</h4><div id="bag-empty">空空如也</div>`
-    } else {
-      const rows = bagItems.map(({ name, count }) =>
-        `<div class="bag-item"><span>${name === '元素瓶' ? '🧪' : '🍎'} ${name}</span><span class="bag-count">×${count}</span></div>`
-      ).join('')
-      bagPanel.innerHTML = `<h4>背包</h4>${rows}`
-    }
+    const tabItems = bagItems.filter(item => item.category === bagActiveTab)
+    const cells = Array.from({ length: 16 }, (_, index) => {
+      const item = tabItems[index]
+      if (!item) return `<div class="bag-cell" aria-hidden="true"></div>`
+      const image = item.icon ?? equipmentLabels[item.id]?.image ?? equipmentLabels.bag.image
+      return `
+        <div class="bag-cell is-filled" title="${item.name}">
+          <img class="bag-cell-icon" src="${image}" alt="${item.name}">
+          <div class="bag-cell-count">×${item.count}</div>
+          <div class="bag-cell-name">${item.name}</div>
+        </div>
+      `
+    }).join('')
+    const tabs = bagTabs.map(tab => `
+      <button class="bag-tab ${tab.id === bagActiveTab ? 'is-active' : ''}" data-bag-tab="${tab.id}" type="button">${tab.label}</button>
+    `).join('')
+    bagPanel.innerHTML = `
+      <div class="bag-modal" role="dialog" aria-modal="true" aria-label="背包">
+        <div class="bag-header">
+          <h4 class="bag-title">背包</h4>
+          <button class="bag-close" type="button" aria-label="关闭背包">×</button>
+        </div>
+        <div class="bag-tabs">${tabs}</div>
+        <div class="bag-grid">
+          ${tabItems.length === 0 ? '<div id="bag-empty">空空如也</div>' : ''}
+          ${cells}
+        </div>
+      </div>
+    `
+    bagPanel.querySelector('.bag-close')?.addEventListener('click', closeBagPanel)
+    bagPanel.querySelectorAll('[data-bag-tab]').forEach(button => {
+      button.addEventListener('click', () => {
+        bagActiveTab = button.dataset.bagTab
+        renderBagPanel()
+      })
+    })
   }
 
   function updateEquipmentState(state = {}) {
@@ -1246,10 +1435,12 @@ export function createUI(container, handlers = {}) {
   function projectToScreen(worldPos, camera, renderer) {
     const v = new THREE.Vector3(worldPos.x, worldPos.y, worldPos.z).project(camera)
     if (v.z < -1 || v.z > 1) return null
-    const w = renderer.domElement.clientWidth
-    const h = renderer.domElement.clientHeight
-    const sx = (v.x * 0.5 + 0.5) * w
-    const sy = (-v.y * 0.5 + 0.5) * h
+    const canvasRect = renderer.domElement.getBoundingClientRect()
+    const containerRect = container.getBoundingClientRect()
+    const w = canvasRect.width
+    const h = canvasRect.height
+    const sx = canvasRect.left - containerRect.left + (v.x * 0.5 + 0.5) * w
+    const sy = canvasRect.top - containerRect.top + (-v.y * 0.5 + 0.5) * h
     return { sx, sy, w, h }
   }
 
@@ -1527,6 +1718,25 @@ export function createUI(container, handlers = {}) {
       }, 4100)
     },
 
+    showPickupToast(name, durationMs = 1500) {
+      if (!name) return
+      if (pickupToastTimer) {
+        clearTimeout(pickupToastTimer)
+        pickupToastTimer = null
+      }
+      if (!pickupToast) {
+        pickupToast = document.createElement('div')
+        pickupToast.id = 'pickup-toast'
+        container.appendChild(pickupToast)
+      }
+      pickupToast.textContent = name
+      pickupToastTimer = window.setTimeout(() => {
+        pickupToast?.remove()
+        pickupToast = null
+        pickupToastTimer = null
+      }, Math.max(0, durationMs))
+    },
+
     setTransitionUiVisible(visible) {
       vitals.style.display = ''
       hud.style.display = ''
@@ -1534,6 +1744,7 @@ export function createUI(container, handlers = {}) {
       if (!visible) {
         closeBagPanel()
         this.hideEnterPrompt()
+        this.hideObjectName()
         this.hideExitButton()
         this.hideTalkButton()
         this.hidePickButton()
@@ -1569,6 +1780,25 @@ export function createUI(container, handlers = {}) {
       if (promptEl) {
         promptEl.remove()
         promptEl = null
+      }
+    },
+
+    showObjectName(worldPos, camera, renderer, label) {
+      const promptLabel = cleanInteractionLabel(label)
+      if (!promptLabel) return this.hideObjectName()
+      if (!objectNameLabel) {
+        objectNameLabel = document.createElement('div')
+        objectNameLabel.id = 'object-name-label'
+        container.appendChild(objectNameLabel)
+      }
+      objectNameLabel.textContent = promptLabel
+      positionAtCharacterUpperRight(objectNameLabel, worldPos, camera, renderer)
+    },
+
+    hideObjectName() {
+      if (objectNameLabel) {
+        objectNameLabel.remove()
+        objectNameLabel = null
       }
     },
 
@@ -1763,7 +1993,7 @@ export function createUI(container, handlers = {}) {
       equipmentBar.style.display = ''
     },
 
-    showPickButton(worldPos, camera, renderer, onPick) {
+    showPickButton(worldPos, camera, renderer, onPick, label = '拾取') {
       const v = new THREE.Vector3(worldPos.x, worldPos.y, worldPos.z).project(camera)
       const w = renderer.domElement.clientWidth
       const h = renderer.domElement.clientHeight
@@ -1773,10 +2003,10 @@ export function createUI(container, handlers = {}) {
       if (!pickBtn) {
         pickBtn = document.createElement('button')
         pickBtn.id = 'pick-btn'
-        pickBtn.textContent = '拾取'
         container.appendChild(pickBtn)
-        pickBtn.addEventListener('click', onPick)
       }
+      pickBtn.textContent = label
+      pickBtn.onclick = onPick
       pickBtn.style.left = `${sx}px`
       pickBtn.style.top  = `${sy - 54}px`
     },
@@ -1791,6 +2021,12 @@ export function createUI(container, handlers = {}) {
     updateBag(items) {
       bagItems = items
       renderBagPanel()
+    },
+
+    toggleBagPanel,
+    closeBagPanel,
+    isBagOpen() {
+      return Boolean(bagPanel)
     },
 
     showFishButton(worldPos, camera, renderer, onFish) {

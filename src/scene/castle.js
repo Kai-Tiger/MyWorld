@@ -11,6 +11,7 @@ const GLB_STONE_UV_STABILIZE_SCALE = 0.78
 const ELEVATOR_ROOF_STOP_Y = 20
 const ELEVATOR_PLATFORM_OFFSET_Y = 0.2
 const ELEVATOR_ACTION_RANGE = 2.5
+const FOG_GATE_TEXTURE_PATH = '/textures/fog.png'
 const _textureLoader = new THREE.TextureLoader()
 const _castleTextureCache = new Map()
 
@@ -227,12 +228,12 @@ function applyManifestTorchSockets(socketMap, torches) {
   })
 }
 
-function createFogGateMaterial(speed, phase, opacity) {
+function createFogGateMaterial() {
+  const fogTexture = loadCastleTexture(FOG_GATE_TEXTURE_PATH, { color: true })
   return new THREE.ShaderMaterial({
     uniforms: {
-      uTime: { value: phase },
-      uSpeed: { value: speed },
-      uOpacity: { value: opacity },
+      uTime: { value: 0 },
+      uFogMap: { value: fogTexture },
     },
     vertexShader: `
       varying vec2 vUv;
@@ -244,29 +245,41 @@ function createFogGateMaterial(speed, phase, opacity) {
     fragmentShader: `
       varying vec2 vUv;
       uniform float uTime;
-      uniform float uSpeed;
-      uniform float uOpacity;
+      uniform sampler2D uFogMap;
 
-      float hash(vec2 p) {
-        return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
+      float fogLuma(vec3 color) {
+        return dot(color, vec3(0.299, 0.587, 0.114));
       }
 
-      float noise(vec2 p) {
-        vec2 i = floor(p);
-        vec2 f = fract(p);
-        f = f * f * (3.0 - 2.0 * f);
-        return mix(mix(hash(i), hash(i + vec2(1.0, 0.0)), f.x),
-                   mix(hash(i + vec2(0.0, 1.0)), hash(i + vec2(1.0, 1.0)), f.x), f.y);
+      float edgeWave(float seed) {
+        return sin(seed * 8.0 + uTime * 0.42) * 0.025
+          + sin(seed * 15.0 - uTime * 0.31) * 0.014;
       }
 
       void main() {
-        vec2 flowUv = vec2(vUv.x * 3.0, vUv.y * 4.5 + uTime * uSpeed);
-        float cloud = noise(flowUv) * 0.58 + noise(flowUv * 2.1 + 4.7) * 0.28
-          + noise(flowUv * 4.3 - 2.8) * 0.14;
-        float sideFade = smoothstep(0.0, 0.07, vUv.x) * smoothstep(0.0, 0.07, 1.0 - vUv.x);
-        float verticalFade = smoothstep(0.0, 0.045, vUv.y) * smoothstep(0.0, 0.06, 1.0 - vUv.y);
-        float alpha = (0.432 + cloud * 0.432) * sideFade * verticalFade * uOpacity;
-        vec3 color = mix(vec3(0.78, 0.80, 0.83), vec3(0.90, 0.91, 0.92), cloud);
+        vec2 slowUv = vUv * vec2(1.08, 1.08) + vec2(
+          sin(uTime * 0.12) * 0.035,
+          -uTime * 0.026
+        );
+        vec2 fastUv = vec2(1.0 - vUv.x, vUv.y) * vec2(1.62, 1.28) + vec2(
+          uTime * 0.018,
+          -uTime * 0.052 + sin(vUv.x * 7.0 + uTime * 0.36) * 0.025
+        );
+        vec3 slowFog = texture2D(uFogMap, slowUv).rgb;
+        vec3 fastFog = texture2D(uFogMap, fastUv).rgb;
+        float fog = fogLuma(slowFog) * 0.68 + fogLuma(fastFog) * 0.32;
+        float centeredX = abs(vUv.x - 0.5) * 2.0;
+        float topCurve = 0.94 - centeredX * centeredX * 0.18 + edgeWave(vUv.x);
+        float sideLimit = 0.99 - pow(vUv.y, 1.55) * 0.12 + edgeWave(vUv.y + 1.7);
+        float archedFade = smoothstep(0.0, 0.12, topCurve - vUv.y);
+        float sideFade = smoothstep(0.0, 0.16, sideLimit - centeredX);
+        float bottomFade = smoothstep(0.0, 0.085, vUv.y + edgeWave(vUv.x + 3.4));
+        float edgeFade = archedFade * sideFade * bottomFade;
+        float centerGlow = 1.0 - smoothstep(0.0, 0.58, abs(vUv.x - 0.5));
+        float mist = smoothstep(0.08, 0.70, fog);
+        float alpha = min((0.48 + mist * 0.48 + centerGlow * 0.16) * edgeFade, 0.98);
+        vec3 color = mix(vec3(0.78, 0.80, 0.83), vec3(0.97, 0.98, 0.98), mist);
+        color += centerGlow * vec3(0.06, 0.065, 0.07);
         gl_FragColor = vec4(color, alpha);
       }
     `,
@@ -280,28 +293,15 @@ function createFogGateMaterial(speed, phase, opacity) {
 
 function createFogGate(group, position = CASTLE_EXTERIOR.fogDoor) {
   const fogPosition = { ...position, y: position.y + FOG_GATE_CENTER_Y_OFFSET }
-  const layerDefs = [
-    { offset: 0, speed: 0.20, phase: 0.0, opacity: 0.98 },
-    { offset: 0, speed: 0.31, phase: 7.4, opacity: 0.84 },
-    { offset: 0, speed: 0.13, phase: 13.8, opacity: 0.68 },
-    { offset: 0, speed: 0.25, phase: 19.6, opacity: 0.52 },
-  ]
-  const fogLayers = layerDefs.map(({ offset, speed, phase, opacity }, index) => {
-    const material = createFogGateMaterial(speed, phase, opacity)
-    const mesh = new THREE.Mesh(new THREE.PlaneGeometry(FOG_GATE_WIDTH, FOG_GATE_HEIGHT, 1, 1), material)
-    mesh.name = `fog-gate-layer:${index}`
-    mesh.userData.keepVisible = true
-    mesh.position.set(
-      fogPosition.x + offset,
-      fogPosition.y,
-      fogPosition.z,
-    )
-    mesh.rotation.y = -Math.PI / 2
-    mesh.frustumCulled = false
-    mesh.renderOrder = 20 + index
-    group.add(mesh)
-    return { mesh, material, phase }
-  })
+  const material = createFogGateMaterial()
+  const mesh = new THREE.Mesh(new THREE.PlaneGeometry(FOG_GATE_WIDTH, FOG_GATE_HEIGHT, 1, 1), material)
+  mesh.name = 'fog-gate'
+  mesh.userData.keepVisible = true
+  mesh.position.set(fogPosition.x, fogPosition.y, fogPosition.z)
+  mesh.rotation.y = -Math.PI / 2
+  mesh.frustumCulled = false
+  mesh.renderOrder = 20
+  group.add(mesh)
 
   const glow = new THREE.PointLight(0xcfd3d8, 4.32, 9, 2)
   glow.position.set(fogPosition.x - 0.25, fogPosition.y, fogPosition.z)
@@ -309,19 +309,13 @@ function createFogGate(group, position = CASTLE_EXTERIOR.fogDoor) {
 
   return {
     update(time) {
-      fogLayers.forEach(layer => {
-        layer.material.uniforms.uTime.value = time + layer.phase
-        layer.mesh.position.z = fogPosition.z + Math.sin(time * 0.35 + layer.phase) * 0.018
-      })
+      material.uniforms.uTime.value = time
+      mesh.position.z = fogPosition.z + Math.sin(time * 0.35) * 0.018
       glow.intensity = 5.58 + Math.sin(time * 1.3) * 0.405
     },
     setPosition(nextPosition) {
       Object.assign(fogPosition, nextPosition, { y: nextPosition.y + FOG_GATE_CENTER_Y_OFFSET })
-      fogLayers.forEach((layer, index) => {
-        layer.mesh.position.x = fogPosition.x + layerDefs[index].offset
-        layer.mesh.position.y = fogPosition.y
-        layer.mesh.position.z = fogPosition.z
-      })
+      mesh.position.set(fogPosition.x, fogPosition.y, fogPosition.z)
       glow.position.set(fogPosition.x - 0.25, fogPosition.y, fogPosition.z)
     },
   }

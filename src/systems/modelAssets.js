@@ -9,16 +9,18 @@ import playerRunFbxUrl from '../characters/player/run.fbx?url'
 import playerAttackFbxUrl from '../characters/player/attack.fbx?url'
 import playerAttack2FbxUrl from '../characters/player/SwordAttack2.fbx?url'
 import playerJumpFbxUrl from '../characters/player/jump.fbx?url'
+import playerRollFbxUrl from '../characters/player/roll.fbx?url'
 import playerThrowMagicFbxUrl from '../characters/player/throwMagic.fbx?url'
 import playerDefenseFbxUrl from '../characters/player/defense.fbx?url'
 import playerDefenseMoveFbxUrl from '../characters/player/defenseMove.fbx?url'
 import playerHurtFbxUrl from '../characters/player/hurt.fbx?url'
+import playerHealFbxUrl from '../characters/player/heal.fbx?url'
+import playerPickFbxUrl from '../characters/player/pick.fbx?url'
 import playerSitFbxUrl from '../characters/player/sit.fbx?url'
 import playerHammerGlbUrl from '../weapons/hammer.glb?url'
 import npcF1Url from '../characters/npc/f1.fbx?url'
 import npcF2Url from '../characters/npc/f2.fbx?url'
 import enemyMainFbxUrl from '../characters/enemy/main.fbx?url'
-import enemyE1FbxUrl from '../characters/enemy/e1.fbx?url'
 import enemyE2FbxUrl from '../characters/enemy/e2.fbx?url'
 import enemySitFbxUrl from '../characters/enemy/sit.fbx?url'
 import enemyStandFbxUrl from '../characters/enemy/Stand.fbx?url'
@@ -63,6 +65,17 @@ export async function cloneFBX(url) {
   return clone
 }
 
+export async function cloneModel(url) {
+  const cleanUrl = String(url).split(/[?#]/)[0].toLowerCase()
+  if (cleanUrl.endsWith('.glb') || cleanUrl.endsWith('.gltf')) {
+    const gltf = await loadGLTF(url)
+    const clone = cloneSkeleton(gltf.scene)
+    clone.animations = (gltf.animations ?? []).map(clip => clip.clone())
+    return clone
+  }
+  return cloneFBX(url)
+}
+
 export async function loadFBXClips(url) {
   const fbx = await loadFBX(url)
   return (fbx.animations ?? []).map(clip => clip.clone())
@@ -79,6 +92,7 @@ const runtimeGLTFUrls = [
   '/models/terrain/stone-mountain.glb',
   '/models/terrain/grass-forest.glb',
   '/models/terrain/stone-rocks.glb',
+  '/models/grass/grass_clump_low.glb',
 ]
 
 const runtimeFBXUrls = [
@@ -88,16 +102,18 @@ const runtimeFBXUrls = [
   playerAttackFbxUrl,
   playerAttack2FbxUrl,
   playerJumpFbxUrl,
+  playerRollFbxUrl,
   playerThrowMagicFbxUrl,
   playerDefenseFbxUrl,
   playerDefenseMoveFbxUrl,
   playerHurtFbxUrl,
+  playerHealFbxUrl,
+  playerPickFbxUrl,
   playerSitFbxUrl,
   enemyDeathFbxUrl,
   npcF1Url,
   npcF2Url,
   enemyMainFbxUrl,
-  enemyE1FbxUrl,
   enemyE2FbxUrl,
   enemySitFbxUrl,
   enemyStandFbxUrl,

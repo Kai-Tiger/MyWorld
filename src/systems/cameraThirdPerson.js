@@ -11,8 +11,8 @@ export class ThirdPersonCameraController {
     fov = 62,
     near = 0.1,
     far = 260,
-    distance = 4.7,
-    minDistance = 3.2,
+    distance = 3.7,
+    minDistance = 2.2,
     maxDistance = 7.5,
     pitch = 0.3316,
     yaw = Math.PI * 0.75,
@@ -83,7 +83,7 @@ export class ThirdPersonCameraController {
   _getEffectiveDistance() {
     if (this.pitch >= 0) return this.distance
     const t = THREE.MathUtils.clamp(this.pitch / this.minPitch, 0, 1)
-    return Math.max(2.8, this.distance * (1 - t * 0.42))
+    return Math.max(1.8, this.distance * (1 - t * 0.42))
   }
 
   _desiredPosition(targetPos, out) {
@@ -153,6 +153,7 @@ export class ThirdPersonCameraController {
     this._raycaster.set(lookPos, _tmpRayDir)
     this._raycaster.near = 0.02
     this._raycaster.far = fullDist
+    this._raycaster.camera = this.camera
     const hits = this._raycaster.intersectObjects(this._collisionObjects, true)
 
     for (const hit of hits) {

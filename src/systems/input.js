@@ -12,7 +12,7 @@ export class InputSystem {
     this._blockedCodes = new Set([
       'KeyW', 'KeyA', 'KeyS', 'KeyD',
       'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight',
-      'Space', 'KeyQ', 'KeyE', 'KeyF', 'KeyJ', 'KeyK', 'KeyR', 'KeyZ',
+      'Space', 'KeyQ', 'KeyE', 'KeyF', 'KeyH', 'KeyJ', 'KeyK', 'KeyL', 'KeyR', 'KeyT', 'KeyZ',
     ])
 
     const shouldIgnoreKeyCapture = (e) => {

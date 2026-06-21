@@ -142,9 +142,9 @@ export function createFBXNPC(scene, {
   }
 
   return {
-    update(dt, player, collision) {
+    update(dt, player, collision, options = {}) {
       if (!alive) return
-      if (mixer) mixer.update(dt)
+      if (mixer && !options.skipAnimation) mixer.update(dt)
       if (lockVisualState === 'locked') {
         lockPulseTime += dt
         const pulse = 1 + Math.sin(lockPulseTime * 8.0) * 0.06
