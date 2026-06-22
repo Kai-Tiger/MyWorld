@@ -6,6 +6,7 @@ const AUDIO_SOURCES = {
   hammerAir: '/audio/hammerAir.mp3',
   hammerHit: '/audio/hammerHit.mp3',
   shieldHit: '/audio/shieldHit.mp3',
+  punch: '/audio/punch.mp3',
   fireMagic: '/audio/fireMagic.mp3',
   heal: '/audio/heal.mp3',
   death: '/audio/death.mp3',

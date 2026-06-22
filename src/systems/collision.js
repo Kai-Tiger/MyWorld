@@ -33,11 +33,22 @@ export class CollisionSystem {
     }
     if (o.h === undefined) return null
     if (o.hx !== undefined && o.hz !== undefined) {
+      if (o.ux !== undefined && o.uz !== undefined && o.vx !== undefined && o.vz !== undefined) {
+        return this._orientedBoxContains(o, x, z) ? o.h : null
+      }
       return Math.abs(x - o.x) < o.hx && Math.abs(z - o.z) < o.hz ? o.h : null
     }
     const dx = x - o.x
     const dz = z - o.z
     return dx * dx + dz * dz < (o.r * 0.75) ** 2 ? o.h : null
+  }
+
+  _orientedBoxContains(o, x, z) {
+    const dx = x - o.x
+    const dz = z - o.z
+    const lx = dx * o.ux + dz * o.uz
+    const lz = dx * o.vx + dz * o.vz
+    return Math.abs(lx) < o.hx && Math.abs(lz) < o.hz
   }
 
   _orientedBoxHit(o, nx, nz, radius) {
@@ -52,6 +63,46 @@ export class CollisionSystem {
     return ddx * ddx + ddz * ddz < radius * radius
   }
 
+  _distanceSqToSegment(x, z, ax, az, bx, bz) {
+    const dx = bx - ax
+    const dz = bz - az
+    const lenSq = dx * dx + dz * dz
+    if (lenSq <= 0.000001) {
+      const px = x - ax
+      const pz = z - az
+      return px * px + pz * pz
+    }
+    const t = Math.max(0, Math.min(1, ((x - ax) * dx + (z - az) * dz) / lenSq))
+    const cx = ax + dx * t
+    const cz = az + dz * t
+    const px = x - cx
+    const pz = z - cz
+    return px * px + pz * pz
+  }
+
+  _isInsideClearancePath(path, x, z) {
+    if (!Array.isArray(path.points) || path.points.length < 2) return false
+    const halfWidth = path.halfWidth ?? 0
+    if (halfWidth <= 0) return false
+    const maxDistanceSq = halfWidth * halfWidth
+    for (let i = 0; i < path.points.length - 1; i++) {
+      const a = path.points[i]
+      const b = path.points[i + 1]
+      if (this._distanceSqToSegment(x, z, a.x, a.z, b.x, b.z) <= maxDistanceSq) return true
+    }
+    return false
+  }
+
+  _isClearedByPath(o, nx, nz, playerY) {
+    if (!o.clearancePathId) return false
+    for (const path of this.collidables) {
+      if (path.type !== 'clearancePath' || path.id !== o.clearancePathId) continue
+      if (!this._heightApplies(path, playerY)) continue
+      if (this._isInsideClearancePath(path, nx, nz)) return true
+    }
+    return false
+  }
+
   /**
    * 返回 (nx, nz) 位置的阻挡碰撞体，无则返回 null
    */
@@ -60,8 +111,10 @@ export class CollisionSystem {
     for (const o of this.collidables) {
       if (o === self) continue
       if (!this._heightApplies(o, playerY)) continue
+      if (o.type === 'clearancePath') continue
       if (o.surface || o.type === 'ramp') continue
       if (o.h !== undefined && playerY >= o.h - 0.2) continue
+      if (this._isClearedByPath(o, nx, nz, playerY)) continue
       if (o.hx !== undefined && o.hz !== undefined) {
         if (o.ux !== undefined && o.uz !== undefined && o.vx !== undefined && o.vz !== undefined) {
           if (this._orientedBoxHit(o, nx, nz, radius)) return o
@@ -96,9 +149,11 @@ export class CollisionSystem {
     for (const o of this.collidables) {
       if (o === self) continue  // 跳过自身，防止 NPC 自碰
       if (!this._heightApplies(o, playerY)) continue
+      if (o.type === 'clearancePath') continue
       if (o.surface || o.type === 'ramp') continue
       // 有顶面且玩家在顶面附近，不再水平拦截（留 0.2 缓冲防止刚落边缘时被卡住）
       if (o.h !== undefined && playerY >= o.h - 0.2) continue
+      if (this._isClearedByPath(o, nx, nz, playerY)) continue
       if (o.hx !== undefined && o.hz !== undefined) {
         if (o.ux !== undefined && o.uz !== undefined && o.vx !== undefined && o.vz !== undefined) {
           if (this._orientedBoxHit(o, nx, nz, radius)) return true

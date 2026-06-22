@@ -2,6 +2,14 @@ import * as THREE from 'three'
 import { BALANCE } from '../config/balance.js'
 import { cloneFBX } from '../systems/modelAssets.js'
 
+const _toPlayer = new THREE.Vector2()
+const TALK_TURN_SPEED = 7.5
+
+function lerpAngle(a, b, t) {
+  const d = THREE.MathUtils.euclideanModulo(b - a + Math.PI, Math.PI * 2) - Math.PI
+  return a + d * t
+}
+
 /**
  * createFBXNPC
  * 与 createNPC 接口完全一致，但用 FBX 模型替换程序几何体。
@@ -161,11 +169,12 @@ export function createFBXNPC(scene, {
       if (talking || distToPlayer < TALK_DISTANCE || focused) {
         if (distToPlayer < TALK_DISTANCE || talking) {
           if (talking || canWander) {
-            const toPlayer = new THREE.Vector2(
-              playerPos.x - group.position.x,
-              playerPos.z - group.position.z
-            ).normalize()
-            group.rotation.y = Math.atan2(toPlayer.x, toPlayer.y) + shakeYaw
+            _toPlayer.set(playerPos.x - group.position.x, playerPos.z - group.position.z)
+            if (_toPlayer.lengthSq() > 0.0001) {
+              _toPlayer.normalize()
+              const targetYaw = Math.atan2(_toPlayer.x, _toPlayer.y) + shakeYaw
+              group.rotation.y = lerpAngle(group.rotation.y, targetYaw, Math.min(1, dt * TALK_TURN_SPEED))
+            }
           } else {
             group.rotation.y = homeYaw + shakeYaw
           }
@@ -287,11 +296,6 @@ export function createFBXNPC(scene, {
     },
 
     startTalk(playerPos) {
-      if (playerPos) {
-        const dx = playerPos.x - group.position.x
-        const dz = playerPos.z - group.position.z
-        group.rotation.y = Math.atan2(dx, dz)
-      }
       talking = true
     },
 

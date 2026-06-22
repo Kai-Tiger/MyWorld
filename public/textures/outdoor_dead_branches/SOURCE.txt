@@ -1,0 +1,12 @@
+Dead branch bark texture:
+  Asset: TextureCan Wood 0063
+  Source: https://www.texturecan.com/details/588/
+  Download: https://www.texturecan.com/downloads/wood_0063/wood_0063_1k_wJSQiY.zip
+  Material maps:
+    wood_0063_color_1k.jpg
+    wood_0063_normal_opengl_1k.png
+    wood_0063_roughness_1k.jpg
+  Retained support map:
+    wood_0063_ao_1k.jpg
+  Notes:
+    Used for outdoor dead branch geometry in assets/blender/outdoor_landmarks.blend.

@@ -1,6 +1,6 @@
 import * as THREE from 'three'
 import { createScene } from './scene/scene.js'
-import { createMap } from './scene/map.js'
+import { createMap, MINE_CAVE, isInsideMineCaveUndergroundPath } from './scene/map.js'
 import { createLighting } from './scene/lighting.js'
 import { createPlayer } from './entities/player.js'
 import { createFBXNPC } from './entities/npcFBX.js'
@@ -196,9 +196,9 @@ function isInsideOutdoorMountainBounds(x, z) {
     && z <= OUTDOOR_MOUNTAIN_BOUNDS.maxZ
 }
 
-function getTerrainHeight(x, z) {
+function getTerrainHeight(x, z, playerY = null) {
   if (!isInsideOutdoorMountainBounds(x, z)) return MOUNTAIN_FALL_FLOOR_Y
-  return getRawTerrainHeight(x, z)
+  return getRawTerrainHeight(x, z, playerY)
 }
 
 applyLayoutToScene(scene, _layoutData)
@@ -263,8 +263,156 @@ let activeScene = 'outdoor'
 let _editor = null
 let _editorUi = null
 let loadingLookSweep = null
+let mineCaveClimb = null
+let mineCaveInteractionRearmPending = false
+const _mineCaveClimbPosition = new THREE.Vector3()
 const LOADING_LOOK_SWEEP_TURNS = 2
 const LOADING_LOOK_SWEEP_SECONDS = 3.0
+
+function getMineCaveSurfaceY() {
+  return getTerrainHeight(MINE_CAVE.surfaceExitX, MINE_CAVE.surfaceExitZ)
+}
+
+function getMineCaveClimbX() {
+  return MINE_CAVE.x + MINE_CAVE.ladderPlayerOffsetX
+}
+
+function getMineCaveClimbZ() {
+  return MINE_CAVE.z + MINE_CAVE.ladderVisualZ + MINE_CAVE.ladderPlayerOffsetZ
+}
+
+function getMineCaveClimbTop() {
+  return new THREE.Vector3(getMineCaveClimbX(), MINE_CAVE.ladderTopY, getMineCaveClimbZ())
+}
+
+function getMineCaveClimbBottom() {
+  return new THREE.Vector3(getMineCaveClimbX(), MINE_CAVE.ladderBottomY, getMineCaveClimbZ())
+}
+
+function isPlayerInMineCaveUnderground(playerPos) {
+  return playerPos.y < -1.0 && isInsideMineCaveUndergroundPath(playerPos.x, playerPos.z)
+}
+
+function facePlayerTowardMineCaveLadder() {
+  const climbX = getMineCaveClimbX()
+  const climbZ = getMineCaveClimbZ()
+  const ladderZ = MINE_CAVE.z + MINE_CAVE.ladderVisualZ
+  player.faceToward(climbX, climbZ + (climbZ - ladderZ))
+}
+
+function getMineCaveInteraction(playerPos) {
+  if (playerPos.y < -1.0) {
+    const dx = playerPos.x - MINE_CAVE.bottomExitX
+    const dz = playerPos.z - MINE_CAVE.bottomExitZ
+    if (dx * dx + dz * dz <= MINE_CAVE.bottomInteractRange * MINE_CAVE.bottomInteractRange) {
+      return {
+        label: '抓住梯子 [E]',
+        position: playerPos.clone().add(new THREE.Vector3(0, 1.3, 0)),
+        action: exitMineCave,
+      }
+    }
+    return null
+  }
+
+  const dx = playerPos.x - MINE_CAVE.x
+  const dz = playerPos.z - MINE_CAVE.z
+  if (dx * dx + dz * dz > MINE_CAVE.surfaceInteractRange * MINE_CAVE.surfaceInteractRange) return null
+  return {
+    label: '抓住梯子 [E]',
+    position: playerPos.clone().add(new THREE.Vector3(0, 1.2, 0)),
+    action: enterMineCave,
+  }
+}
+
+function enterMineCave() {
+  beginMineCaveClimb('down')
+}
+
+function exitMineCave() {
+  beginMineCaveClimb('up')
+}
+
+function beginMineCaveClimb(direction) {
+  if (mineCaveClimb) return
+  clearLock()
+  ui?.hideActionPrompt?.()
+  ui?.hideEnterPrompt?.()
+  ui?.hideBonfireMenu?.()
+  ui?.hidePickButton?.()
+  ui?.hideTalkButton?.()
+  activeScene = 'mine-cave-climb'
+  thirdPerson.setEnabled(true)
+  player.setInWater(false)
+
+  const top = getMineCaveClimbTop()
+  const bottom = getMineCaveClimbBottom()
+  const progress = direction === 'down' ? 1 : 0
+  const start = new THREE.Vector3().lerpVectors(bottom, top, progress)
+  player.setPosition(start.x, start.z, start.y)
+  facePlayerTowardMineCaveLadder()
+  if (!player.playClimb?.(direction)) player.playWalk()
+  player.setClimbPlayback?.(0)
+  mineCaveClimb = {
+    progress,
+    speed: 1 / Math.max(0.001, MINE_CAVE.climbDuration),
+    bottom,
+    top,
+  }
+  thirdPerson.syncToTarget(player.getPosition())
+}
+
+function finishMineCaveClimb(destination) {
+  const state = mineCaveClimb
+  if (!state) return
+  mineCaveClimb = null
+  mineCaveInteractionRearmPending = true
+  activeScene = 'outdoor'
+  player.stopClimb?.()
+  const final = destination === 'bottom'
+    ? getMineCaveClimbBottom()
+    : new THREE.Vector3(MINE_CAVE.surfaceExitX, getMineCaveSurfaceY(), MINE_CAVE.surfaceExitZ)
+  player.setPosition(final.x, final.z, final.y)
+  const faceX = destination === 'bottom' ? MINE_CAVE.cavernX : MINE_CAVE.x
+  const faceZ = destination === 'bottom' ? MINE_CAVE.cavernZ : MINE_CAVE.z
+  player.faceToward(faceX, faceZ)
+  player.playIdle()
+  playerCollidable.x = final.x
+  playerCollidable.z = final.z
+  thirdPerson.setEnabled(true)
+  thirdPerson.syncToTarget(player.getPosition())
+}
+
+function updateMineCaveInteractionRearm(input) {
+  if (!mineCaveInteractionRearmPending) return
+  if (input.isPressed('KeyE') || input.isPressed('up') || input.isPressed('down')) return
+  input.consumePressed?.('KeyE')
+  mineCaveInteractionRearmPending = false
+}
+
+function getMineCaveClimbInput(input) {
+  const climbUp = input.isPressed('up')
+  const climbDown = input.isPressed('down')
+  if (climbUp === climbDown) return 0
+  return climbUp ? 1 : -1
+}
+
+function updateMineCaveClimb(dt, input) {
+  const state = mineCaveClimb
+  if (!state) return
+  const climbInput = getMineCaveClimbInput(input)
+  state.progress = THREE.MathUtils.clamp(state.progress + climbInput * state.speed * dt, 0, 1)
+  player.setClimbPlayback?.(climbInput)
+  _mineCaveClimbPosition.lerpVectors(state.bottom, state.top, state.progress)
+  player.setPosition(_mineCaveClimbPosition.x, _mineCaveClimbPosition.z, _mineCaveClimbPosition.y)
+  facePlayerTowardMineCaveLadder()
+  player.updateAnimation(dt)
+  const pos = player.getPosition()
+  playerCollidable.x = pos.x
+  playerCollidable.z = pos.z
+  thirdPerson.update(dt, pos)
+  if (state.progress <= 0 && climbInput < 0) finishMineCaveClimb('bottom')
+  if (state.progress >= 1 && climbInput > 0) finishMineCaveClimb('top')
+}
 
 const AREA_TITLE_COOLDOWN_SECONDS = 90
 const AREA_DEFS = {
@@ -362,6 +510,24 @@ function spawnEnemyNpcs(addToCollision = false) {
   })
 }
 spawnEnemyNpcs()
+let mineCaveEnemyOcclusionActive = false
+
+function setMineCaveEnemyOcclusion(active) {
+  const next = Boolean(active)
+  if (mineCaveEnemyOcclusionActive !== next) {
+    mineCaveEnemyOcclusionActive = next
+    if (next) {
+      clearLock()
+      clearNpcCombatUi()
+    }
+  }
+
+  hostileNpcs.forEach((npc) => {
+    npc.setPlayerOccluded?.(next)
+    const group = npc.getGroup?.()
+    if (group) group.visible = !next
+  })
+}
 
 // ── 天空系统 ──────────────────────────────────────────
 const sky = createSky(scene)
@@ -686,6 +852,8 @@ const lockState = {
   uiRange: BALANCE.combat.lock.uiRange,
   qWasPressed: false,
 }
+const CLOSE_LOCK_FACE_DISTANCE = 5
+const CLOSE_LOCK_FACE_DISTANCE_SQ = CLOSE_LOCK_FACE_DISTANCE * CLOSE_LOCK_FACE_DISTANCE
 const COMBAT_PERF_LOCK_DISTANCE = 14
 const COMBAT_PERF_NEAR_ENEMY_DISTANCE = 10
 const COMBAT_PERF_EXIT_DELAY = 1.5
@@ -886,6 +1054,7 @@ function movePlayerToCheckpointForRespawn() {
   playerCollidable.x = target.x
   playerCollidable.z = target.z
   resetHostileNpcs()
+  setMineCaveEnemyOcclusion(false)
   thirdPerson.setCollisionObjects(scene.children)
   thirdPerson.syncToTarget(player.getPosition())
 }
@@ -927,6 +1096,7 @@ function setCombatPerfMode(active) {
 }
 
 function isNearCombat(playerPos) {
+  if (isPlayerInMineCaveUnderground(playerPos)) return false
   const lockTarget = lockState.targetNpc
   if (lockTarget?.isAlive?.() && playerPos.distanceTo(lockTarget.getPosition()) <= COMBAT_PERF_LOCK_DISTANCE) return true
   return npcs.some(npc => {
@@ -957,9 +1127,13 @@ function shouldSkipNpcAnimation(npc, playerPos) {
 
 function updateOutdoorNpcs(dt) {
   const playerPos = player.getPosition()
+  const playerOccluded = isPlayerInMineCaveUnderground(playerPos)
   npcs.forEach(npc => {
     if (npc.isAlive?.() || npc.shouldUpdateWhenDead?.()) {
-      npc.update(dt, player, collision, { skipAnimation: shouldSkipNpcAnimation(npc, playerPos) })
+      npc.update(dt, player, collision, {
+        skipAnimation: shouldSkipNpcAnimation(npc, playerPos),
+        playerOccluded: playerOccluded && npc.isHostile,
+      })
     }
   })
 }
@@ -1190,6 +1364,7 @@ function lerpAngle(a, b, t) {
 
 function handleNpcDeath(npc) {
   npc.die?.()
+  player.cancelEnemyHurtFrom?.(npc.getGroup?.())
   ui.hideNpcHpBar?.(npc)
   npc.setLockVisualState?.('hidden')
   const idx = collision.collidables.indexOf(npc.collidable)
@@ -1284,9 +1459,9 @@ function processSwordAirCue() {
 
 function processPlayerMeleeAttack() {
   const hitInfo = player.consumeAttackHitWindow?.()
-  if (!hitInfo) return
+  if (!hitInfo) return false
   if (typeof hitInfo === 'object' && hitInfo.id !== undefined) {
-    if (hitInfo.id <= lastProcessedAttackHitEventId) return
+    if (hitInfo.id <= lastProcessedAttackHitEventId) return true
     lastProcessedAttackHitEventId = hitInfo.id
   }
 
@@ -1301,7 +1476,7 @@ function processPlayerMeleeAttack() {
     ) {
       playSfx('swordAir', { volume: 0.7, startAt: 0.05 })
     }
-    return
+    return true
   }
   const damage = Math.round((player.getAtk?.() ?? BALANCE.player.atk) * damageMul)
   const hp = best.onHit ? best.onHit(damage) : best.takeDamage(damage)
@@ -1311,6 +1486,7 @@ function processPlayerMeleeAttack() {
   spawnMeleeBloodSplatter(best, weaponId === 'hammer' ? 1.25 : damageMul)
   if (hp <= 0) handleNpcDeath(best)
   requestHitstop(BALANCE.combat.hitstop.attackHit)
+  return true
 }
 
 function updatePlayerSpellCasting(dt, playerPos) {
@@ -1391,8 +1567,14 @@ function getThirdPersonMoveIntent(input) {
 
 function updateNpcCombatUi(camera) {
   const playerPos = player.getPosition()
+  const playerUnderground = isPlayerInMineCaveUnderground(playerPos)
   npcs.forEach(npc => {
     if (!npc.isAlive || !npc.isAlive()) {
+      ui.hideNpcHpBar?.(npc)
+      npc.setLockVisualState?.('hidden')
+      return
+    }
+    if (playerUnderground && npc.isHostile) {
       ui.hideNpcHpBar?.(npc)
       npc.setLockVisualState?.('hidden')
       return
@@ -1559,6 +1741,31 @@ function gameLoop() {
     setCombatPerfMode(false)
     stopPlayerFootsteps()
     updateCastleTransition(rawDt)
+    return
+  }
+
+  if (activeScene === 'mine-cave-climb') {
+    setCombatPerfMode(false)
+    stopPlayerFootsteps()
+    updateMap(clock.elapsedTime, player.getPosition())
+    castle.updateOutdoor(rawDt)
+    updatePickupAuras(rawDt, clock.elapsedTime)
+    clearNpcCombatUi()
+    clearLock()
+    lockState.qWasPressed = input.isPressed('KeyQ')
+    player.setInWater(false)
+    updateMineCaveClimb(rawDt, input)
+    updateHealAura(rawDt, clock.elapsedTime)
+
+    const climbPos = player.getPosition()
+    setMineCaveEnemyOcclusion(isPlayerInMineCaveUnderground(climbPos))
+    const sunPhaseClimb = (clock.elapsedTime % 1800) / 1800 * Math.PI * 2
+    updateDayNightLighting(sunPhaseClimb)
+    sky.update(sunPhaseClimb, rawDt, false)
+    updateOutdoorAreaTitle(climbPos)
+    ui.update(player, sunPhaseClimb)
+    ui.updateCombatOverlay?.(rawDt, gameCamera, renderer)
+    renderWithAO(gameCamera, 'outdoor')
     return
   }
 
@@ -1801,14 +2008,13 @@ function gameLoop() {
   updateLockToggle(input, player.getPosition())
   validateLock(player.getPosition())
   const moveIntent = getThirdPersonMoveIntent(input)
-  const lockFacingTarget = lockState.targetNpc?.isAlive?.() ? lockState.targetNpc.getPosition() : null
-  const suppressRun = Boolean(lockFacingTarget)
-  player.update(dt, input, collision, getTerrainHeight, playerCollidable, moveIntent, suppressRun, lockFacingTarget)
+  player.update(dt, input, collision, getTerrainHeight, playerCollidable, moveIntent, false, null)
   updateHealAura(dt, clock.elapsedTime)
   updatePlayerFootsteps()
 
   const pos = player.getPosition()
   if (checkOutdoorFallDeath(pos)) return
+  setMineCaveEnemyOcclusion(isPlayerInMineCaveUnderground(pos))
   updateCombatPerfMode(dt, pos)
   playerCollidable.x = pos.x
   playerCollidable.z = pos.z
@@ -1816,27 +2022,32 @@ function gameLoop() {
   updatePlayerSpellCasting(dt, pos)
   spells.update(dt, npcs, getTerrainHeight, handleNpcDeath, handleNpcHit)
   updateEstusFlask(dt)
+  processSwordAirCue()
+  for (let i = 0; i < 4 && processPlayerMeleeAttack(); i += 1) {}
 
   // 更新 NPC
   updateOutdoorNpcs(dt)
   if (checkPlayerDeath('outdoor')) return
-  if (player.consumeBlockImpact?.()) {
+  for (let i = 0; i < 3 && player.consumeBlockImpact?.(); i += 1) {
     playSfx('shieldHit', { volume: 0.62 })
     requestHitstop(BALANCE.combat.hitstop.blockHit)
   }
-  processSwordAirCue()
-  processPlayerMeleeAttack()
 
   if (lockState.targetNpc && lockState.targetNpc.isAlive?.()) {
     const targetPos = lockState.targetNpc.getPosition()
     _toLockTarget.subVectors(targetPos, pos).setY(0)
-    if (_toLockTarget.lengthSq() > 0.0001) {
+    const lockDistSq = _toLockTarget.lengthSq()
+    if (lockDistSq > 0.0001) {
       _toLockTarget.normalize()
       const camDirX = -_toLockTarget.x
       const camDirZ = -_toLockTarget.z
       const desiredYaw = Math.atan2(camDirX, camDirZ)
       thirdPerson.yaw = lerpAngle(thirdPerson.yaw, desiredYaw, Math.min(dt * 10, 1))
-      if (!player.isInBlockReaction?.() && !player.isRolling?.()) {
+      if (
+        lockDistSq <= CLOSE_LOCK_FACE_DISTANCE_SQ &&
+        !player.isInBlockReaction?.() &&
+        !player.isRolling?.()
+      ) {
         player.faceToward(targetPos.x, targetPos.z)
       }
     }
@@ -1869,17 +2080,21 @@ function gameLoop() {
   moon.target.updateMatrixWorld()
 
   // 门交互检测
+  updateMineCaveInteractionRearm(input)
   const castleDx = pos.x - castle.entrance.x
   const castleDz = pos.z - castle.entrance.z
   const distanceToCastle = Math.sqrt(castleDx * castleDx + castleDz * castleDz)
   const nearCastle = distanceToCastle < castle.entranceRange
   const nearDoor = interaction.getNearbyDoor(pos)
-  const nearBonfire = !nearCastle && !nearDoor ? getNearbyCampfire(pos) : null
+  const nearMineCave = !mineCaveInteractionRearmPending && !nearCastle && !nearDoor ? getMineCaveInteraction(pos) : null
+  const nearBonfire = !nearCastle && !nearDoor && !nearMineCave ? getNearbyCampfire(pos) : null
   const suppressConversationPrompts = combatPerfActive
   if (nearCastle) {
+    ui.hideActionPrompt?.()
     ui.hideBonfireMenu?.()
     ui.showEnterPrompt(pos, gameCamera, renderer, enterCastle, '穿过白雾', true)
   } else if (nearDoor) {
+    ui.hideActionPrompt?.()
     ui.hideBonfireMenu?.()
     ui.showEnterPrompt(pos, gameCamera, renderer, () => {
       activeScene = 'indoor'
@@ -1896,8 +2111,14 @@ function gameLoop() {
         if (savedOutdoorPos) player.setPosition(savedOutdoorPos.x, savedOutdoorPos.z, savedOutdoorPos.y)
       })
     })
+  } else if (nearMineCave) {
+    ui.hideEnterPrompt()
+    ui.hideBonfireMenu?.()
+    ui.showActionPrompt(nearMineCave.position, gameCamera, renderer, nearMineCave.action, nearMineCave.label)
+    if (input.consumePressed?.('KeyE')) nearMineCave.action()
   } else {
     ui.hideEnterPrompt()
+    ui.hideActionPrompt?.()
   }
 
   if (suppressConversationPrompts) {
@@ -1928,13 +2149,13 @@ function gameLoop() {
   ui.hidePickButton()
   ui.hideFishButton()
   const nearbyPickup = getNearbyPickup(pos)
-  updatePickupInteraction(nearbyPickup, Boolean(nearCastle || nearDoor || nearBonfire))
+  updatePickupInteraction(nearbyPickup, Boolean(nearCastle || nearDoor || nearMineCave || nearBonfire))
 
   if (suppressConversationPrompts) {
     ui.hideTalkButton()
   } else if (nearbyPickup) {
     ui.hideTalkButton()
-  } else if (nearNpc && !nearCastle && !nearDoor && !nearBonfire) {
+  } else if (nearNpc && !nearCastle && !nearDoor && !nearMineCave && !nearBonfire) {
     const headPos = nearNpc.getHeadWorldPos()
     ui.showTalkButton(headPos, gameCamera, renderer, () => {
       activeNpc = nearNpc
@@ -1962,7 +2183,7 @@ function gameLoop() {
     ui.hideTalkButton()
   }
 
-  if (nearCastle || nearDoor || nearBonfire || nearbyPickup || nearNpc || suppressConversationPrompts) {
+  if (nearCastle || nearDoor || nearMineCave || nearBonfire || nearbyPickup || nearNpc || suppressConversationPrompts) {
     ui.hideObjectName?.()
   } else {
     const nearbyForestPack = getNearbyForestPackLabel?.(pos)

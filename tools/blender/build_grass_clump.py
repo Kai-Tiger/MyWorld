@@ -15,12 +15,12 @@ def reset_scene():
 
 def make_material():
     mat = bpy.data.materials.new("grass_clump_low_mat")
-    mat.diffuse_color = (0.105, 0.155, 0.065, 1.0)
+    mat.diffuse_color = (0.028, 0.045, 0.026, 1.0)
     mat.use_nodes = True
     mat.use_backface_culling = False
     bsdf = mat.node_tree.nodes.get("Principled BSDF")
     if bsdf:
-        bsdf.inputs["Base Color"].default_value = (0.105, 0.155, 0.065, 1.0)
+        bsdf.inputs["Base Color"].default_value = (0.028, 0.045, 0.026, 1.0)
         bsdf.inputs["Roughness"].default_value = 0.92
 
         vertex_color = mat.node_tree.nodes.new("ShaderNodeVertexColor")
@@ -80,11 +80,11 @@ def add_vertex_colors(mesh):
     min_z = min(v.co.z for v in mesh.vertices)
     max_z = max(v.co.z for v in mesh.vertices)
     height = max(max_z - min_z, 0.001)
-    root_color = (0.0315, 0.054, 0.0225, 1.0)
-    mid_color = (0.0945, 0.153, 0.063, 1.0)
-    lit_color = (0.1125, 0.1845, 0.063, 1.0)
-    tip_color = (0.1305, 0.1845, 0.0675, 1.0)
-    shadow_color = (0.018, 0.036, 0.018, 1.0)
+    root_color = (0.012, 0.027, 0.012, 1.0)
+    mid_color = (0.027, 0.051, 0.027, 1.0)
+    lit_color = (0.039, 0.071, 0.039, 1.0)
+    tip_color = (0.047, 0.078, 0.047, 1.0)
+    shadow_color = (0.000, 0.012, 0.004, 1.0)
 
     for poly in mesh.polygons:
         for loop_index in poly.loop_indices:

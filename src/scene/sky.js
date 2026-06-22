@@ -167,36 +167,6 @@ function makeSkyDome(scene) {
   return dome
 }
 
-// ── 星星粒子 ──────────────────────────────────────────
-function makeStars(scene) {
-  const N = 350
-  const positions = []
-  for (let i = 0; i < N; i++) {
-    // 均匀分布在上半球 + 低纬度侧面（让透视摄像机也能看到）
-    const theta = Math.random() * Math.PI * 2
-    const phi   = Math.random() * Math.PI * 0.7  // 0~126°，覆盖到水平线以下一点
-    const r     = 88 + Math.random() * 12
-    positions.push(
-      r * Math.sin(phi) * Math.cos(theta),
-      r * Math.cos(phi),
-      r * Math.sin(phi) * Math.sin(theta)
-    )
-  }
-  const geo = new THREE.BufferGeometry()
-  geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(positions), 3))
-  const pts = new THREE.Points(geo, new THREE.PointsMaterial({
-    color: 0xffffff,
-    size: 0.45,
-    sizeAttenuation: true,
-    transparent: true,
-    opacity: 0,
-    fog: false,
-  }))
-  pts.renderOrder = -1
-  scene.add(pts)
-  return pts
-}
-
 export function createSky(scene) {
   const skyDome = makeSkyDome(scene)
 
@@ -254,15 +224,6 @@ export function createSky(scene) {
     moonMesh.position.copy(camera.position).add(_moonLocal)
   }
   scene.add(moonMesh)
-
-  // ── 星星 ─────────────────────────────────────────
-  const starPoints = makeStars(scene)
-  starPoints.onBeforeRender = (_renderer, _scene, camera) => {
-    starPoints.position.copy(camera.position)
-  }
-
-  let _starTime = 0
-  let _prevNightFactor = -1
 
   return {
     update(sunPhase, dt = 0, showClouds = false) {
@@ -322,16 +283,6 @@ export function createSky(scene) {
         )
       }
 
-      // ── 星星：入夜渐现，闪烁 ─────────────────────
-      _starTime += dt
-      starPoints.visible = isNight
-      if (isNight) {
-        starPoints.material.opacity = nightFactor * (0.75 + Math.sin(_starTime * 2.1) * 0.12)
-        if (Math.abs(nightFactor - _prevNightFactor) > 0.01) {
-          starPoints.material.needsUpdate = true
-          _prevNightFactor = nightFactor
-        }
-      }
     }
   }
 }

@@ -35,6 +35,7 @@ export function createHeightmapTerrain(scene, {
   flatAreas = [],
   heightModifiers = [],
   postHeightModifiers = [],
+  holeMasks = [],
   heightmapUrl = '/heightmaps/main_height_1024.png',
   onReady = null,
 } = {}) {
@@ -95,6 +96,36 @@ export function createHeightmapTerrain(scene, {
     return result
   }
 
+  function isInsideHoleMask(x, z) {
+    for (const mask of holeMasks) {
+      const dx = x - mask.x
+      const dz = z - mask.z
+      const radius = mask.radius ?? 0
+      if (dx * dx + dz * dz <= radius * radius) return true
+    }
+    return false
+  }
+
+  function applyHoleMasks() {
+    if (!holeMasks.length || !geometry.index) return
+    const pos = geometry.attributes.position
+    const index = geometry.index.array
+    const next = []
+
+    for (let i = 0; i < index.length; i += 3) {
+      const a = index[i]
+      const b = index[i + 1]
+      const c = index[i + 2]
+      const ax = pos.getX(a), az = -pos.getY(a)
+      const bx = pos.getX(b), bz = -pos.getY(b)
+      const cx = pos.getX(c), cz = -pos.getY(c)
+      if (isInsideHoleMask(ax, az) || isInsideHoleMask(bx, bz) || isInsideHoleMask(cx, cz)) continue
+      next.push(a, b, c)
+    }
+
+    geometry.setIndex(next)
+  }
+
   const img = new Image()
   img.onload = () => {
     const canvas = document.createElement('canvas')
@@ -118,6 +149,7 @@ export function createHeightmapTerrain(scene, {
       pos.setZ(i, applyPostHeightModifiers(x, z, applyFlatAreas(x, z, applyHeightModifiers(x, z, sampleBaseHeight(x, z)))))
     }
     pos.needsUpdate = true
+    applyHoleMasks()
     geometry.computeVertexNormals()
 
     if (onReady) onReady(getHeightAt)

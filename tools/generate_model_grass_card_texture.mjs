@@ -54,11 +54,11 @@ for (let y = 0; y < height; y++) {
   pixels[y * (width * 4 + 1)] = 0
 }
 
-const root = [46, 64, 34]
-const dark = [34, 49, 28]
-const mid = [84, 108, 66]
-const lit = [104, 126, 78]
-const dryTip = [108, 128, 82]
+const root = [3, 8, 3]
+const dark = [0, 3, 1]
+const mid = [7, 13, 7]
+const lit = [10, 18, 10]
+const dryTip = [12, 20, 12]
 
 function blendPixel(x, y, color, alpha) {
   if (x < 0 || x >= width || y < 0 || y >= height || alpha <= 0) return

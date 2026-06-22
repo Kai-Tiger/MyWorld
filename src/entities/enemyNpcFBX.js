@@ -1,12 +1,13 @@
 import * as THREE from 'three'
 import { BALANCE } from '../config/balance.js'
-import { startLoop, stopLoop, setLoopVolume } from '../systems/audio.js'
+import { playSfx, startLoop, stopLoop, setLoopVolume } from '../systems/audio.js'
 import { cloneModel, loadFBXClips } from '../systems/modelAssets.js'
 import mainFbxUrl from '../characters/enemy/main.fbx?url'
 import sitFbxUrl from '../characters/enemy/sit.fbx?url'
 import standFbxUrl from '../characters/enemy/Stand.fbx?url'
 import runFbxUrl from '../characters/enemy/run.fbx?url'
 import walkFbxUrl from '../characters/enemy/walk.fbx?url'
+import crossGuardFbxUrl from '../characters/enemy/cross_guard.fbx?url'
 import attackFbxUrl from '../characters/enemy/attack.fbx?url'
 import hurtFbxUrl from '../characters/enemy/hurt.fbx?url'
 import deathFbxUrl from '../characters/enemy/death.fbx?url'
@@ -79,6 +80,10 @@ export function createEnemyNpcFBX(scene, {
   returnSpeed = BALANCE.combat.enemy.returnSpeed,
   returnArriveDistance = BALANCE.combat.enemy.returnArriveDistance,
   moveSpeed = BALANCE.combat.enemy.moveSpeed,
+  guardDashTriggerDistance = BALANCE.combat.enemy.guardDashTriggerDistance,
+  guardDashStopDistance = BALANCE.combat.enemy.guardDashStopDistance,
+  guardDashSpeedMultiplier = BALANCE.combat.enemy.guardDashSpeedMultiplier,
+  guardDashUseOnHitAggro = BALANCE.combat.enemy.guardDashUseOnHitAggro,
   attackCooldown = BALANCE.combat.enemy.attackCooldown,
   attackDamage = BALANCE.combat.enemy.attackDamage,
   attackTimeScale = BALANCE.combat.enemy.attackTimeScale,
@@ -100,6 +105,11 @@ export function createEnemyNpcFBX(scene, {
   const enemyAudioFullDistance = Math.max(0, enemyAudioCfg.fullVolumeDistance ?? 4)
   const enemyAudioFadeOutDistance = Math.max(enemyAudioFullDistance + 0.001, enemyAudioCfg.fadeOutDistance ?? disengageRange)
   const enemyAudioFadeSeconds = Math.max(0.001, enemyAudioCfg.fadeSeconds ?? 0.25)
+  const guardDashTrigger = Math.max(0, guardDashTriggerDistance ?? 3)
+  const guardDashStop = Math.max(0, guardDashStopDistance ?? 1)
+  const guardDashSpeed = moveSpeed * Math.max(0.001, guardDashSpeedMultiplier ?? 1.8)
+  const useGuardDashOnHitAggro = guardDashUseOnHitAggro !== false
+  const ENGAGEMENT_COMMIT_SECONDS = Math.max(Math.max(0, alertDuration) + 0.4, 0.8)
   let avoidanceSide = instanceId % 2 === 0 ? 1 : -1
   const homeX = x
   const homeZ = z
@@ -216,6 +226,7 @@ export function createEnemyNpcFBX(scene, {
   let standClip = null
   let runClip = null
   let walkClip = null
+  let crossGuardClip = null
   let attackClip = null
   let hurtClip = null
   let deathClip = null
@@ -224,6 +235,7 @@ export function createEnemyNpcFBX(scene, {
   let standAction = null
   let runAction = null
   let walkAction = null
+  let crossGuardAction = null
   let attackAction = null
   let hurtAction = null
   let deathAction = null
@@ -247,12 +259,15 @@ export function createEnemyNpcFBX(scene, {
     .filter((w) => w.end > w.start)
     : []
   let attackWindowDone = normalizedAttackWindows.map(() => false)
+  let attackWindowAudioDone = normalizedAttackWindows.map(() => false)
   let prevAttackNorm = 0
   let engaged = false
+  let pendingEngageReason = null
   let aggroByHit = false
   let aggroMemoryTimer = 0
   let alerting = false
   let alertTimer = 0
+  let engagementCommitTimer = 0
   let returningHome = false
   let _attackFinishGrace = 0
   let hurting = false
@@ -263,6 +278,9 @@ export function createEnemyNpcFBX(scene, {
   let deathPending = false
   let enemyAudioPlaying = false
   let enemyAudioVolume = 0
+  let playerOccluded = false
+  let guardDashPhase = 'none'
+  let guardDashStandTimer = 0
 
   function getEnemyAudioTargetVolume(dist, player) {
     if (!engaged || !alive || dying || returningHome || player?.isDead?.() || player?.isDying?.()) return 0
@@ -296,35 +314,107 @@ export function createEnemyNpcFBX(scene, {
     if (enemyAudioPlaying && targetVolume <= 0 && enemyAudioVolume <= 0.001) stopEnemyAudio()
   }
 
+  function isGuardDashing() {
+    return guardDashPhase !== 'none'
+  }
+
+  function stopGuardDash(resumeCombat = false) {
+    if (!isGuardDashing()) return
+    guardDashPhase = 'none'
+    guardDashStandTimer = 0
+    if (crossGuardAction) crossGuardAction.stop()
+    if (standAction) standAction.stop()
+    if (resumeCombat && engaged && alive && !dying && !hurting && !returningHome) {
+      playStandLoop()
+    }
+  }
+
+  function finishGuardDash() {
+    stopGuardDash(true)
+  }
+
+  function startGuardDashRun() {
+    guardDashStandTimer = 0
+    if (!crossGuardAction || dying) {
+      finishGuardDash()
+      return false
+    }
+    guardDashPhase = 'dash'
+    crossGuardAction.paused = false
+    crossGuardAction.setLoop(THREE.LoopOnce, 1)
+    crossGuardAction.clampWhenFinished = true
+    switchAction(crossGuardAction, true)
+    return true
+  }
+
+  function startGuardDash(dist, reason = 'sight') {
+    if (dying || hurting || returningHome || attacking || isGuardDashing()) return false
+    if (!crossGuardAction || dist <= guardDashTrigger) return false
+    if (reason === 'hit' && !useGuardDashOnHitAggro) return false
+
+    alerting = false
+    alertTimer = 0
+    guardDashPhase = 'stand'
+    const standClipDuration = standAction?.getClip?.()?.duration ?? 0
+    const standFallback = Math.max(Math.max(0, alertDuration) + 0.35, 0.8)
+    guardDashStandTimer = Number.isFinite(standClipDuration) && standClipDuration > 0
+      ? Math.max(0.15, Math.min(standClipDuration + 0.1, standFallback))
+      : standFallback
+
+    if (!standAction) return startGuardDashRun()
+
+    standAction.paused = false
+    standAction.setLoop(THREE.LoopOnce, 1)
+    standAction.clampWhenFinished = true
+    switchAction(standAction, true)
+    return true
+  }
+
+  function startEngagementSequence(reason, dist) {
+    if (hurting) {
+      pendingEngageReason = reason
+      return
+    }
+    engagementCommitTimer = ENGAGEMENT_COMMIT_SECONDS
+    if (startGuardDash(dist, reason)) return
+    alerting = true
+    alertTimer = alertDuration
+    playAlertOnce()
+  }
+
   function endAttack() {
     if (dying) return
     attacking = false
     attackWindowDone.fill(false)
+    attackWindowAudioDone.fill(false)
     prevAttackNorm = 0
     attackCdRemain = Math.max(attackCdRemain, attackCooldown)
-    if (attackAction) attackAction.stop()
-    if (currentAction === attackAction) currentAction = null
     if (engaged && !alerting && !hurting) playStandLoop()
   }
 
   function playDeathOnce() {
     if (!deathAction || dying) return false
     dying = true
-    hurting = false
-    preHurtAction = null
+    stopGuardDash(false)
+    stopHurtForDeath()
     alerting = false
     alertTimer = 0
+    engagementCommitTimer = 0
     engaged = false
     aggroByHit = false
     aggroMemoryTimer = 0
     returningHome = false
     stopEnemyAudio()
     attacking = false
+    attackWindowDone.fill(false)
+    attackWindowAudioDone.fill(false)
+    prevAttackNorm = 0
+    _attackFinishGrace = 0
     attackCdRemain = 0
-    const transitionAction = currentAction && currentAction !== deathAction
+    const transitionAction = currentAction && currentAction !== deathAction && currentAction !== hurtAction
       ? currentAction
       : null
-    const actionsToStop = [hurtAction, attackAction, runAction, walkAction, standAction, sitAction, idleAction]
+    const actionsToStop = [hurtAction, attackAction, crossGuardAction, runAction, walkAction, standAction, sitAction, idleAction]
     actionsToStop.forEach((action) => {
       if (action && action !== transitionAction && action !== deathAction) action.stop()
     })
@@ -341,28 +431,67 @@ export function createEnemyNpcFBX(scene, {
     _activePursuerIds.delete(instanceId)
     hp = 0
     alive = false
+    stopGuardDash(false)
+    stopHurtForDeath()
+    engagementCommitTimer = 0
+    attacking = false
+    attackWindowDone.fill(false)
+    attackWindowAudioDone.fill(false)
+    prevAttackNorm = 0
+    _attackFinishGrace = 0
+    attackCdRemain = 0
     lockVisualState = 'hidden'
     lockMarker.visible = false
     if (!playDeathOnce()) deathPending = true
   }
 
+  function stopHurtForDeath() {
+    hurtPending = false
+    hurting = false
+    preHurtAction = null
+    if (hurtAction) hurtAction.stop()
+    if (currentAction === hurtAction) currentAction = null
+  }
+
   function stopCombatStateForReturn() {
     engaged = false
     aggroByHit = false
+    pendingEngageReason = null
     aggroMemoryTimer = 0
     alerting = false
     alertTimer = 0
+    engagementCommitTimer = 0
+    stopGuardDash(false)
     attacking = false
     attackWindowDone.fill(false)
+    attackWindowAudioDone.fill(false)
     prevAttackNorm = 0
     _attackFinishGrace = 0
     _activePursuerIds.delete(instanceId)
     if (attackAction) attackAction.stop()
+    if (crossGuardAction) crossGuardAction.stop()
     if (runAction) runAction.stop()
     if (standAction) standAction.stop()
     if (hurtAction) hurtAction.stop()
     hurting = false
     preHurtAction = null
+  }
+
+  function setPlayerOccluded(occluded) {
+    const next = Boolean(occluded)
+    if (playerOccluded === next) return
+    playerOccluded = next
+    if (!playerOccluded) return
+
+    lockVisualState = 'hidden'
+    lockMarker.visible = false
+    stopEnemyAudio()
+    if (!alive || dying) return
+
+    stopCombatStateForReturn()
+    returningHome = false
+    if (hasPatrol) playWalkLoop()
+    else setSeatedPose()
   }
 
   function refreshHitAggroMemory() {
@@ -381,9 +510,7 @@ export function createEnemyNpcFBX(scene, {
     refreshHitAggroMemory()
     if (!engaged) {
       engaged = true
-      alerting = true
-      alertTimer = alertDuration
-      if (!hurting) playAlertOnce()
+      pendingEngageReason = 'hit'
     }
   }
 
@@ -393,9 +520,7 @@ export function createEnemyNpcFBX(scene, {
     refreshHitAggroMemory()
     if (!engaged) {
       engaged = true
-      alerting = true
-      alertTimer = alertDuration
-      if (!hurting) playAlertOnce()
+      pendingEngageReason = 'sight'
     }
   }
 
@@ -422,6 +547,10 @@ export function createEnemyNpcFBX(scene, {
       playRunLoop()
       return
     }
+    if (resumeAction === crossGuardAction) {
+      playStandLoop()
+      return
+    }
     if (resumeAction === standAction) {
       playStandLoop()
       return
@@ -437,10 +566,11 @@ export function createEnemyNpcFBX(scene, {
   }
 
   function playHurtOnce() {
-    if (!hurtAction || hurting || !alive || dying) return false
+    if (!hurtAction || hurting || !alive || hp <= 0 || dying) return false
     preHurtAction = currentAction
     hurting = true
     if (attacking) endAttack()
+    if (isGuardDashing()) stopGuardDash(false)
     hurtAction.paused = false
     hurtAction.setLoop(THREE.LoopOnce, 1)
     hurtAction.clampWhenFinished = true
@@ -522,6 +652,13 @@ export function createEnemyNpcFBX(scene, {
       walkAction.timeScale = 1.0
       if (!engaged && !alerting && !attacking && hasPatrol) playWalkLoop()
     }
+    if (crossGuardClip && !crossGuardAction) {
+      crossGuardClip = prepareExternalClip(crossGuardClip)
+      crossGuardAction = mixer.clipAction(crossGuardClip)
+      crossGuardAction.setLoop(THREE.LoopOnce, 1)
+      crossGuardAction.clampWhenFinished = true
+      crossGuardAction.timeScale = 1.0
+    }
     if (attackClip && !attackAction) {
       attackClip = prepareExternalClip(attackClip)
       attackAction = mixer.clipAction(attackClip)
@@ -557,6 +694,7 @@ export function createEnemyNpcFBX(scene, {
     if (!attackAction || attacking || dying) return
     attacking = true
     attackWindowDone.fill(false)
+    attackWindowAudioDone.fill(false)
     prevAttackNorm = 0
     _attackFinishGrace = attackEndGrace
     switchAction(attackAction, true)
@@ -600,6 +738,7 @@ export function createEnemyNpcFBX(scene, {
     preHurtAction = null
     if (hurtAction) hurtAction.stop()
     if (standAction) standAction.stop()
+    if (crossGuardAction) crossGuardAction.stop()
     if (runAction) runAction.stop()
     if (walkAction) walkAction.stop()
     if (attackAction) attackAction.stop()
@@ -656,6 +795,12 @@ export function createEnemyNpcFBX(scene, {
 
     mixer = new THREE.AnimationMixer(rootModel)
     mixer.addEventListener('finished', (e) => {
+      if (e.action === standAction && guardDashPhase === 'stand') {
+        startGuardDashRun()
+      }
+      if (e.action === crossGuardAction && guardDashPhase === 'dash') {
+        finishGuardDash()
+      }
       if (e.action === attackAction) {
         endAttack()
       }
@@ -687,6 +832,11 @@ export function createEnemyNpcFBX(scene, {
 
   loadFBXClips(walkFbxUrl).then((clips) => {
     if (clips.length > 0) walkClip = clips[0]
+    tryBuildActions()
+  })
+
+  loadFBXClips(crossGuardFbxUrl).then((clips) => {
+    if (clips.length > 0) crossGuardClip = clips[0]
     tryBuildActions()
   })
 
@@ -884,6 +1034,51 @@ export function createEnemyNpcFBX(scene, {
     }
   }
 
+  function updateGuardDash(dt, playerPos, collision) {
+    if (!isGuardDashing()) return false
+
+    if (guardDashPhase === 'stand') {
+      guardDashStandTimer = Math.max(0, guardDashStandTimer - dt)
+      if (guardDashStandTimer <= 0) startGuardDashRun()
+      return true
+    }
+    if (guardDashPhase !== 'dash') return false
+
+    const dx = playerPos.x - group.position.x
+    const dz = playerPos.z - group.position.z
+    const dashDist = Math.hypot(dx, dz)
+    if (dashDist <= guardDashStop) {
+      finishGuardDash()
+      return false
+    }
+
+    if (dt <= 0 || dashDist <= 0.0001) return true
+    const remainingDistance = Math.max(0, dashDist - guardDashStop)
+    const clipDuration = crossGuardAction?.getClip?.()?.duration ?? 0
+    const remainingActionTime = clipDuration > 0
+      ? Math.max(0.001, clipDuration - (crossGuardAction?.time ?? 0))
+      : dt
+    const requiredSpeed = remainingDistance / remainingActionTime
+    const dashSpeed = Math.max(guardDashSpeed, requiredSpeed)
+    const maxStepSpeed = Math.min(dashSpeed, remainingDistance / dt)
+    const move = pickAvoidanceMove(dx / dashDist, dz / dashDist, dt, collision, playerPos, maxStepSpeed)
+    if (move) {
+      group.position.x = move.x
+      group.position.z = move.z
+      const moveYaw = Math.atan2(move.dirX, move.dirZ)
+      const moveTurn = THREE.MathUtils.euclideanModulo(moveYaw - group.rotation.y + Math.PI, Math.PI * 2) - Math.PI
+      group.rotation.y += moveTurn * Math.min(1, dt * turnSpeed * 0.8)
+
+      const nextDx = playerPos.x - group.position.x
+      const nextDz = playerPos.z - group.position.z
+      if (Math.hypot(nextDx, nextDz) <= guardDashStop + 0.001) {
+        finishGuardDash()
+      }
+    }
+
+    return true
+  }
+
   return {
     isHostile: true,
 
@@ -893,7 +1088,15 @@ export function createEnemyNpcFBX(scene, {
 
       const shakeYaw = getShakeYaw(dt)
       if (getTerrainHeight) group.position.y = getTerrainHeight(group.position.x, group.position.z)
+      if (options.playerOccluded) {
+        setPlayerOccluded(true)
+        collidable.x = group.position.x
+        collidable.z = group.position.z
+        return
+      }
+      if (playerOccluded) setPlayerOccluded(false)
 
+      engagementCommitTimer = Math.max(0, engagementCommitTimer - dt)
       attackCdRemain = Math.max(0, attackCdRemain - dt)
 
       if (attacking && attackAction && !attackAction.isRunning()) {
@@ -911,7 +1114,7 @@ export function createEnemyNpcFBX(scene, {
       const toPlayerX = _toPlayer.x * invDist
       const toPlayerZ = _toPlayer.y * invDist
 
-      if (attacking && attackAction && normalizedAttackWindows.length > 0) {
+      if (alive && hp > 0 && !dying && attacking && attackAction && normalizedAttackWindows.length > 0) {
         const clip = attackAction.getClip?.()
         const duration = clip?.duration ?? 0
         if (duration > 0) {
@@ -927,14 +1130,22 @@ export function createEnemyNpcFBX(scene, {
             const window = normalizedAttackWindows[i]
             const overlaps = to >= window.start && from <= window.end
             if (!overlaps) {
-              if (to > window.end) attackWindowDone[i] = true
+              if (to > window.end) {
+                attackWindowDone[i] = true
+                attackWindowAudioDone[i] = true
+              }
               continue
+            }
+
+            if (!attackWindowAudioDone[i]) {
+              playSfx('punch', { volume: 0.55 })
+              attackWindowAudioDone[i] = true
             }
 
             const cosHalf = Math.cos(THREE.MathUtils.degToRad(window.angleDeg * 0.5))
             if (dist <= window.range && dot >= cosHalf) {
               const damage = attackDamage * window.damageMul
-              player.receiveEnemyAttack?.(damage)
+              player.receiveEnemyAttack?.(damage, group)
             }
             attackWindowDone[i] = true
           }
@@ -955,21 +1166,27 @@ export function createEnemyNpcFBX(scene, {
       if (!returningHome && (inSightTrigger || aggroMemoryTimer > 0)) engaged = true
       if (engaged && aggroMemoryTimer <= 0 && distanceFromHome() > leashRadius) startReturnHome()
       if (returningHome) engaged = false
-      if (dist > disengageRange && aggroMemoryTimer <= 0) {
+      const disengageProtected = alerting || isGuardDashing() || engagementCommitTimer > 0
+      if (!disengageProtected && dist > disengageRange && aggroMemoryTimer <= 0) {
         engaged = false
       }
       if (engaged && alive && !dying) _activePursuerIds.add(instanceId)
       else _activePursuerIds.delete(instanceId)
 
-      if (!prevEngaged && engaged) {
-        alerting = true
-        alertTimer = alertDuration
-        playAlertOnce()
+      const engageReason = engaged
+        ? (pendingEngageReason ?? (!prevEngaged ? (inSightTrigger ? 'sight' : 'hit') : null))
+        : null
+      pendingEngageReason = null
+
+      if (engageReason) {
+        startEngagementSequence(engageReason, dist)
       }
 
       if (prevEngaged && !engaged) {
         alerting = false
         alertTimer = 0
+        engagementCommitTimer = 0
+        stopGuardDash(false)
         if (attacking) endAttack()
         if (!returningHome && !hasPatrol) setSeatedPose()
       }
@@ -996,6 +1213,8 @@ export function createEnemyNpcFBX(scene, {
         updatePatrol(dt, collision)
       } else if (hurting) {
         // 受伤中：播放一次 hurt，不切换其他动作
+      } else if (isGuardDashing()) {
+        updateGuardDash(dt, playerPos, collision)
       } else if (alerting) {
         alertTimer -= dt
         if (alertTimer <= 0) {
@@ -1083,6 +1302,7 @@ export function createEnemyNpcFBX(scene, {
 
     startTalk() {},
     endTalk() {},
+    setPlayerOccluded,
 
     collidable,
   }

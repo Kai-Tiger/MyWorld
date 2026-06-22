@@ -1,0 +1,28 @@
+Ground debris textures from Poly Haven.
+
+License:
+  Poly Haven assets are CC0.
+  https://polyhaven.com/license
+
+Downloaded:
+  2026-06-21
+
+Assets:
+  Dry Decay Leaves
+    Page: https://polyhaven.com/a/dry_decay_leaves
+    Files:
+      dry_decay_leaves_diff_1k.jpg
+      dry_decay_leaves_nor_gl_1k.jpg
+      dry_decay_leaves_rough_1k.jpg
+      dry_decay_leaves_ao_1k.jpg
+
+  Aerial Wood Snips
+    Page: https://polyhaven.com/a/aerial_wood_snips
+    Files:
+      aerial_wood_snips_diff_1k.jpg
+      aerial_wood_snips_nor_gl_1k.jpg
+      aerial_wood_snips_rough_1k.jpg
+      aerial_wood_snips_ao_1k.jpg
+
+Usage:
+  Used as non-colliding visual ground debris patches in the outdoor scene.

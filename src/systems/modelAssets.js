@@ -93,6 +93,7 @@ const runtimeGLTFUrls = [
   '/models/terrain/grass-forest.glb',
   '/models/terrain/stone-rocks.glb',
   '/models/grass/grass_clump_low.glb',
+  '/models/outdoor_landmarks/outdoor_landmarks.glb',
 ]
 
 const runtimeFBXUrls = [

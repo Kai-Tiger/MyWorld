@@ -795,158 +795,365 @@ export function createUI(container, handlers = {}) {
     #bag-panel {
       position: absolute;
       inset: 0;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      padding: 28px;
+      display: block;
+      padding: 30px;
       box-sizing: border-box;
-      background: rgba(0,0,0,0.38);
-      backdrop-filter: blur(2px);
+      background:
+        radial-gradient(circle at 50% 42%, rgba(55,52,47,0.38), transparent 48%),
+        linear-gradient(180deg, rgba(5,6,7,0.78), rgba(2,2,3,0.90));
+      backdrop-filter: blur(3px);
       z-index: 180;
       pointer-events: auto;
       font-family: Georgia, 'Times New Roman', serif;
     }
     .bag-modal {
-      width: min(760px, calc(100vw - 40px));
-      min-height: min(520px, calc(100vh - 56px));
+      position: relative;
+      width: 100%;
+      height: 100%;
+      min-height: 520px;
       background:
-        linear-gradient(180deg, rgba(17,13,9,0.98), rgba(37,27,16,0.96)),
-        radial-gradient(circle at 50% 0%, rgba(216,124,38,0.20), transparent 50%);
-      border: 1px solid rgba(216,182,106,0.68);
-      border-radius: 6px;
-      padding: 18px;
+        linear-gradient(90deg, rgba(8,8,9,0.97), rgba(24,23,25,0.92) 35%, rgba(16,15,17,0.96)),
+        radial-gradient(circle at 50% 24%, rgba(180,168,135,0.11), transparent 44%),
+        repeating-linear-gradient(0deg, rgba(255,255,255,0.024) 0 1px, transparent 1px 5px);
+      border: 1px solid rgba(150,129,83,0.58);
+      border-radius: 2px;
+      padding: 0;
       box-sizing: border-box;
       box-shadow:
-        inset 0 0 0 1px rgba(255,236,180,0.08),
-        inset 0 0 42px rgba(0,0,0,0.44),
-        0 24px 58px rgba(0,0,0,0.72);
+        inset 0 0 0 2px rgba(255,236,180,0.035),
+        inset 0 0 74px rgba(0,0,0,0.74),
+        0 24px 74px rgba(0,0,0,0.82);
+      color: rgba(224,216,194,0.88);
+      overflow: hidden;
+    }
+    .bag-modal::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      background:
+        linear-gradient(90deg, rgba(255,255,255,0.05), transparent 14%, transparent 86%, rgba(255,255,255,0.04)),
+        radial-gradient(circle at 52% 50%, transparent 0 34%, rgba(0,0,0,0.22) 68%),
+        repeating-linear-gradient(90deg, rgba(255,255,255,0.025) 0 1px, transparent 1px 13px);
+      mix-blend-mode: screen;
+      opacity: 0.42;
     }
     .bag-header {
+      position: relative;
+      z-index: 1;
       display: flex;
       align-items: center;
       justify-content: space-between;
       gap: 12px;
-      margin-bottom: 14px;
+      height: 48px;
+      padding: 0 18px 0 26px;
+      border-bottom: 1px solid rgba(143,125,82,0.42);
+      background: linear-gradient(180deg, rgba(29,28,30,0.86), rgba(9,9,10,0.36));
+      box-sizing: border-box;
     }
     .bag-title {
       margin: 0;
-      font-size: 18px;
-      color: var(--ui-gold);
+      font-size: 19px;
+      color: rgba(232,222,190,0.92);
       font-weight: normal;
-      letter-spacing: 0.12em;
+      letter-spacing: 0.06em;
       text-shadow: 0 2px 3px rgba(0,0,0,0.95);
     }
     .bag-close {
-      width: 34px;
-      height: 34px;
-      border: 1px solid rgba(216,182,106,0.62);
-      border-radius: 4px;
-      background: rgba(8,7,6,0.72);
-      color: #ffe3a0;
-      font-size: 20px;
+      width: 32px;
+      height: 32px;
+      border: 1px solid rgba(153,132,86,0.62);
+      border-radius: 2px;
+      background: rgba(8,7,6,0.54);
+      color: rgba(232,222,190,0.92);
+      font-size: 21px;
       line-height: 1;
       cursor: pointer;
+    }
+    .bag-body {
+      position: relative;
+      z-index: 1;
+      height: calc(100% - 48px);
+      display: grid;
+      grid-template-columns: minmax(360px, 34%) minmax(340px, 1fr) minmax(290px, 28%);
+      box-sizing: border-box;
+    }
+    .bag-column {
+      min-width: 0;
+      min-height: 0;
+      padding: 18px;
+      box-sizing: border-box;
+      border-right: 1px solid rgba(143,125,82,0.42);
+      background: linear-gradient(180deg, rgba(11,11,13,0.18), rgba(0,0,0,0.18));
+    }
+    .bag-column:last-child {
+      border-right: 0;
+    }
+    .bag-column-title {
+      margin: 0 0 12px;
+      padding-bottom: 8px;
+      border-bottom: 1px solid rgba(139,120,78,0.46);
+      color: rgba(232,222,190,0.9);
+      font-size: 18px;
+      font-weight: normal;
+      line-height: 1.2;
+      text-shadow: 0 2px 3px rgba(0,0,0,0.86);
     }
     .bag-tabs {
       display: flex;
       flex-wrap: wrap;
-      gap: 8px;
-      margin-bottom: 16px;
+      align-items: center;
+      gap: 0;
+      height: 58px;
+      margin-bottom: 12px;
+      border-bottom: 1px solid rgba(139,120,78,0.36);
     }
     .bag-tab {
-      min-width: 86px;
-      height: 34px;
-      border: 1px solid rgba(216,182,106,0.44);
-      border-radius: 4px;
-      background: linear-gradient(180deg, rgba(28,22,15,0.92), rgba(10,8,6,0.92));
-      color: rgba(232,218,181,0.82);
+      min-width: 74px;
+      height: 44px;
+      margin-right: 8px;
+      border: 1px solid rgba(80,75,66,0.78);
+      border-radius: 2px;
+      background:
+        radial-gradient(circle at 50% 16%, rgba(187,176,147,0.14), transparent 44%),
+        linear-gradient(180deg, rgba(52,52,58,0.92), rgba(18,18,21,0.92));
+      color: rgba(205,198,179,0.78);
       font-family: inherit;
       font-size: 13px;
       cursor: pointer;
+      box-shadow: inset 0 -10px 18px rgba(0,0,0,0.32);
     }
     .bag-tab.is-active {
-      border-color: rgba(255,227,160,0.92);
-      color: #fff0bd;
-      box-shadow: inset 0 0 18px rgba(216,124,38,0.20);
+      border-color: rgba(210,185,115,0.82);
+      color: rgba(255,238,184,0.96);
+      background:
+        radial-gradient(circle at 50% 20%, rgba(255,231,160,0.22), transparent 48%),
+        linear-gradient(180deg, rgba(83,79,73,0.96), rgba(31,30,30,0.96));
+      box-shadow:
+        inset 0 0 18px rgba(214,158,59,0.20),
+        0 2px 10px rgba(0,0,0,0.46);
     }
     .bag-grid {
       display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(88px, 1fr));
+      grid-template-columns: repeat(5, minmax(0, 1fr));
       gap: 10px;
+      max-height: calc(100% - 108px);
+      overflow: hidden;
     }
     .bag-cell {
       position: relative;
       aspect-ratio: 1;
-      min-height: 88px;
-      border: 1px solid rgba(216,182,106,0.30);
-      border-radius: 5px;
+      min-width: 0;
+      border: 1px solid rgba(45,43,40,0.92);
+      border-radius: 2px;
       background:
-        radial-gradient(circle at 50% 35%, rgba(216,124,38,0.18), transparent 58%),
-        linear-gradient(180deg, rgba(11,9,7,0.78), rgba(3,3,3,0.70));
-      box-shadow: inset 0 0 0 1px rgba(255,236,180,0.04);
+        linear-gradient(180deg, rgba(17,18,19,0.88), rgba(5,5,6,0.82)),
+        radial-gradient(circle at 50% 44%, rgba(80,78,72,0.30), transparent 62%);
+      box-shadow:
+        inset 0 2px 8px rgba(0,0,0,0.76),
+        inset 0 0 0 1px rgba(255,255,255,0.025);
       overflow: hidden;
+      font-family: inherit;
+      padding: 0;
+      cursor: default;
     }
     .bag-cell.is-filled {
-      border-color: rgba(216,182,106,0.54);
+      border-color: rgba(94,84,62,0.86);
+      cursor: pointer;
+    }
+    .bag-cell.is-selected {
+      border-color: rgba(246,190,79,0.88);
+      background:
+        radial-gradient(circle at 50% 42%, rgba(231,124,23,0.82), rgba(101,50,12,0.78) 54%, rgba(22,16,10,0.90)),
+        linear-gradient(180deg, rgba(54,39,22,0.92), rgba(11,8,5,0.94));
+      box-shadow:
+        inset 0 0 0 1px rgba(255,229,163,0.18),
+        inset 0 0 24px rgba(0,0,0,0.42),
+        0 0 12px rgba(230,143,35,0.34);
     }
     .bag-cell-icon {
-      width: 48px;
-      height: 48px;
+      width: 58%;
+      height: 58%;
       object-fit: contain;
       position: absolute;
       left: 50%;
-      top: 42%;
+      top: 44%;
       transform: translate(-50%, -50%);
       filter: drop-shadow(0 4px 6px rgba(0,0,0,0.74));
     }
     .bag-cell-name {
       position: absolute;
-      left: 6px;
-      right: 6px;
-      bottom: 7px;
-      color: rgba(232,218,181,0.84);
-      font-size: 11px;
+      left: 5px;
+      right: 5px;
+      bottom: 6px;
+      color: rgba(232,222,190,0.86);
+      font-size: 10px;
       line-height: 1.2;
       text-align: center;
       white-space: normal;
+      overflow: hidden;
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
     }
     .bag-cell-count {
       position: absolute;
-      right: 6px;
-      top: 6px;
-      min-width: 22px;
-      height: 20px;
-      padding: 0 5px;
+      right: 5px;
+      bottom: 5px;
+      min-width: 18px;
+      height: 18px;
+      padding: 0 4px;
       box-sizing: border-box;
-      border: 1px solid rgba(255,227,160,0.48);
-      border-radius: 999px;
-      background: rgba(8,7,6,0.84);
-      color: #ffe3a0;
+      border: 0;
+      border-radius: 0;
+      background: transparent;
+      color: rgba(246,228,180,0.92);
       font-size: 11px;
-      line-height: 18px;
-      text-align: center;
+      line-height: 1;
+      text-align: right;
+      text-shadow: 0 2px 2px rgba(0,0,0,0.95);
+    }
+    .bag-detail {
+      height: 100%;
+      display: grid;
+      grid-template-rows: auto auto 1fr;
+      gap: 16px;
+    }
+    .bag-detail-top {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 112px;
+      gap: 18px;
+      align-items: start;
+      min-height: 128px;
+      padding-bottom: 14px;
+      border-bottom: 1px solid rgba(139,120,78,0.36);
+    }
+    .bag-detail-name {
+      margin: 0 0 18px;
+      color: rgba(238,228,198,0.92);
+      font-size: 19px;
+      font-weight: normal;
+      line-height: 1.25;
+      text-shadow: 0 2px 3px rgba(0,0,0,0.86);
+    }
+    .bag-detail-row {
+      display: grid;
+      grid-template-columns: 86px minmax(0, 1fr);
+      gap: 12px;
+      min-height: 27px;
+      align-items: center;
+      border-bottom: 1px solid rgba(116,101,68,0.32);
+      color: rgba(210,203,184,0.82);
+      font-size: 15px;
+      line-height: 1.2;
+    }
+    .bag-detail-label {
+      color: rgba(176,163,130,0.82);
+    }
+    .bag-detail-value {
+      color: rgba(232,222,190,0.9);
+      text-align: right;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .bag-detail-icon-wrap {
+      width: 112px;
+      height: 112px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border: 1px solid rgba(68,62,50,0.72);
+      background:
+        radial-gradient(circle at 50% 42%, rgba(221,207,166,0.12), transparent 60%),
+        linear-gradient(180deg, rgba(9,9,10,0.72), rgba(0,0,0,0.46));
+      box-shadow: inset 0 0 24px rgba(0,0,0,0.46);
+    }
+    .bag-detail-icon {
+      width: 78px;
+      height: 78px;
+      object-fit: contain;
+      filter: drop-shadow(0 8px 10px rgba(0,0,0,0.8));
+    }
+    .bag-effect-title {
+      margin: 0;
+      padding-bottom: 9px;
+      border-bottom: 1px solid rgba(139,120,78,0.42);
+      color: rgba(203,190,150,0.86);
+      font-size: 16px;
+      font-weight: normal;
+      line-height: 1.2;
+    }
+    .bag-effect-text {
+      margin: 0;
+      color: rgba(221,216,204,0.78);
+      font-size: 16px;
+      line-height: 1.72;
+      white-space: pre-line;
+    }
+    .bag-stats {
+      display: grid;
+      gap: 0;
+    }
+    .bag-stat-row {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 16px;
+      min-height: 34px;
+      align-items: center;
+      border-bottom: 1px solid rgba(139,120,78,0.36);
+      color: rgba(218,211,192,0.82);
+      font-size: 16px;
+      line-height: 1.2;
+    }
+    .bag-stat-value {
+      color: rgba(232,222,190,0.94);
+      text-align: right;
+      min-width: 68px;
     }
     #bag-empty {
       grid-column: 1 / -1;
-      padding: 32px 0;
+      padding: 26px 0;
       text-align: center;
       font-size: 13px;
-      color: rgba(216,208,189,0.44);
+      color: rgba(216,208,189,0.42);
       letter-spacing: 0.06em;
     }
-    @media (max-width: 720px) {
+    @media (max-width: 900px) {
       #equipment-bar {
         left: 16px;
         bottom: 18px;
         transform: scale(0.84);
         transform-origin: left bottom;
       }
-      #bag-panel { padding: 16px; }
-      .bag-modal { width: calc(100vw - 32px); min-height: min(500px, calc(100vh - 32px)); padding: 14px; }
-      .bag-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
-      .bag-cell { min-height: 72px; }
-      .bag-cell-icon { width: 38px; height: 38px; }
-      .bag-cell-name { font-size: 10px; }
+      #bag-panel { padding: 14px; overflow: auto; }
+      .bag-modal { min-height: 760px; height: auto; }
+      .bag-body {
+        height: auto;
+        grid-template-columns: 1fr;
+      }
+      .bag-column {
+        border-right: 0;
+        border-bottom: 1px solid rgba(143,125,82,0.42);
+      }
+      .bag-column:last-child {
+        border-bottom: 0;
+      }
+      .bag-grid {
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        max-height: none;
+      }
+      .bag-detail-top {
+        grid-template-columns: minmax(0, 1fr) 96px;
+      }
+      .bag-detail-icon-wrap {
+        width: 96px;
+        height: 96px;
+      }
+      .bag-detail-icon {
+        width: 66px;
+        height: 66px;
+      }
     }
     #fish-btn {
       position: absolute;
@@ -1332,12 +1539,100 @@ export function createUI(container, handlers = {}) {
   let bagPanel = null
   let bagItems = []
   let bagActiveTab = 'spell'
+  let bagSelectedItemId = null
+  let bagPlayerStats = {
+    level: 38,
+    curse: 15,
+    hp: '-',
+    mp: '-',
+    stamina: '-',
+    atk: '-',
+    equipLoad: '38.2 / 55.0',
+  }
   const bagTabs = [
     { id: 'weapon', label: '武器' },
     { id: 'shield', label: '盾牌' },
     { id: 'spell', label: '法术' },
     { id: 'item', label: '物品' },
   ]
+
+  const bagCategoryLabels = {
+    weapon: '武器',
+    shield: '盾牌',
+    spell: '法术',
+    item: '物品',
+  }
+
+  function escapeHtml(value) {
+    return String(value)
+      .replaceAll('&', '&amp;')
+      .replaceAll('<', '&lt;')
+      .replaceAll('>', '&gt;')
+      .replaceAll('"', '&quot;')
+      .replaceAll("'", '&#39;')
+  }
+
+  function getBagItemImage(item) {
+    return item?.icon ?? equipmentLabels[item?.id]?.image ?? equipmentLabels.bag.image
+  }
+
+  function getBagItemDescription(item) {
+    if (!item) return '没有选择物品。'
+    if (item.id === 'estusFlask') return '恢复生命与法力。\n在篝火处休息后会补充使用次数。'
+    if (item.id === 'spell_scroll') return '能够学习新的法术。\n收藏后可作为法术类物品查看。'
+    if (item.id === 'fish') return '普通物品。\n已存入背包，可作为探索收获保存。'
+    return '暂无说明。'
+  }
+
+  function getSelectedBagItem(tabItems) {
+    const selected = tabItems.find(item => item.id === bagSelectedItemId)
+    if (selected) return selected
+    const first = tabItems[0] ?? null
+    bagSelectedItemId = first?.id ?? null
+    return first
+  }
+
+  function formatStatPair(current, max) {
+    if (!Number.isFinite(current) || !Number.isFinite(max)) return '-'
+    return `${Math.round(current)} / ${Math.round(max)}`
+  }
+
+  function updateBagPlayerStats(player) {
+    if (!player) return
+    bagPlayerStats = {
+      ...bagPlayerStats,
+      hp: formatStatPair(player.getHp?.(), player.getMaxHp?.()),
+      mp: formatStatPair(player.getMp?.(), player.getMaxMp?.()),
+      stamina: formatStatPair(player.getStamina?.(), player.getMaxStamina?.()),
+      atk: Number.isFinite(player.getAtk?.()) ? String(player.getAtk()) : '-',
+    }
+    renderBagStats()
+  }
+
+  function getBagStatRows() {
+    return [
+      ['等级', bagPlayerStats.level],
+      ['诅咒', bagPlayerStats.curse],
+      ['生命力', bagPlayerStats.hp],
+      ['集中力', bagPlayerStats.mp],
+      ['持久力', bagPlayerStats.stamina],
+      ['攻击力', bagPlayerStats.atk],
+      ['装备重量', bagPlayerStats.equipLoad],
+      ['记忆空格', 1],
+    ]
+  }
+
+  function renderBagStats() {
+    if (!bagPanel) return
+    const statsEl = bagPanel.querySelector('.bag-stats')
+    if (!statsEl) return
+    statsEl.innerHTML = getBagStatRows().map(([label, value]) => `
+      <div class="bag-stat-row">
+        <span>${escapeHtml(label)}</span>
+        <span class="bag-stat-value">${escapeHtml(value)}</span>
+      </div>
+    `).join('')
+  }
 
   function toggleBagPanel() {
     if (bagPanel) {
@@ -1387,31 +1682,67 @@ export function createUI(container, handlers = {}) {
   function renderBagPanel() {
     if (!bagPanel) return
     const tabItems = bagItems.filter(item => item.category === bagActiveTab)
-    const cells = Array.from({ length: 16 }, (_, index) => {
+    const selectedItem = getSelectedBagItem(tabItems)
+    const cells = Array.from({ length: 25 }, (_, index) => {
       const item = tabItems[index]
       if (!item) return `<div class="bag-cell" aria-hidden="true"></div>`
-      const image = item.icon ?? equipmentLabels[item.id]?.image ?? equipmentLabels.bag.image
+      const image = getBagItemImage(item)
+      const isSelected = item.id === selectedItem?.id
       return `
-        <div class="bag-cell is-filled" title="${item.name}">
-          <img class="bag-cell-icon" src="${image}" alt="${item.name}">
-          <div class="bag-cell-count">×${item.count}</div>
-          <div class="bag-cell-name">${item.name}</div>
-        </div>
+        <button class="bag-cell is-filled ${isSelected ? 'is-selected' : ''}" data-bag-item="${escapeHtml(item.id)}" title="${escapeHtml(item.name)}" type="button">
+          <img class="bag-cell-icon" src="${escapeHtml(image)}" alt="${escapeHtml(item.name)}">
+          <div class="bag-cell-count">${escapeHtml(item.count)}</div>
+          <div class="bag-cell-name">${escapeHtml(item.name)}</div>
+        </button>
       `
     }).join('')
     const tabs = bagTabs.map(tab => `
       <button class="bag-tab ${tab.id === bagActiveTab ? 'is-active' : ''}" data-bag-tab="${tab.id}" type="button">${tab.label}</button>
     `).join('')
+    const detailImage = selectedItem ? getBagItemImage(selectedItem) : equipmentLabels.bag.image
+    const detailName = selectedItem?.name ?? '未选择物品'
+    const detailCount = selectedItem?.count ?? '-'
+    const detailCategory = selectedItem ? bagCategoryLabels[selectedItem.category] ?? selectedItem.category : '-'
+    const detailDescription = getBagItemDescription(selectedItem)
     bagPanel.innerHTML = `
       <div class="bag-modal" role="dialog" aria-modal="true" aria-label="背包">
         <div class="bag-header">
           <h4 class="bag-title">背包</h4>
           <button class="bag-close" type="button" aria-label="关闭背包">×</button>
         </div>
-        <div class="bag-tabs">${tabs}</div>
-        <div class="bag-grid">
-          ${tabItems.length === 0 ? '<div id="bag-empty">空空如也</div>' : ''}
-          ${cells}
+        <div class="bag-body">
+          <section class="bag-column" aria-label="物品列表">
+            <h5 class="bag-column-title">贵重物品</h5>
+            <div class="bag-tabs">${tabs}</div>
+            <div class="bag-grid">
+              ${tabItems.length === 0 ? '<div id="bag-empty">空空如也</div>' : ''}
+              ${cells}
+            </div>
+          </section>
+          <section class="bag-column bag-detail" aria-label="物品详情">
+            <div class="bag-detail-top">
+              <div>
+                <h5 class="bag-detail-name">${escapeHtml(detailName)}</h5>
+                <div class="bag-detail-row">
+                  <span class="bag-detail-label">持有数</span>
+                  <span class="bag-detail-value">${escapeHtml(detailCount)}</span>
+                </div>
+                <div class="bag-detail-row">
+                  <span class="bag-detail-label">分类</span>
+                  <span class="bag-detail-value">${escapeHtml(detailCategory)}</span>
+                </div>
+              </div>
+              <div class="bag-detail-icon-wrap">
+                <img class="bag-detail-icon" src="${escapeHtml(detailImage)}" alt="${escapeHtml(detailName)}">
+              </div>
+            </div>
+            <h5 class="bag-effect-title">道具效果</h5>
+            <p class="bag-effect-text">${escapeHtml(detailDescription)}</p>
+          </section>
+          <section class="bag-column" aria-label="角色资料">
+            <h5 class="bag-column-title">角色资料</h5>
+            <div class="bag-stats"></div>
+          </section>
         </div>
       </div>
     `
@@ -1419,9 +1750,17 @@ export function createUI(container, handlers = {}) {
     bagPanel.querySelectorAll('[data-bag-tab]').forEach(button => {
       button.addEventListener('click', () => {
         bagActiveTab = button.dataset.bagTab
+        bagSelectedItemId = null
         renderBagPanel()
       })
     })
+    bagPanel.querySelectorAll('[data-bag-item]').forEach(button => {
+      button.addEventListener('click', () => {
+        bagSelectedItemId = button.dataset.bagItem
+        renderBagPanel()
+      })
+    })
+    renderBagStats()
   }
 
   function updateEquipmentState(state = {}) {
@@ -1597,6 +1936,7 @@ export function createUI(container, handlers = {}) {
       posEl.textContent = `位置: (${pos.x.toFixed(1)}, ${pos.z.toFixed(1)})`
       spdEl.textContent = `速度: ${player.getSpeed().toFixed(2)}`
       updateVitals(player)
+      updateBagPlayerStats(player)
       if (player.getHp && player.getMaxHp && player.getAtk) {
         combatEl.textContent = `ATK: ${player.getAtk()}`
       }

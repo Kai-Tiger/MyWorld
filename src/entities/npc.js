@@ -3,6 +3,12 @@ import { BALANCE } from '../config/balance.js'
 
 // 预分配复用向量，避免每帧每个 NPC 创建临时对象
 const _toOrigin = new THREE.Vector2()
+const TALK_TURN_SPEED = 7.5
+
+function lerpAngle(a, b, t) {
+  const d = THREE.MathUtils.euclideanModulo(b - a + Math.PI, Math.PI * 2) - Math.PI
+  return a + d * t
+}
 
 /**
  * createNPC
@@ -153,8 +159,12 @@ export function createNPC(scene, { x = 0, z = 0, color = 0xff6b6b, name = 'NPC',
       const distToPlayer = group.position.distanceTo(playerPos)
       if (talking || distToPlayer < TALK_DISTANCE || focused) {
         if (distToPlayer < TALK_DISTANCE || talking) {
-          _toOrigin.set(playerPos.x - group.position.x, playerPos.z - group.position.z).normalize()
-          group.rotation.y = Math.atan2(_toOrigin.x, _toOrigin.y) + shakeYaw
+          _toOrigin.set(playerPos.x - group.position.x, playerPos.z - group.position.z)
+          if (_toOrigin.lengthSq() > 0.0001) {
+            _toOrigin.normalize()
+            const targetYaw = Math.atan2(_toOrigin.x, _toOrigin.y) + shakeYaw
+            group.rotation.y = lerpAngle(group.rotation.y, targetYaw, Math.min(1, dt * TALK_TURN_SPEED))
+          }
           focused = true
         } else {
           focused = false
@@ -272,11 +282,6 @@ export function createNPC(scene, { x = 0, z = 0, color = 0xff6b6b, name = 'NPC',
     },
 
     startTalk(playerPos) {
-      if (playerPos) {
-        const dx = playerPos.x - group.position.x
-        const dz = playerPos.z - group.position.z
-        group.rotation.y = Math.atan2(dx, dz)
-      }
       talking = true
     },
 

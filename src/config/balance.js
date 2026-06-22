@@ -14,20 +14,27 @@ export const BALANCE = {
       turnSpeed: 12,
     },
     enemy: {
-      triggerRange: 16,
-      attackRange: 2.2,
+      triggerRange: 20,
+      attackRange: 2,
       disengageRange: 22,
       leashRadius: 24,
       returnSpeed: 1.6,
       returnArriveDistance: 0.35,
-      moveSpeed: 3.2,
+      moveSpeed: 4,
+      guardDashTriggerDistance: 3,
+      guardDashStopDistance: 1,
+      guardDashSpeedMultiplier: 1.8,
+      guardDashUseOnHitAggro: true,
       attackCooldown: 1.0,
       attackDamage: 14,
       attackTimeScale: 1.25,
+      //伤害窗口在攻击动画中的归一化时间。0 是动画开始，1 是动画结束
+      // range  这一段攻击真正能打到玩家的距离。感觉“隔空打中”主要调这个。
+      //
       attackWindows: [
-        { start: 0.13, end: 0.20, range: 2.6, angleDeg: 95, damageMul: 0.8 },
-        { start: 0.30, end: 0.40, range: 2.8, angleDeg: 105, damageMul: 1.0 },
-        { start: 0.70, end: 0.85, range: 3.1, angleDeg: 115, damageMul: 1.2 },
+        { start: 0.23, end: 0.28, range: 2, angleDeg: 95, damageMul: 0.8 },
+        { start: 0.38, end: 0.45, range: 2.2, angleDeg: 105, damageMul: 1.0 },
+        { start: 0.70, end: 0.85, range: 2.4, angleDeg: 115, damageMul: 1.2 },
       ],
       turnSpeed: 10,
       attackTurnScale: 0.1,
@@ -63,13 +70,13 @@ export const BALANCE = {
   },
 
   player: {
-    maxHp: 100,
+    maxHp: 9999999,
     maxMp: 100,
     atk: 20,
     throwCooldown: 0.45,
     stamina: {
       max: 100,
-      regenPerSecond: 25,
+      regenPerSecond: 22.5,
       attackCost: 25,
       comboAttackCost: 35,
       blockCostDamageMultiplier: 1.5,

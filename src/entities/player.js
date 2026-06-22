@@ -9,6 +9,7 @@ import attackFbxUrl from '../characters/player/attack.fbx?url'
 import attack2FbxUrl from '../characters/player/SwordAttack2.fbx?url'
 import jumpFbxUrl from '../characters/player/jump.fbx?url'
 import rollFbxUrl from '../characters/player/roll.fbx?url'
+import climbFbxUrl from '../characters/player/climb.fbx?url'
 import throwMagicFbxUrl from '../characters/player/throwMagic.fbx?url'
 import defenseFbxUrl from '../characters/player/defense.fbx?url'
 import defenseMoveFbxUrl from '../characters/player/defenseMove.fbx?url'
@@ -55,6 +56,12 @@ export function createPlayer(scene) {
   const BONFIRE_SIT_SECONDS = 4.2
   const BONFIRE_STAND_SECONDS = 2.2
   const BONFIRE_STAND_SKIP_SECONDS = 0.8
+  const ACTION_BLEND_SECONDS = 0.22
+  const LOCOMOTION_BLEND_SECONDS = 0.24
+  const ONE_SHOT_EXIT_BLEND_SECONDS = 0.28
+  const INPUT_ACTION_BLEND_SECONDS = 0.16
+  const CLIMB_BLEND_SECONDS = 0.18
+  const DEATH_BLEND_SECONDS = 0.18
 
   const group = new THREE.Group()
   scene.add(group)
@@ -68,6 +75,7 @@ export function createPlayer(scene) {
   let attack2Clip = null
   let jumpClip = null
   let rollClip = null
+  let climbClip = null
   let throwMagicClip = null
   let defenseClip = null
   let defenseMoveClip = null
@@ -83,6 +91,7 @@ export function createPlayer(scene) {
   let attack2Action = null
   let jumpAction = null
   let rollAction = null
+  let climbAction = null
   let throwMagicAction = null
   let defenseAction = null
   let defenseMoveAction = null
@@ -122,6 +131,7 @@ export function createPlayer(scene) {
   let attackLungeDirZ = 0
   let defending = false
   let hurting = false
+  let hurtSource = null
   let healing = false
   let picking = false
   let dying = false
@@ -141,6 +151,8 @@ export function createPlayer(scene) {
   let runToWalkDriftRemain = 0
   let lastMoveDirX = 0
   let lastMoveDirZ = 1
+  let lastMovementIntent = false
+  let lastSuppressRun = false
   let runToWalkDuration = 0.24
   const RUN_TRIGGER_SECONDS = 1.0
   const RUN_TO_WALK_DRIFT_DISTANCE = 0.8
@@ -253,7 +265,7 @@ export function createPlayer(scene) {
     sitAction.paused = true
     bonfireStandingUp = false
     bonfireStandComplete = true
-    if (idleAction) switchAction(idleAction, true)
+    if (idleAction) switchAction(idleAction, true, ONE_SHOT_EXIT_BLEND_SECONDS)
   }
 
   function getScaledTimeScale(action, targetSeconds, direction = 1) {
@@ -316,19 +328,7 @@ export function createPlayer(scene) {
   function finishThrowMagic() {
     if (!throwMagicPlaying) return
     throwMagicPlaying = false
-    if (throwMagicAction) {
-      throwMagicAction.stop()
-      throwMagicAction.enabled = false
-    }
-    if (idleAction) {
-      idleAction.reset()
-      idleAction.enabled = true
-      idleAction.paused = false
-      idleAction.setLoop(THREE.LoopRepeat, Infinity)
-      idleAction.clampWhenFinished = false
-      idleAction.fadeIn(0.04).play()
-      currentAction = idleAction
-    }
+    returnToLocomotion(ONE_SHOT_EXIT_BLEND_SECONDS)
   }
 
   function updateThrowMagicCutoff() {
@@ -338,12 +338,32 @@ export function createPlayer(scene) {
     if (throwMagicAction.time / duration >= THROW_MAGIC_END_NORM) finishThrowMagic()
   }
 
-  function switchAction(next, reset = false) {
-    if (!next || next === currentAction) return
-    if (currentAction) currentAction.fadeOut(0.16)
+  function switchAction(next, reset = false, fadeSeconds = ACTION_BLEND_SECONDS) {
+    if (!next) return
+    const fade = Math.max(0, fadeSeconds)
+    if (next === currentAction) {
+      if (reset) next.reset()
+      next.enabled = true
+      next.paused = false
+      if (!next.isRunning()) next.fadeIn(fade).play()
+      return
+    }
+    if (currentAction) currentAction.fadeOut(fade)
     if (reset) next.reset()
-    next.fadeIn(0.16).play()
+    next.enabled = true
+    next.paused = false
+    next.fadeIn(fade).play()
     currentAction = next
+  }
+
+  function returnToLocomotion(fadeSeconds = ONE_SHOT_EXIT_BLEND_SECONDS) {
+    if (lastMovementIntent) {
+      if (locomotionState === 'idle' || locomotionState === 'runToWalk') locomotionState = 'walk'
+      if (!lastSuppressRun && moveHoldTime >= RUN_TRIGGER_SECONDS && runAction) locomotionState = 'run'
+    } else if (locomotionState !== 'runToWalk') {
+      locomotionState = 'idle'
+    }
+    chooseLocomotionAction(lastMovementIntent, lastSuppressRun, fadeSeconds)
   }
 
   function getAttackAction(index = comboIndex) {
@@ -402,9 +422,9 @@ export function createPlayer(scene) {
     action.setLoop(THREE.LoopOnce, 1)
     action.clampWhenFinished = true
     if (currentAction === action) {
-      action.reset().fadeIn(0.16).play()
+      action.reset().fadeIn(INPUT_ACTION_BLEND_SECONDS).play()
     } else {
-      switchAction(action, true)
+      switchAction(action, true, INPUT_ACTION_BLEND_SECONDS)
     }
     if (weaponId === 'hammer') playSfx('hammerAir', { volume: 0.7 })
     if (index === 1) startAttackLunge()
@@ -444,7 +464,7 @@ export function createPlayer(scene) {
     if (!canCancelAttackIntoDefense()) return false
     resetAttackState()
     defending = true
-    switchAction(defenseAction, true)
+    switchAction(defenseAction, true, INPUT_ACTION_BLEND_SECONDS)
     return true
   }
 
@@ -513,7 +533,7 @@ export function createPlayer(scene) {
     rollDirZ = 0
     currentSpeed = 0
     if (idleAction) {
-      chooseLocomotionAction(false)
+      returnToLocomotion(ONE_SHOT_EXIT_BLEND_SECONDS)
       return
     }
     if (rollAction) rollAction.stop()
@@ -529,7 +549,7 @@ export function createPlayer(scene) {
     if (jumping || jumpTakeoffPending) return false
     const len = Math.sqrt(dirX * dirX + dirZ * dirZ)
     if (len <= 0.0001) return false
-    if (!spendStamina(ATTACK_STAMINA_COST)) return false
+    if (!spendStamina(ROLL_STAMINA_COST)) return false
 
     rolling = true
     defending = false
@@ -553,7 +573,7 @@ export function createPlayer(scene) {
     rollAction.setLoop(THREE.LoopOnce, 1)
     rollAction.clampWhenFinished = true
     rollAction.timeScale = getScaledTimeScale(rollAction, ROLL_DURATION_SECONDS, 1)
-    switchAction(rollAction, false)
+    switchAction(rollAction, false, INPUT_ACTION_BLEND_SECONDS)
     return true
   }
 
@@ -565,13 +585,13 @@ export function createPlayer(scene) {
     jumpAction.setLoop(THREE.LoopOnce, 1)
     jumpAction.clampWhenFinished = true
     if (currentAction === jumpAction) {
-      jumpAction.reset().fadeIn(0.08).play()
+      jumpAction.reset().fadeIn(INPUT_ACTION_BLEND_SECONDS).play()
     } else {
-      switchAction(jumpAction, true)
+      switchAction(jumpAction, true, INPUT_ACTION_BLEND_SECONDS)
     }
   }
 
-  function chooseLocomotionAction(moving, suppressRun = false) {
+  function chooseLocomotionAction(moving, suppressRun = false, fadeSeconds = ACTION_BLEND_SECONDS) {
     if (dying) return
     if (healing && healAction) {
       healAction.paused = false
@@ -579,7 +599,7 @@ export function createPlayer(scene) {
       healAction.setLoop(THREE.LoopOnce, 1)
       healAction.clampWhenFinished = true
       if (currentAction !== healAction) {
-        switchAction(healAction, true)
+        switchAction(healAction, true, INPUT_ACTION_BLEND_SECONDS)
       } else if (!healAction.isRunning()) {
         healAction.reset().play()
       }
@@ -591,7 +611,7 @@ export function createPlayer(scene) {
       pickAction.setLoop(THREE.LoopOnce, 1)
       pickAction.clampWhenFinished = true
       if (currentAction !== pickAction) {
-        switchAction(pickAction, true)
+        switchAction(pickAction, true, INPUT_ACTION_BLEND_SECONDS)
       } else if (!pickAction.isRunning()) {
         pickAction.reset().play()
       }
@@ -603,7 +623,7 @@ export function createPlayer(scene) {
       rollAction.setLoop(THREE.LoopOnce, 1)
       rollAction.clampWhenFinished = true
       if (currentAction !== rollAction) {
-        switchAction(rollAction, true)
+        switchAction(rollAction, true, INPUT_ACTION_BLEND_SECONDS)
       } else if (!rollAction.isRunning()) {
         rollAction.reset().play()
       }
@@ -622,7 +642,7 @@ export function createPlayer(scene) {
           action.clampWhenFinished = true
         }
         if (currentAction !== action) {
-          switchAction(action, true)
+          switchAction(action, true, INPUT_ACTION_BLEND_SECONDS)
         } else if (action === defenseMoveAction && !action.isRunning()) {
           action.reset().play()
         }
@@ -635,7 +655,7 @@ export function createPlayer(scene) {
       activeAttackAction.setLoop(THREE.LoopOnce, 1)
       activeAttackAction.clampWhenFinished = true
       if (currentAction !== activeAttackAction) {
-        switchAction(activeAttackAction, true)
+        switchAction(activeAttackAction, true, INPUT_ACTION_BLEND_SECONDS)
       } else if (!activeAttackAction.isRunning()) {
         activeAttackAction.reset().play()
       }
@@ -647,7 +667,7 @@ export function createPlayer(scene) {
       throwMagicAction.setLoop(THREE.LoopOnce, 1)
       throwMagicAction.clampWhenFinished = false
       if (currentAction !== throwMagicAction) {
-        switchAction(throwMagicAction, true)
+        switchAction(throwMagicAction, true, INPUT_ACTION_BLEND_SECONDS)
       } else if (!throwMagicAction.isRunning()) {
         throwMagicAction.reset().play()
       }
@@ -659,7 +679,7 @@ export function createPlayer(scene) {
       hurtAction.setLoop(THREE.LoopOnce, 1)
       hurtAction.clampWhenFinished = true
       if (currentAction !== hurtAction) {
-        switchAction(hurtAction, true)
+        switchAction(hurtAction, true, INPUT_ACTION_BLEND_SECONDS)
       }
       return
     }
@@ -669,7 +689,7 @@ export function createPlayer(scene) {
       jumpAction.setLoop(THREE.LoopOnce, 1)
       jumpAction.clampWhenFinished = true
       if (currentAction !== jumpAction) {
-        switchAction(jumpAction, true)
+        switchAction(jumpAction, true, INPUT_ACTION_BLEND_SECONDS)
       }
       return
     }
@@ -689,7 +709,7 @@ export function createPlayer(scene) {
       runAction.setLoop(THREE.LoopRepeat, Infinity)
       runAction.clampWhenFinished = false
       if (currentAction !== runAction) {
-        switchAction(runAction, true)
+        switchAction(runAction, true, Math.max(fadeSeconds, LOCOMOTION_BLEND_SECONDS))
       } else if (!runAction.isRunning()) {
         runAction.reset().play()
       }
@@ -702,7 +722,7 @@ export function createPlayer(scene) {
       walkAction.setLoop(THREE.LoopRepeat, Infinity)
       walkAction.clampWhenFinished = false
       if (currentAction !== walkAction) {
-        switchAction(walkAction, true)
+        switchAction(walkAction, true, Math.max(fadeSeconds, LOCOMOTION_BLEND_SECONDS))
       } else if (!walkAction.isRunning()) {
         walkAction.reset().play()
       }
@@ -715,7 +735,7 @@ export function createPlayer(scene) {
       idleAction.setLoop(THREE.LoopRepeat, Infinity)
       idleAction.clampWhenFinished = false
       if (currentAction !== idleAction) {
-        switchAction(idleAction, true)
+        switchAction(idleAction, true, Math.max(fadeSeconds, LOCOMOTION_BLEND_SECONDS))
       } else if (!idleAction.isRunning()) {
         idleAction.reset().play()
       }
@@ -743,7 +763,7 @@ export function createPlayer(scene) {
       walkAction.timeScale = 1.0
       walkAction.enabled = true
       runToWalkDuration = THREE.MathUtils.clamp(walkClip.duration * 1, 0.4, 0.6)
-      if (forcedLocomotion === 'walk') switchAction(walkAction, true)
+      if (forcedLocomotion === 'walk') switchAction(walkAction, true, LOCOMOTION_BLEND_SECONDS)
     }
     if (runClip && !runAction) {
       freezeRootXZ(runClip)
@@ -784,6 +804,15 @@ export function createPlayer(scene) {
       rollAction.clampWhenFinished = true
       rollAction.timeScale = getScaledTimeScale(rollAction, ROLL_DURATION_SECONDS, 1)
       rollAction.enabled = true
+    }
+    if (climbClip && !climbAction) {
+      freezeRootXZ(climbClip)
+      climbAction = mixer.clipAction(climbClip, rootModel)
+      climbAction.setLoop(THREE.LoopRepeat, Infinity)
+      climbAction.clampWhenFinished = false
+      climbAction.timeScale = 0
+      climbAction.paused = true
+      climbAction.enabled = true
     }
     if (throwMagicClip && !throwMagicAction) {
       freezeRootXZ(throwMagicClip)
@@ -893,6 +922,7 @@ export function createPlayer(scene) {
     mixer.addEventListener('finished', (e) => {
       if (e.action === activeAttackAction && (e.action === attackAction || e.action === attack2Action)) {
         resetAttackState()
+        returnToLocomotion(ONE_SHOT_EXIT_BLEND_SECONDS)
         return
       }
       if (e.action === throwMagicAction) {
@@ -905,16 +935,18 @@ export function createPlayer(scene) {
       }
       if (e.action === hurtAction) {
         hurting = false
+        hurtSource = null
+        returnToLocomotion(ONE_SHOT_EXIT_BLEND_SECONDS)
         return
       }
       if (e.action === healAction) {
         healing = false
-        chooseLocomotionAction(false)
+        returnToLocomotion(ONE_SHOT_EXIT_BLEND_SECONDS)
         return
       }
       if (e.action === pickAction) {
         picking = false
-        chooseLocomotionAction(false)
+        returnToLocomotion(ONE_SHOT_EXIT_BLEND_SECONDS)
         return
       }
       if (e.action === deathAction) {
@@ -960,6 +992,11 @@ export function createPlayer(scene) {
 
   loadFBXClips(rollFbxUrl).then((clips) => {
     rollClip = pickPrimaryClip(clips)
+    tryBuildActions()
+  })
+
+  loadFBXClips(climbFbxUrl).then((clips) => {
+    climbClip = pickPrimaryClip(clips)
     tryBuildActions()
   })
 
@@ -1030,6 +1067,7 @@ export function createPlayer(scene) {
   let staminaDepleted = false
   const STAMINA_REGEN_PER_SECOND = Math.max(0, _staminaCfg.regenPerSecond ?? 25)
   const ATTACK_STAMINA_COST = Math.max(0, _staminaCfg.attackCost ?? 25)
+  const ROLL_STAMINA_COST = ATTACK_STAMINA_COST * 1.2
   const COMBO_ATTACK_STAMINA_COST = Math.max(0, _staminaCfg.comboAttackCost ?? 35)
   const BLOCK_STAMINA_COST_DAMAGE_MULTIPLIER = Math.max(0, _staminaCfg.blockCostDamageMultiplier ?? 1.5)
   const GUARD_BREAK_DAMAGE_MULTIPLIER = Math.max(0, _staminaCfg.guardBreakDamageMultiplier ?? 0.5)
@@ -1060,8 +1098,48 @@ export function createPlayer(scene) {
     if (staminaDepleted && stamina >= ATTACK_STAMINA_COST) staminaDepleted = false
   }
 
-  function playHurtReaction(amount) {
+  let lastBlockerDebugAt = 0
+  let lastBlockerDebugKey = ''
+  function logMovementBlock(reason, blocker, nx, nz, targetTerrainH, heightDiff) {
+    const key = `${reason}:${blocker?.name ?? 'height'}`
+    const now = globalThis.performance?.now?.() ?? Date.now()
+    if (key === lastBlockerDebugKey && now - lastBlockerDebugAt < 350) return
+    lastBlockerDebugKey = key
+    lastBlockerDebugAt = now
+    console.warn('[player collision blocked]', {
+      reason,
+      blocker: blocker ? {
+        name: blocker.name ?? null,
+        x: blocker.x ?? null,
+        z: blocker.z ?? null,
+        hx: blocker.hx ?? null,
+        hz: blocker.hz ?? null,
+        r: blocker.r ?? null,
+        ux: blocker.ux ?? null,
+        uz: blocker.uz ?? null,
+        vx: blocker.vx ?? null,
+        vz: blocker.vz ?? null,
+        minY: blocker.minY ?? null,
+        maxY: blocker.maxY ?? null,
+        clearancePathId: blocker.clearancePathId ?? null,
+      } : null,
+      player: {
+        x: Number(group.position.x.toFixed(3)),
+        y: Number(group.position.y.toFixed(3)),
+        z: Number(group.position.z.toFixed(3)),
+      },
+      target: {
+        x: Number(nx.toFixed(3)),
+        z: Number(nz.toFixed(3)),
+        terrainH: Number(targetTerrainH.toFixed(3)),
+        heightDiff: Number(heightDiff.toFixed(3)),
+      },
+    })
+  }
+
+  function playHurtReaction(amount, source = null) {
     hurting = true
+    hurtSource = source
     defending = false
     healing = false
     picking = false
@@ -1070,7 +1148,7 @@ export function createPlayer(scene) {
     resetAttackState()
     resetJumpState()
     resetRollState()
-    if (hurtAction) switchAction(hurtAction, true)
+    if (hurtAction) switchAction(hurtAction, true, INPUT_ACTION_BLEND_SECONDS)
     const prevHp = hp
     hp = Math.max(0, hp - Math.max(0, amount))
     if (prevHp > 0 && hp <= 0) deathCuePending = true
@@ -1097,6 +1175,8 @@ export function createPlayer(scene) {
       }
 
       const moving = dx !== 0 || dz !== 0
+      lastMovementIntent = moving
+      lastSuppressRun = suppressRun
       const locomotionDt = dt > 0 ? dt : (1 / 60)
       currentSpeed = 0
       const staminaSpeedMultiplier = staminaDepleted ? EMPTY_STAMINA_MOVE_SPEED_MULTIPLIER : 1
@@ -1164,13 +1244,19 @@ export function createPlayer(scene) {
 
       const tryMove = (nx, nz) => {
         const targetTerrainH = Math.max(
-          getTerrainHeight ? getTerrainHeight(nx, nz) : 0,
+          getTerrainHeight ? getTerrainHeight(nx, nz, group.position.y) : 0,
           collision.getSurfaceHeight(nx, nz, group.position.y, AUTO_STEP),
         )
         const heightDiff = targetTerrainH - group.position.y
         const blocker = collision.getBlockingCollidable(nx, nz, 0.4, group.position.y, selfCollidable)
-        if (blocker && !(blocker.h !== undefined && heightDiff > 0 && heightDiff <= AUTO_STEP)) return false
-        if (heightDiff > AUTO_STEP) return false
+        if (blocker && !(blocker.h !== undefined && heightDiff > 0 && heightDiff <= AUTO_STEP)) {
+          logMovementBlock('tryMove:blocker', blocker, nx, nz, targetTerrainH, heightDiff)
+          return false
+        }
+        if (heightDiff > AUTO_STEP) {
+          logMovementBlock('tryMove:height', null, nx, nz, targetTerrainH, heightDiff)
+          return false
+        }
         group.position.x = nx
         group.position.z = nz
         if (blocker?.h !== undefined) {
@@ -1249,13 +1335,15 @@ export function createPlayer(scene) {
         const driftDist = Math.min(runToWalkDriftRemain, driftSpeed * dt)
         const nx = group.position.x + lastMoveDirX * driftDist
         const nz = group.position.z + lastMoveDirZ * driftDist
-        const targetTerrainH = getTerrainHeight ? getTerrainHeight(nx, nz) : 0
+        const targetTerrainH = getTerrainHeight ? getTerrainHeight(nx, nz, group.position.y) : 0
         const heightDiff = targetTerrainH - group.position.y
         const blocker = collision.getBlockingCollidable(nx, nz, 0.4, group.position.y, selfCollidable)
         if ((!blocker && heightDiff <= AUTO_STEP) || (blocker && blocker.h !== undefined && heightDiff > 0 && heightDiff <= AUTO_STEP)) {
           group.position.x = nx
           group.position.z = nz
           currentSpeed = Math.max(currentSpeed, driftSpeed)
+        } else {
+          logMovementBlock(blocker ? 'runToWalkDrift:blocker' : 'runToWalkDrift:height', blocker, nx, nz, targetTerrainH, heightDiff)
         }
         runToWalkDriftRemain = Math.max(0, runToWalkDriftRemain - driftDist)
       }
@@ -1266,13 +1354,15 @@ export function createPlayer(scene) {
         const backwardZ = -Math.cos(group.rotation.y)
         const nx = group.position.x + backwardX * recoilDist
         const nz = group.position.z + backwardZ * recoilDist
-        const targetTerrainH = getTerrainHeight ? getTerrainHeight(nx, nz) : 0
+        const targetTerrainH = getTerrainHeight ? getTerrainHeight(nx, nz, group.position.y) : 0
         const heightDiff = targetTerrainH - group.position.y
         const blocker = collision.getBlockingCollidable(nx, nz, 0.4, group.position.y, selfCollidable)
         if ((!blocker && heightDiff <= AUTO_STEP) || (blocker && blocker.h !== undefined && heightDiff > 0 && heightDiff <= AUTO_STEP)) {
           group.position.x = nx
           group.position.z = nz
           currentSpeed = Math.max(currentSpeed, BLOCK_RECOIL_SPEED)
+        } else {
+          logMovementBlock(blocker ? 'blockRecoil:blocker' : 'blockRecoil:height', blocker, nx, nz, targetTerrainH, heightDiff)
         }
         blockRecoilRemain = Math.max(0, blockRecoilRemain - recoilDist)
       }
@@ -1304,7 +1394,7 @@ export function createPlayer(scene) {
         if (attackLungeTimer >= SECOND_ATTACK_LUNGE_DURATION || attackLungeRemain <= 0.0001) resetAttackLunge()
       }
 
-      chooseLocomotionAction(moving && canControlMovement, suppressRun)
+      chooseLocomotionAction(moving && canControlMovement, suppressRun, ACTION_BLEND_SECONDS)
       updateStaminaRecovery(dt)
 
       // 跳跃
@@ -1336,7 +1426,7 @@ export function createPlayer(scene) {
       }
 
       // 重力
-      const terrainH = getTerrainHeight ? getTerrainHeight(group.position.x, group.position.z) : 0
+      const terrainH = getTerrainHeight ? getTerrainHeight(group.position.x, group.position.z, group.position.y) : 0
       const surfaceH = Math.max(
         collision.getSurfaceHeight(group.position.x, group.position.z, group.position.y, AUTO_STEP),
         terrainH,
@@ -1356,7 +1446,7 @@ export function createPlayer(scene) {
           vy = 0
           onGround = true
           resetJumpState()
-          chooseLocomotionAction(moving && canControlMovement, suppressRun)
+          chooseLocomotionAction(moving && canControlMovement, suppressRun, ONE_SHOT_EXIT_BLEND_SECONDS)
         }
       }
 
@@ -1546,7 +1636,7 @@ export function createPlayer(scene) {
       runToWalkTimer = 0
       runToWalkDriftRemain = 0
       locomotionState = 'idle'
-      switchAction(idleAction)
+      switchAction(idleAction, false, LOCOMOTION_BLEND_SECONDS)
     },
 
     playWalk() {
@@ -1561,7 +1651,63 @@ export function createPlayer(scene) {
       resetJumpState()
       resetRollState()
       locomotionState = 'walk'
-      if (walkAction) switchAction(walkAction, true)
+      if (walkAction) switchAction(walkAction, true, LOCOMOTION_BLEND_SECONDS)
+    },
+
+    playClimb(direction = 'up') {
+      if (dying || !climbAction) return false
+      forcedLocomotion = null
+      currentSpeed = 0
+      defending = false
+      hurting = false
+      hurtSource = null
+      healing = false
+      picking = false
+      if (pickAction) pickAction.stop()
+      resetAttackState()
+      resetJumpState()
+      resetRollState()
+      moveHoldTime = 0
+      runToWalkTimer = 0
+      runToWalkDriftRemain = 0
+      locomotionState = 'idle'
+
+      const duration = climbAction.getClip?.()?.duration ?? 0
+      climbAction.stop()
+      climbAction.reset()
+      climbAction.enabled = true
+      climbAction.paused = true
+      climbAction.setLoop(THREE.LoopRepeat, Infinity)
+      climbAction.clampWhenFinished = false
+      climbAction.timeScale = 0
+      climbAction.time = direction === 'down' && duration > 0 ? duration : 0
+      switchAction(climbAction, false, CLIMB_BLEND_SECONDS)
+      return true
+    },
+
+    setClimbPlayback(rate = 0) {
+      if (!climbAction) return false
+      climbAction.enabled = true
+      climbAction.paused = rate === 0
+      climbAction.timeScale = rate
+      if (!climbAction.isRunning()) climbAction.play()
+      if (currentAction !== climbAction) {
+        switchAction(climbAction, false, CLIMB_BLEND_SECONDS)
+      }
+      return true
+    },
+
+    stopClimb() {
+      if (climbAction) {
+        climbAction.paused = false
+        climbAction.timeScale = 1
+        climbAction.stop()
+        climbAction.enabled = false
+        if (currentAction === climbAction) currentAction = null
+      }
+      forcedLocomotion = null
+      locomotionState = 'idle'
+      if (idleAction) switchAction(idleAction, true, ONE_SHOT_EXIT_BLEND_SECONDS)
     },
 
     playBonfireRestReverse() {
@@ -1592,7 +1738,7 @@ export function createPlayer(scene) {
       sitAction.clampWhenFinished = true
       sitAction.timeScale = getScaledTimeScale(sitAction, BONFIRE_SIT_SECONDS, -1)
       sitAction.time = Math.max(0, sitAction.getClip()?.duration ?? 0)
-      switchAction(sitAction)
+      switchAction(sitAction, false, ONE_SHOT_EXIT_BLEND_SECONDS)
       if (!sitAction.isRunning()) sitAction.play()
       return true
     },
@@ -1626,7 +1772,7 @@ export function createPlayer(scene) {
       sitAction.clampWhenFinished = true
       sitAction.timeScale = getScaledTimeScale(sitAction, BONFIRE_STAND_SECONDS, 1)
       sitAction.time = resumeTime
-      switchAction(sitAction)
+      switchAction(sitAction, false, ONE_SHOT_EXIT_BLEND_SECONDS)
       if (!sitAction.isRunning()) sitAction.play()
       return true
     },
@@ -1664,7 +1810,6 @@ export function createPlayer(scene) {
     playThrowMagic() {
       if (!throwMagicAction || rolling || dying || healing || picking) return false
       throwMagicPlaying = true
-      if (currentAction && currentAction !== throwMagicAction) currentAction.fadeOut(0.08)
       throwMagicAction.stop()
       throwMagicAction.reset()
       throwMagicAction.enabled = true
@@ -1672,8 +1817,7 @@ export function createPlayer(scene) {
       throwMagicAction.setLoop(THREE.LoopOnce, 1)
       throwMagicAction.clampWhenFinished = false
       throwMagicAction.timeScale = 1.2
-      throwMagicAction.fadeIn(0.08).play()
-      currentAction = throwMagicAction
+      switchAction(throwMagicAction, false, INPUT_ACTION_BLEND_SECONDS)
       return true
     },
 
@@ -1681,7 +1825,7 @@ export function createPlayer(scene) {
       if (attacking) return cancelAttackIntoDefense()
       if (!defenseAction || rolling || attacking || throwMagicPlaying || hurting || healing || picking || dying) return false
       defending = true
-      switchAction(defenseAction, true)
+      switchAction(defenseAction, true, INPUT_ACTION_BLEND_SECONDS)
       return true
     },
 
@@ -1701,9 +1845,7 @@ export function createPlayer(scene) {
       healAction.setLoop(THREE.LoopOnce, 1)
       healAction.clampWhenFinished = true
       healAction.timeScale = 1.0
-      if (currentAction && currentAction !== healAction) currentAction.fadeOut(0.08)
-      healAction.fadeIn(0.08).play()
-      currentAction = healAction
+      switchAction(healAction, false, INPUT_ACTION_BLEND_SECONDS)
       return true
     },
 
@@ -1723,16 +1865,14 @@ export function createPlayer(scene) {
       pickAction.setLoop(THREE.LoopOnce, 1)
       pickAction.clampWhenFinished = true
       pickAction.timeScale = PICK_TIME_SCALE
-      if (currentAction && currentAction !== pickAction) currentAction.fadeOut(0.08)
-      pickAction.fadeIn(0.08).play()
-      currentAction = pickAction
+      switchAction(pickAction, false, INPUT_ACTION_BLEND_SECONDS)
       return true
     },
 
     endDefense() {
       if (!defending) return
       defending = false
-      chooseLocomotionAction(currentSpeed > 0.01)
+      chooseLocomotionAction(currentSpeed > 0.01, lastSuppressRun, ONE_SHOT_EXIT_BLEND_SECONDS)
     },
 
     consumeAttackHitWindow() {
@@ -1775,25 +1915,35 @@ export function createPlayer(scene) {
       return rolling
     },
 
-    receiveEnemyAttack(amount = 0) {
+    receiveEnemyAttack(amount = 0, source = null) {
       if (dying || hp <= 0) return { blocked: false, hp }
       if (isRollInvincible()) return { blocked: false, hp }
       if (defending) {
         const blockCost = Math.max(0, amount) * BLOCK_STAMINA_COST_DAMAGE_MULTIPLIER
         if (blockCost <= 0 || stamina > blockCost) {
           spendStamina(blockCost)
-          blockShakeTime = Math.min(BLOCK_SHAKE_DURATION * 2.0, blockShakeTime + BLOCK_SHAKE_DURATION)
+          blockShakeTime = BLOCK_SHAKE_DURATION
           blockRecoilRemain = Math.min(BLOCK_RECOIL_DISTANCE * 2.0, blockRecoilRemain + BLOCK_RECOIL_DISTANCE)
           blockImpactCount += 1
           return { blocked: true, hp }
         }
         stamina = 0
         staminaDepleted = true
-        const nextHp = playHurtReaction(Math.max(0, amount) * GUARD_BREAK_DAMAGE_MULTIPLIER)
+        const nextHp = playHurtReaction(Math.max(0, amount) * GUARD_BREAK_DAMAGE_MULTIPLIER, source)
         return { blocked: false, hp: nextHp }
       }
-      const nextHp = playHurtReaction(amount)
+      const nextHp = playHurtReaction(amount, source)
       return { blocked: false, hp: nextHp }
+    },
+
+    cancelEnemyHurtFrom(source = null) {
+      if (!source || hurtSource !== source || !hurting || dying || hp <= 0) return false
+      hurting = false
+      hurtSource = null
+      if (hurtAction) hurtAction.stop()
+      if (currentAction === hurtAction) currentAction = null
+      returnToLocomotion(ONE_SHOT_EXIT_BLEND_SECONDS)
+      return true
     },
 
     playDeath() {
@@ -1825,6 +1975,7 @@ export function createPlayer(scene) {
       if (defenseMoveAction) defenseMoveAction.stop()
       if (jumpAction) jumpAction.stop()
       if (rollAction) rollAction.stop()
+      if (climbAction) climbAction.stop()
       if (walkAction) walkAction.stop()
       if (runAction) runAction.stop()
       if (idleAction) idleAction.stop()
@@ -1839,9 +1990,7 @@ export function createPlayer(scene) {
       action.setLoop(THREE.LoopOnce, 1)
       action.clampWhenFinished = true
       action.timeScale = 1.0
-      if (currentAction && currentAction !== action) currentAction.fadeOut(0.08)
-      action.fadeIn(0.08).play()
-      currentAction = action
+      switchAction(action, false, DEATH_BLEND_SECONDS)
       return true
     },
 
@@ -1905,7 +2054,7 @@ export function createPlayer(scene) {
         walkAction.setLoop(THREE.LoopRepeat, Infinity)
         walkAction.clampWhenFinished = false
         if (currentAction !== walkAction) {
-          switchAction(walkAction, true)
+          switchAction(walkAction, true, LOCOMOTION_BLEND_SECONDS)
         } else if (!walkAction.isRunning()) {
           walkAction.reset().play()
         }
