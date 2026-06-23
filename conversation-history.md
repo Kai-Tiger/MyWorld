@@ -3970,3 +3970,460 @@
 
 - 本次保存继续沿用项目根目录 `conversation-history.md`。
 - 已追加本章节，记录矿洞入口、梯子、地下通道、S 通道碰撞、空气墙日志、地表树高度过滤和通道地面闪烁原因。
+
+## 2026-06-23 记录追加：雪山材质浏览器检查与远景代理修正
+
+用户：
+
+> 远处的雪山贴图是棕色的不太符合实际，你参考~/Desktop/mout.png 把雪山的贴图改成符合实际的样子
+
+处理摘要：
+
+- 先检查项目中雪山相关实现，定位到主 terrain shader 中已有 `snowMask` 高度/坡度混合逻辑。
+- 发现用户给的 `~/Desktop/mout.png` 路径不存在，但桌面存在 `mount.png` 和 `mount 2.png`，两者都是灰冷山体、白色雪线和山顶积雪的参考图。
+- 初版计划认为问题主要来自主 terrain shader，将雪山裸岩调成冷灰色，并增加高海拔积雪覆盖。
+- 创建需求文档 `docs/requirements/2026-06-22-realistic-snow-mountain-material.md`。
+- 初版实现后运行 `npm run build`，构建通过。
+
+用户：
+
+> 你没改对，自己操作浏览器检查一下
+
+处理摘要：
+
+- 按用户要求使用浏览器实际检查本地游戏画面。
+- 启动本地 Vite dev server，并通过浏览器 DevTools 访问页面。
+- 使用开发环境调试对象 `__MY_GAME_DEBUG__`：
+  - 传送玩家/相机到雪山附近。
+  - 临时禁用第三人称相机控制器更新，只用于检查截图，不改代码。
+  - 从远景角度截图检查雪山显示。
+- 浏览器截图确认：棕色远山没有被初版 terrain shader 修改影响。
+- 进一步检查场景 mesh，发现棕色来源不是主 terrain chunk，而是远景代理地形 `terrain_proxy_chunk_*` 和山体裙边 `outdoor-mountain-textured-cliff-skirt`。
+- 先给 `outdoor-mountain-textured-cliff-skirt` 添加专用雪山材质 `createSnowMountainCliffMaterial()`，但截图确认主要棕色仍来自远景代理地形。
+- 定位远景代理材质 `createDistantTerrainProxyMaterial()`：
+  - 之前是 `MeshBasicMaterial`，固定使用 `Ground103` 贴图并乘 `0x8a8778`，导致远山整体偏棕。
+  - 改为带 `onBeforeCompile` 的高度/坡度 shader。
+  - 低处保留地面贴图，高处混合冷灰岩体和白色积雪。
+  - 使用 `distant-terrain-snow-proxy-v1` 作为 shader cache key。
+- 强制刷新页面，确认远景代理材质已经变为 `distant-terrain-snow-proxy-v1`。
+- 浏览器截图确认远处大块棕色山体已替换为冷灰/雪色远山。
+- 按项目要求运行 `npm run build`，构建通过。
+
+用户：
+
+> 保存对话记录到目录
+
+处理摘要：
+
+- 本次保存继续沿用项目根目录 `conversation-history.md`。
+- 已追加章节：`2026-06-23 记录追加：雪山材质浏览器检查与远景代理修正`。
+- 该章节覆盖雪山参考图路径确认、初版 shader 调整、浏览器实测发现改错对象、定位远景代理地形和山体裙边、最终修正以及构建验证。
+
+## 追加记录：敌人攻击、受击、NPC 对话与近战多目标
+
+> 追加日期：2026-06-23
+> 记录范围：继续保存近期战斗系统、敌人 AI、音效、NPC 对话转身和玩家近战多目标相关请求与处理结果摘要。
+
+### 敌人攻击窗口、玩家受击与防御反馈
+
+用户：
+
+> 现在敌人有攻击动画，怎么标记哪个动作会给主角带来伤害呢
+
+用户：
+
+> 现在敌人有三个攻击窗口，为什么主角只有两次被击中的动画
+
+用户：
+
+> 玩家的hurt动画是怎么跟attackwindow对应的
+
+用户：
+
+> 按下盾牌的防御逻辑是怎么对齐attack窗口的
+
+用户：
+
+> 那为什么敌人攻击命中盾牌的时候，没有震动反馈
+
+用户：
+
+> attackwindw有三个，但现在震动只有一次
+
+处理摘要：
+
+- 解释敌人攻击伤害由 `BALANCE.combat.enemy.attackWindows` 配置，攻击动画归一化时间进入窗口时才做伤害判定。
+- 解释主角 hurt 动画不是每个 attackWindow 都必然播放一次，受命中、死亡、防御、动作状态和防抖/覆盖逻辑影响。
+- 检查盾牌防御与 attackWindow 的关系：敌人每个窗口触发 `player.receiveEnemyAttack()`，玩家侧判断是否防御成功。
+- 规划并实现盾牌命中反馈按 attackWindow 触发，而不是一次攻击只震动一次。
+- 运行 `npm run build` 验证通过。
+
+### 敌人攻击动作、T-Pose 与攻击距离
+
+用户：
+
+> 敌人在攻击的时候会短暂出现tpose，什么原因
+
+用户：
+
+> 是攻击结束之后到下次攻击之前出现tpose
+
+用户：
+
+> 帮我修复一下
+
+用户：
+
+> 敌人的攻击距离在哪里配置的
+
+用户：
+
+> 现在感觉敌人没打到玩家就进行伤害判定了，要改哪个
+
+用户：
+
+> 解释下enemy的所有字段含义
+
+处理摘要：
+
+- 判断 T-Pose 发生在攻击动作结束到下一次攻击之间，原因是动画状态没有稳定回到 stand/run/idle loop。
+- 修复敌人攻击结束后的动作切换，避免攻击动作末尾空帧或绑定姿态被渲染。
+- 说明敌人攻击距离与伤害窗口主要配置在 `src/config/balance.js`：
+  - `attackRange` 控制敌人进入攻击状态的距离。
+  - `attackWindows[].range` 控制每段攻击窗口真正能命中玩家的距离。
+  - `attackWindows[].angleDeg` 控制扇形角度。
+- 建议“隔空打中”优先调小 `attackWindows[].range`，而不是只改 `attackRange`。
+
+### 敌人死亡后主角 hurt 保护
+
+用户：
+
+> 敌人死亡后再倒下的过程中触发了hurt动画，检查一下
+
+用户：
+
+> 你理解错了，我说的是敌人死亡倒下的过程中触发了玩家的hurt动画
+
+用户：
+
+> 你没改好，敌人死亡倒下时还是会触发玩家的hurt
+
+用户：
+
+> 你没修好！敌人只要死了，不要再播放任何hurt动画！！！
+
+用户：
+
+> 你说错了，我说的是敌人死后，主角的hurt动画不能再触发！！！
+
+处理摘要：
+
+- 明确问题不是敌人自身 hurt，而是敌人死亡倒下期间仍可能让主角播放 hurt。
+- 在敌人死亡、攻击窗口和玩家受击来源链路加入保护：
+  - 死亡或 dying 状态敌人不再继续触发攻击窗口伤害。
+  - 敌人死亡时清理攻击状态、攻击窗口状态和相关命中来源。
+  - 玩家侧增加按敌人来源取消 hurt 的保护路径，避免死后同帧或残留窗口继续触发主角 hurt。
+- 运行 `npm run build` 验证通过。
+
+### 敌人攻击窗口音效
+
+用户：
+
+> 我增加了audio/punch.mp3, 在敌人的attackwindow播放
+
+处理摘要：
+
+- 注册并使用 `public/audio/punch.mp3`。
+- 在敌人每个 attackWindow 实际进入窗口时播放 punch 音效。
+- 为每个窗口增加独立音频触发标记，避免同一个窗口重复播放。
+- 需求文档记录在 `docs/requirements/2026-06-21-enemy-attack-window-punch-audio.md`。
+- 运行 `npm run build` 验证通过。
+
+### 敌人发现玩家、站起、冲刺与脱战
+
+用户：
+
+> 有个问题，敌人发现玩家后站起身还没动，玩家立刻拉远距离，敌人又坐下了
+
+处理摘要：
+
+- 判断敌人刚发现玩家后会进入 alert/站起阶段，但玩家立刻拉出距离时，脱战判定可能抢先执行。
+- 增加 engagement commit 时间窗口：敌人刚进入战斗后短时间内不允许立刻因为距离变化坐下。
+- 该保护覆盖 alert、guard dash 和交战启动初期。
+- 需求文档记录在 `docs/requirements/2026-06-22-enemy-engagement-commit.md`。
+- 运行 `npm run build` 验证通过。
+
+用户：
+
+> 击败第一个敌人之后，触发第二个敌人，此时敌人不再进攻
+
+处理摘要：
+
+- 检查第二个敌人和第一个敌人共用同一个 `createEnemyNpcFBX` 状态机。
+- 判断卡住点在 `guardDashPhase === 'stand'`：该阶段原本只依赖 stand 动画 `finished` 事件进入冲刺/攻击。
+- 增加 `guardDashStandTimer` 兜底计时：
+  - 正常收到 `finished` 事件时立即进入 guard dash run。
+  - 如果事件没触发，计时到后主动进入下一阶段。
+  - guard dash 停止、死亡、回家、遮挡重置时清理计时器。
+- 需求文档记录在 `docs/requirements/2026-06-22-enemy-guard-dash-stand-timeout.md`。
+- 运行 `npm run build` 验证通过。
+
+### 法术命中敌人后的 hit aggro
+
+用户：
+
+> 出现了另一个问题，被法术打到的敌人会站起来，但不会进攻
+
+处理摘要：
+
+- 检查火球命中路径：`SpellSystem.update()` 命中敌人后调用 `npc.onHit()`，敌人存活时进入 hit aggro。
+- 判断问题来自 hurt 与 engage 的状态冲突：
+  - 法术伤害可能先触发敌人 hurt。
+  - 随后 hit aggro 立即启动 alert/站起动作，打断 hurt 动画。
+  - `hurting` 标志仍保留，导致 AI 后续一直卡在“受伤中”分支。
+- 修改 `startEngagementSequence()`：如果敌人正在 `hurting`，保留 `pendingEngageReason` 并延后交战启动。
+- hurt 结束后，下一次 AI 更新继续原本的站起、冲刺、追击或攻击流程。
+- 需求文档记录在 `docs/requirements/2026-06-22-enemy-hit-aggro-after-hurt.md`。
+- 运行 `npm run build` 验证通过。
+
+### NPC 对话转身过渡
+
+用户：
+
+> 和npc对话的时候，npc会立刻面向玩家，有点突兀，能不能加点过渡
+
+处理摘要：
+
+- 检查普通 NPC 和 FBX NPC，发现两者都在 `startTalk(playerPos)` 里直接设置 `group.rotation.y`，并且靠近/对话时每帧直接贴到目标角度。
+- 在 `src/entities/npc.js` 和 `src/entities/npcFBX.js` 内加入最短角度插值 `lerpAngle()`。
+- `startTalk()` 不再立即改变朝向，只进入 talking 状态。
+- 在 update 中对话/聚焦时使用 `TALK_TURN_SPEED = 7.5` 平滑朝向玩家。
+- 不改变对话 UI 弹出时机，也不改变玩家立即面向 NPC 的逻辑。
+- 需求文档记录在 `docs/requirements/2026-06-22-npc-talk-turn-transition.md`。
+- 运行 `npm run build` 验证通过。
+
+### 玩家近战多目标命中
+
+用户：
+
+> 现在玩家是不是没有同时打中多个敌人的判定
+
+回复摘要：
+
+- 确认当前玩家近战是单目标：
+  - `findPlayerMeleeTarget()` 只返回一个 `best`。
+  - `processPlayerMeleeAttack()` 只对这个目标结算伤害。
+- 确认火球和旧投射物系统也都是碰到一个目标后 `break`，仍为单体命中。
+
+用户：
+
+> 改成可以同时攻击到多个敌人
+
+处理摘要：
+
+- 将 `findPlayerMeleeTarget(rangeMul)` 改为 `findPlayerMeleeTargets(rangeMul)`。
+- 保留原本的近战扇形判定：`hitRange`、`hitAngleDeg`、`rangeMul` 和方向点积。
+- 返回所有在玩家前方扇形内的存活敌对 NPC。
+- 锁定目标如果在范围内，优先排在结算第一位；其他目标按距离排序。
+- `processPlayerMeleeAttack()` 对所有命中目标逐个执行：
+  - 扣血或 `onHit()`。
+  - 伤害数字。
+  - 近战血花。
+  - 死亡处理。
+- 命中音效和 hitstop 仍每次攻击窗口只触发一次，避免多敌人时叠加过重。
+- 火球和其他投射物仍保持单目标，不在此次改动范围内。
+- 需求文档记录在 `docs/requirements/2026-06-22-player-melee-multi-hit.md`。
+- 运行 `npm run build` 验证通过。
+
+### 本次保存
+
+用户：
+
+> 保存对话记录到目录
+
+处理摘要：
+
+- 本次继续将对话记录追加保存到项目根目录 `conversation-history.md`。
+- 已追加本章节，覆盖敌人攻击窗口、盾牌反馈、死亡保护、攻击音效、敌人交战状态机、法术命中后追击、NPC 对话转身和玩家近战多目标命中等近期内容。
+
+## 2026-06-23 河谷地形、河流网络、水面与性能
+
+用户目标：
+
+- 地面从不真实的程序化纹路改成真实草地/泥土/岩石混合地表。
+- 地图扩大到 1600m，并使用 terrain chunk 避免一次性渲染全图。
+- 中央区域做成自然大河谷，远处可见雪山，河流要有分支、小溪、湿润河岸和水花。
+- 河道必须凹进地面，河流两侧不能凸起成山丘，水面不能飘空。
+- 参考图包括 `~/Downloads/hero.jpg`、`~/Desktop/river.png`、`~/Desktop/terr1.png`、`~/Desktop/water2.png`、`~/Desktop/cross.png`。
+
+处理摘要：
+
+- 讨论程序化地表和贴图/PBR 的性能取舍，明确不生成草叶，只做凸凹不平的泥土、岩石、河床和地形。
+- 将世界尺度扩展到 1600m，并规划/实现 terrain chunk 与 distant proxy，避免大地图一次性加载。
+- 增加雪山与大河谷地形，高低差更强，中央区域围绕主河道形成更完整的河谷。
+- 增加主河、分支小溪、侵蚀沟和中心西侧溪流，并逐步扩大河网，让地图更像自然河谷。
+- 多次修复玩家在负坐标区域悬空的问题，排查到地形采样/水面/旧峡谷逻辑的相互影响，并让玩家随最终地形高度行走。
+- 增加河道两侧湿润土壤材质，河床压低，确保河流是凹进地面而不是高于地面。
+- 调整河道边坡要求：河流下凹至少约 2m，坡度提高到 60 度以上。
+- 水面改为通过 `getTerrainHeight(...) + depth` 跟随最终河床高度，避免固定旧 `waterY` 导致河水飘空。
+- 分析卡顿和预渲染耗时，判断大量河道/水体/模型预加载会影响进入游戏前等待和靠近河流时的帧率。
+- 用户要求保留水体视觉，优先优化加载队列、分区、几何数量和水体更新范围，而不是删除河流。
+
+重要实现文件：
+
+- `src/scene/map.js`
+- `src/scene/heightmapTerrain.js`
+- `docs/requirements/2026-06-23-terrain-chunk-performance.md`
+- `docs/requirements/2026-06-23-main-river-water-simulation.md`
+- `docs/requirements/2026-06-23-steep-river-banks-soft-foam.md`
+- `docs/requirements/2026-06-23-water-surface-height-follow-channel.md`
+
+最近一次错误方案与回滚：
+
+- 用户指出多条河流交汇处边缘很硬，且 `-164,37` 附近参考 `cross.png` 存在多条透明水面 mesh 穿插。
+- 曾制定并实现“高质量岸线材质 + 多河交汇融合方案”，包括新增合流口 patch、支流进入合流区收窄、合流区地形下凹、额外 soft-edge shader。
+- 实现后用户反馈“水面到处都是”，要求回滚本次改动。
+- 已只回滚这一次改动：
+  - 删除新增 `RIVER_CONFLUENCES` 配置。
+  - 删除合流区采样、水位、收窄和地形 modifier。
+  - 删除合流口 water patch/mesh/material 系统。
+  - 删除这次额外 soft-edge shader 增量。
+  - 删除 `docs/requirements/2026-06-23-soft-river-edge-confluence.md`。
+- 保留之前已有的河道、地形 chunk、水面贴地、河床下凹、中心西侧溪流等改动。
+- 回滚后运行 `npm run build`，构建通过，仍只有原本的大 chunk warning。
+
+当前注意事项：
+
+- 后续如果继续修交汇处，不应再直接添加大范围椭圆水面 patch；需要先在浏览器确认准确水体范围，最好只做局部裁剪或小范围材质遮罩。
+- 浏览器检查时应先确认 `localhost:3000` 是否是当前项目最新 dev server；如果不是，使用当前 Vite 输出端口。
+- 项目要求代码修改后默认只运行 `npm run build`，只有用户明确要求时才做浏览器/Playwright 检查。
+
+---
+
+## 2026-06-23 场景美术与渲染连续调整记录
+
+用户：
+
+> 现在地图上有一些模型草，我觉得他们的颜色不够深，希望是变成那种微微发黑色绿色，和游戏氛围更搭
+
+处理摘要：
+
+- 检查 `src/scene/map.js`、`tools/blender/build_grass_clump.py`、`tools/generate_model_grass_card_texture.mjs`。
+- 确认近景模型草来自 `public/models/grass/grass_clump_low.glb`，由 Blender 脚本生成顶点色。
+- 确认远景草卡片来自 `public/textures/generated/model_grass_card.png`。
+- 将草色调为更暗的黑绿色，并同步峡谷程序草颜色。
+- 创建需求文档 `docs/requirements/2026-06-22-darker-map-grass.md`。
+- 重新生成 `grass_clump_low.glb` 和 `model_grass_card.png`。
+- 按项目要求运行 `npm run build`，构建通过。
+
+用户：
+
+> 还是不够深色，你可以参考下树林package里面background_tree_09的颜色
+
+处理摘要：
+
+- 解析 `public/models/forest_pack/background_tree_09.glb`，确认颜色主要来自内嵌 PNG 贴图。
+- 统计 `background_tree_09` 贴图暗绿色像素，作为色调参考。
+- 进一步压暗草模型顶点色、草卡片贴图和峡谷程序草颜色。
+- 保留 `background_tree_09` 作为灰橄榄氛围参考，而不是直接匹配其亮度。
+- 重新生成草 GLB 和草卡片 PNG。
+- 按项目要求运行 `npm run build`，构建通过。
+
+用户：
+
+> 现在场景里有模型草，我希望你再做出两种不同形态和颜色的模型草，有的嫩绿，有的枯黄
+
+处理摘要：
+
+- 将 `tools/blender/build_grass_clump.py` 参数化为一次导出三种草：
+  - `grass_clump_low.glb`：保留当前深色草。
+  - `grass_clump_fresh.glb`：新增更短、更密、更直的嫩绿色草。
+  - `grass_clump_dry.glb`：新增更稀疏、更弯垂的枯黄色草。
+- 修改 `src/scene/map.js`，按确定性比例混合实例：
+  - 50% 深色草。
+  - 25% 嫩绿草。
+  - 25% 枯黄草。
+- 每种草独立使用一个 `THREE.InstancedMesh`，保留原有风动 shader。
+- 在 `src/systems/modelAssets.js` 中加入两个新 GLB 的预加载。
+- 创建需求文档 `docs/requirements/2026-06-22-model-grass-variants.md`。
+- 重新运行 Blender 草导出脚本。
+- 按项目要求运行 `npm run build`，构建通过。
+
+用户：
+
+> 现在游戏场景的分块加载会有一个问题，那就是远处的场景一开始不可见，随着人物移动突然出现，能不能把远处的场景先用贴图展示出来，靠近的时候再换成真实场景呢
+
+处理摘要：
+
+- 检查 `src/scene/heightmapTerrain.js` 的分块逻辑。
+- 确认当前地形是 1600m 世界、128m 分块，`activeRadius=2`、`preloadRadius=3`。
+- 判断远处空白和突然出现主要来自地形块在 active 范围外被隐藏或移除。
+- 讨论贴图方案的视角问题，决定不使用截图 billboard，而使用低模 3D 地形代理。
+- 在 `createHeightmapTerrain` 中增加远景代理参数：
+  - `distantProxyMaterial`
+  - `distantProxySegments`
+  - `distantProxyYOffset`
+- heightmap 加载后为全图生成低分段 proxy chunk。
+- active 范围内隐藏 proxy 并显示真实高精度 chunk；active 范围外显示 proxy。
+- 在 `src/scene/map.js` 中新增便宜的远景地形材质，并接入地形创建参数。
+- 创建需求文档 `docs/requirements/2026-06-22-distant-terrain-proxy.md`。
+- 按项目要求运行 `npm run build`，构建通过。
+
+用户：
+
+> 现在的河流看起来还不够真实，有没有更逼真的shader效果模拟水流的
+
+处理摘要：
+
+- 检查现有 `createHeroRiverMaterial`，确认已有基础噪声流动、边缘泡沫和 splash 精灵。
+- 判断缺少更真实水面的关键表现：程序化法线、菲涅尔、视角高光、多层流速差、破碎泡沫。
+- 升级 `createHeroRiverMaterial`：
+  - 顶点 shader 传递世界坐标和视线方向。
+  - 片元 shader 使用多层程序噪声生成假水面法线。
+  - 增加 Fresnel 边缘反射、视角高光、深浅水混色。
+  - 增加沿流向拉伸的 streak 和破碎泡沫。
+- 不新增贴图，不改河道几何、入水采样或 splash 逻辑。
+- 创建需求文档 `docs/requirements/2026-06-22-realistic-river-shader.md`。
+- 按项目要求运行 `npm run build`，构建通过。
+
+用户：
+
+> 河流的透视有问题，应该被树木挡住却没有，你看看 ~/Desktop/river4.png
+
+处理摘要：
+
+- 查看 `/Users/likai.lear/Desktop/river4.png`，确认河面在视觉上穿过前景树木。
+- 判断问题不是水流 shader，而是透明排序和深度写入：
+  - 河流是透明材质，`depthWrite=false`。
+  - 河流 mesh 设置了 `renderOrder = 3`，导致它被强制画在很多物体之后。
+  - 森林树叶材质来自 GLB 的 `alphaMode: BLEND`，透明叶片不稳定写深度。
+- 移除主河、支流和浅溪的 `renderOrder = 3`。
+- 新增 `configureVegetationAlphaCutout`，将树、树枝、树叶、background 类透明贴图材质改成 alpha cutout：
+  - `alphaTest >= 0.35`
+  - `transparent = false`
+  - `depthWrite = true`
+  - `depthTest = true`
+- 不改河流 shader、河道几何、入水采样或 splash 逻辑。
+- 创建需求文档 `docs/requirements/2026-06-22-river-tree-depth-occlusion.md`。
+- 按项目要求运行 `npm run build`，构建通过。
+
+用户：
+
+> 保存对话记录到目录
+
+处理摘要：
+
+- 本次保存继续沿用项目根目录 `conversation-history.md`。
+- 已追加本章节，记录模型草颜色、草变体、远景地形代理、河流 shader 和河流树木遮挡修复。
+
+## 追加记录：2026-06-23 本次保存索引
+
+用户：
+
+> 保存对话记录到目录
+
+处理摘要：
+
+- 本次保存继续沿用项目根目录 `conversation-history.md`。
+- 已将近期敌人攻击窗口、主角 hurt 保护、attackWindow 音效、敌人交战状态机、法术命中后追击、NPC 对话转身过渡和玩家近战多目标命中等内容追加到本文件。
+- 详细章节标题为：`追加记录：敌人攻击、受击、NPC 对话与近战多目标`。

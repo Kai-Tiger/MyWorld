@@ -57,8 +57,16 @@ export function createHeightmapTerrain(scene, {
   const chunkCount = chunked ? Math.ceil(size / chunkSize) : 0
   const chunkExtent = chunked ? chunkCount * chunkSize : size
   const chunkHalf = chunkExtent * 0.5
+  const chunkBuildBudgetPerUpdate = 1
+  const proxyBuildBudgetPerUpdate = 2
   let mesh = null
   let lastCenterKey = null
+  let currentCenterIx = 0
+  let currentCenterIz = 0
+  const pendingChunks = new Map()
+  const pendingProxyChunks = new Map()
+  const desiredChunkKeys = new Set()
+  const visibleChunkKeys = new Set()
 
   function shapeHeight(hNorm) {
     const curved = Math.pow(clamp01(hNorm), sharpenPower)
@@ -191,6 +199,29 @@ export function createHeightmapTerrain(scene, {
     return `${ix}:${iz}`
   }
 
+  function chunkEntry(ix, iz, priority = 0) {
+    return { ix, iz, priority }
+  }
+
+  function queueEntry(queue, key, entry) {
+    const existing = queue.get(key)
+    if (!existing || entry.priority < existing.priority) queue.set(key, entry)
+  }
+
+  function takeNextQueued(queue) {
+    let bestKey = null
+    let best = null
+    for (const [key, entry] of queue) {
+      if (!best || entry.priority < best.priority) {
+        bestKey = key
+        best = entry
+      }
+    }
+    if (!best) return null
+    queue.delete(bestKey)
+    return { key: bestKey, ...best }
+  }
+
   function chunkCenter(ix, iz) {
     return {
       x: -chunkHalf + ix * chunkSize + chunkSize * 0.5,
@@ -258,11 +289,24 @@ export function createHeightmapTerrain(scene, {
     return proxy
   }
 
-  function buildDistantProxyChunks() {
-    if (!useDistantProxy || proxyMeshes.size) return
+  function proxyShouldBeVisible(ix, iz) {
+    const key = chunkKey(ix, iz)
+    const dx = Math.abs(ix - currentCenterIx)
+    const dz = Math.abs(iz - currentCenterIz)
+    const inActiveRange = Math.max(dx, dz) <= activeRadius
+    if (inActiveRange) return !meshes.has(key)
+    return true
+  }
+
+  function queueDistantProxyChunks(centerIx, centerIz) {
+    if (!useDistantProxy) return
     for (let iz = 0; iz < chunkCount; iz++) {
       for (let ix = 0; ix < chunkCount; ix++) {
-        buildDistantProxyChunk(ix, iz)
+        const key = chunkKey(ix, iz)
+        if (proxyMeshes.has(key)) continue
+        const distance = Math.max(Math.abs(ix - centerIx), Math.abs(iz - centerIz))
+        const activeMissingBoost = distance <= activeRadius && !meshes.has(key) ? 0 : 100
+        queueEntry(pendingProxyChunks, key, chunkEntry(ix, iz, activeMissingBoost + distance))
       }
     }
   }
@@ -273,9 +317,36 @@ export function createHeightmapTerrain(scene, {
       for (let ix = 0; ix < chunkCount; ix++) {
         const proxy = proxyMeshes.get(chunkKey(ix, iz))
         if (!proxy) continue
-        proxy.visible = Math.max(Math.abs(ix - centerIx), Math.abs(iz - centerIz)) > activeRadius
+        proxy.visible = proxyShouldBeVisible(ix, iz)
       }
     }
+  }
+
+  function updateBuiltChunkVisibility() {
+    for (const [key, chunk] of meshes) {
+      chunk.visible = visibleChunkKeys.has(key)
+    }
+  }
+
+  function processBuildQueues() {
+    for (let i = 0; i < chunkBuildBudgetPerUpdate; i++) {
+      const entry = takeNextQueued(pendingChunks)
+      if (!entry) break
+      if (!desiredChunkKeys.has(entry.key) || meshes.has(entry.key)) continue
+      const chunk = buildChunk(entry.ix, entry.iz)
+      chunk.visible = visibleChunkKeys.has(entry.key)
+    }
+
+    for (let i = 0; i < proxyBuildBudgetPerUpdate; i++) {
+      const entry = takeNextQueued(pendingProxyChunks)
+      if (!entry) break
+      if (proxyMeshes.has(entry.key)) continue
+      const proxy = buildDistantProxyChunk(entry.ix, entry.iz)
+      proxy.visible = proxyShouldBeVisible(entry.ix, entry.iz)
+    }
+
+    updateBuiltChunkVisibility()
+    updateDistantProxyVisibility(currentCenterIx, currentCenterIz)
   }
 
   function updateChunks(playerPosition = null, force = false) {
@@ -285,31 +356,44 @@ export function createHeightmapTerrain(scene, {
     const centerIx = THREE.MathUtils.clamp(Math.floor((px + chunkHalf) / chunkSize), 0, chunkCount - 1)
     const centerIz = THREE.MathUtils.clamp(Math.floor((pz + chunkHalf) / chunkSize), 0, chunkCount - 1)
     const centerKey = chunkKey(centerIx, centerIz)
-    if (!force && centerKey === lastCenterKey) return
-    lastCenterKey = centerKey
-    updateDistantProxyVisibility(centerIx, centerIz)
+    currentCenterIx = centerIx
+    currentCenterIz = centerIz
 
-    const keep = new Set()
-    for (let iz = centerIz - preloadRadius; iz <= centerIz + preloadRadius; iz++) {
-      if (iz < 0 || iz >= chunkCount) continue
-      for (let ix = centerIx - preloadRadius; ix <= centerIx + preloadRadius; ix++) {
-        if (ix < 0 || ix >= chunkCount) continue
-        const dx = Math.abs(ix - centerIx)
-        const dz = Math.abs(iz - centerIz)
-        if (Math.max(dx, dz) > preloadRadius) continue
-        const key = chunkKey(ix, iz)
-        keep.add(key)
-        const chunk = meshes.get(key) ?? buildChunk(ix, iz)
-        chunk.visible = Math.max(dx, dz) <= activeRadius
+    if (force || centerKey !== lastCenterKey) {
+      lastCenterKey = centerKey
+      desiredChunkKeys.clear()
+      visibleChunkKeys.clear()
+
+      for (let iz = centerIz - preloadRadius; iz <= centerIz + preloadRadius; iz++) {
+        if (iz < 0 || iz >= chunkCount) continue
+        for (let ix = centerIx - preloadRadius; ix <= centerIx + preloadRadius; ix++) {
+          if (ix < 0 || ix >= chunkCount) continue
+          const dx = Math.abs(ix - centerIx)
+          const dz = Math.abs(iz - centerIz)
+          const distance = Math.max(dx, dz)
+          if (distance > preloadRadius) continue
+          const key = chunkKey(ix, iz)
+          desiredChunkKeys.add(key)
+          if (distance <= activeRadius) visibleChunkKeys.add(key)
+          if (!meshes.has(key)) queueEntry(pendingChunks, key, chunkEntry(ix, iz, distance * 10 + dx + dz))
+        }
       }
+
+      for (const key of pendingChunks.keys()) {
+        if (!desiredChunkKeys.has(key)) pendingChunks.delete(key)
+      }
+
+      for (const [key, chunk] of meshes) {
+        if (desiredChunkKeys.has(key)) continue
+        scene.remove(chunk)
+        chunk.geometry.dispose()
+        meshes.delete(key)
+      }
+
+      queueDistantProxyChunks(centerIx, centerIz)
     }
 
-    for (const [key, chunk] of meshes) {
-      if (keep.has(key)) continue
-      scene.remove(chunk)
-      chunk.geometry.dispose()
-      meshes.delete(key)
-    }
+    processBuildQueues()
   }
 
   const img = new Image()
@@ -329,7 +413,6 @@ export function createHeightmapTerrain(scene, {
     }
 
     if (chunked) {
-      buildDistantProxyChunks()
       updateChunks({ x: 0, z: 0 }, true)
     } else {
       buildSingleMesh()

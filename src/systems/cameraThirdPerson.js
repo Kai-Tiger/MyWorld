@@ -10,7 +10,7 @@ export class ThirdPersonCameraController {
   constructor(domElement, {
     fov = 62,
     near = 0.1,
-    far = 1800,
+    far = 3000,
     distance = 3.7,
     minDistance = 2.2,
     maxDistance = 7.5,

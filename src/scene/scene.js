@@ -3,7 +3,7 @@ import * as THREE from 'three'
 export function createScene() {
   const scene = new THREE.Scene()
   scene.background = new THREE.Color(0x87ceeb)
-  scene.fog = new THREE.Fog(0x87ceeb, 360, 1500)
+  scene.fog = new THREE.Fog(0x87ceeb, 500, 2600)
 
   // 等轴测正交摄像机（动森视角）
   const aspect = window.innerWidth / window.innerHeight
