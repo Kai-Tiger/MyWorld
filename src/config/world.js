@@ -1,16 +1,16 @@
-export const WORLD_SIZE = 390
+export const WORLD_SIZE = 1600
 export const WORLD_HALF_SIZE = WORLD_SIZE * 0.5
 
 export const OUTDOOR_MOUNTAIN_BOUNDS = {
-  minX: -140,
-  maxX: 185,
-  minZ: -110,
-  maxZ: 105,
+  minX: -760,
+  maxX: 760,
+  minZ: -760,
+  maxZ: 760,
 }
 
-export const OUTDOOR_COLLISION_HALF_SIZE = 260
-export const MOUNTAIN_FALL_FLOOR_Y = -72
-export const MOUNTAIN_FALL_DEATH_Y = -34
+export const OUTDOOR_COLLISION_HALF_SIZE = 820
+export const MOUNTAIN_FALL_FLOOR_Y = -180
+export const MOUNTAIN_FALL_DEATH_Y = -120
 
 export const CANYON = {
   startX: -34,

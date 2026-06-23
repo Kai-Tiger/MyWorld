@@ -51,7 +51,7 @@ function getTrackPropertyName(trackName) {
 }
 
 export function createPlayer(scene) {
-  const SPEED = 5.0
+  const SPEED = 15.0
   const DEFENSE_MOVE_SPEED_MULTIPLIER = 0.675
   const BONFIRE_SIT_SECONDS = 4.2
   const BONFIRE_STAND_SECONDS = 2.2
@@ -1046,6 +1046,7 @@ export function createPlayer(scene) {
   const JUMP_SPEED  = Math.sqrt(2 * GRAVITY * MODEL_HEIGHT)  // v² = 2gh → 约 8.5
   const JUMP_WINDUP_SECONDS = 0.12
   const AUTO_STEP   = 0.55
+  const TERRAIN_DESCEND_SNAP = 24
 
   let currentSpeed    = 0
   let vy              = 0
@@ -1206,6 +1207,7 @@ export function createPlayer(scene) {
       }
 
       const canControlMovement = !rolling && !attacking && !throwMagicPlaying && !hurting && !healing && !picking
+        && (onGround || jumping || jumpTakeoffPending)
       const canLocomotion = !defending && canControlMovement
       if (defending) {
         moveHoldTime = 0
@@ -1427,18 +1429,31 @@ export function createPlayer(scene) {
 
       // 重力
       const terrainH = getTerrainHeight ? getTerrainHeight(group.position.x, group.position.z, group.position.y) : 0
+      const collisionSurfaceH = collision.getSurfaceHeight(group.position.x, group.position.z, group.position.y, AUTO_STEP)
       const surfaceH = Math.max(
-        collision.getSurfaceHeight(group.position.x, group.position.z, group.position.y, AUTO_STEP),
+        collisionSurfaceH,
         terrainH,
       )
 
       // 走到岩石边缘时开始下落
       if (onGround && group.position.y > surfaceH + 0.05) {
-        onGround = false
-        vy = 0
+        const terrainIsSurface = terrainH >= collisionSurfaceH - 0.001
+        if (terrainIsSurface && group.position.y - terrainH <= TERRAIN_DESCEND_SNAP) {
+          _smoothGroundY += (terrainH - _smoothGroundY) * Math.min(dt * 18, 1)
+          group.position.y = _smoothGroundY + _waterDepth
+        } else {
+          if (!jumping && !jumpTakeoffPending) locomotionState = 'idle'
+          currentSpeed = 0
+          onGround = false
+          vy = 0
+        }
       }
 
       if (!onGround) {
+        if (!jumping && !jumpTakeoffPending) {
+          locomotionState = 'idle'
+          currentSpeed = 0
+        }
         vy -= GRAVITY * dt
         group.position.y += vy * dt
         if (group.position.y <= surfaceH) {

@@ -64,12 +64,12 @@ loadingOverlay.style.cssText = `
   background:#050608; color:#d8d5c8;
   font:14px monospace; pointer-events:none;
 `
-loadingOverlay.textContent = '加载模型 0%'
+loadingOverlay.textContent = '准备启动资源 0%'
 app.appendChild(loadingOverlay)
 
 const preloadModelsPromise = preloadRuntimeModels(({ loaded, total }) => {
   const pct = total > 0 ? Math.round(loaded / total * 100) : 100
-  loadingOverlay.textContent = `加载模型 ${pct}%`
+  loadingOverlay.textContent = `准备启动资源 ${pct}%`
 })
 
 // ── 搭建场景 ──────────────────────────────────────────
@@ -183,7 +183,7 @@ let resolveOutdoorStaticReady = null
 const outdoorStaticReadyPromise = new Promise(resolve => {
   resolveOutdoorStaticReady = resolve
 })
-const { collidables, update: updateMap, getTerrainHeight: getRawTerrainHeight, getNearbyForestPackLabel } = createMap(scene, {
+const { collidables, update: updateMap, getTerrainHeight: getRawTerrainHeight, sampleRiver, getNearbyForestPackLabel } = createMap(scene, {
   onStaticModelReady: (model) => {
     resolveOutdoorStaticReady?.(model)
   },
@@ -199,6 +199,28 @@ function isInsideOutdoorMountainBounds(x, z) {
 function getTerrainHeight(x, z, playerY = null) {
   if (!isInsideOutdoorMountainBounds(x, z)) return MOUNTAIN_FALL_FLOOR_Y
   return getRawTerrainHeight(x, z, playerY)
+}
+
+function applyRiverCurrent(dt, riverSample) {
+  if (!riverSample?.inWater || riverSample.flowSpeed <= 0) return
+  const depthFactor = THREE.MathUtils.clamp(riverSample.depth / 1.4, 0.18, 1)
+  const pushDistance = riverSample.flowSpeed * depthFactor * 0.38 * Math.min(Math.max(dt, 0), 0.05)
+  if (pushDistance <= 0.0001) return
+  const steps = Math.max(1, Math.ceil(pushDistance / 0.16))
+  const stepX = riverSample.dirX * pushDistance / steps
+  const stepZ = riverSample.dirZ * pushDistance / steps
+
+  for (let i = 0; i < steps; i++) {
+    const pos = player.getPosition()
+    const nx = pos.x + stepX
+    const nz = pos.z + stepZ
+    const targetTerrainH = getTerrainHeight(nx, nz, pos.y)
+    const heightDiff = targetTerrainH - pos.y
+    const blocker = collision.getBlockingCollidable(nx, nz, 0.4, pos.y, playerCollidable)
+    if (blocker || heightDiff > 0.55) return
+    pos.x = nx
+    pos.z = nz
+  }
 }
 
 applyLayoutToScene(scene, _layoutData)
@@ -678,6 +700,30 @@ function _applyLayoutCollidables(layout) {
 }
 _applyLayoutCollidables(_layoutData)
 
+if (import.meta.env.DEV) {
+  globalThis.__MY_GAME_DEBUG__ = {
+    scene,
+    player,
+    camera: gameCamera,
+    thirdPerson,
+    getTerrainHeight,
+    sampleRiver,
+    teleport(x, z, y = null) {
+      const targetY = Number.isFinite(y) ? y : getTerrainHeight(x, z)
+      player.setPosition(x, z, targetY)
+      playerCollidable.x = x
+      playerCollidable.z = z
+      thirdPerson.syncToTarget(player.getPosition())
+    },
+    setCamera({ yaw = thirdPerson.yaw, pitch = thirdPerson.pitch, distance = thirdPerson.distance } = {}) {
+      thirdPerson.yaw = yaw
+      thirdPerson.pitch = THREE.MathUtils.clamp(pitch, thirdPerson.minPitch, thirdPerson.maxPitch)
+      thirdPerson.distance = THREE.MathUtils.clamp(distance, thirdPerson.minDistance, thirdPerson.maxDistance)
+      thirdPerson.syncToTarget(player.getPosition())
+    },
+  }
+}
+
 // ── UI ───────────────────────────────────────────────
 let ui = null
 let zWasPressed = false
@@ -972,6 +1018,7 @@ function resetHostileNpcs() {
     if (idx !== -1) collision.collidables.splice(idx, 1)
     const npcIdx = npcs.indexOf(npc)
     if (npcIdx !== -1) npcs.splice(npcIdx, 1)
+    npc.dispose?.()
     npc.getGroup?.().removeFromParent()
   })
 
@@ -1396,7 +1443,7 @@ function spawnMeleeBloodSplatter(npc, intensity = 1) {
   )
 }
 
-function findPlayerMeleeTarget(rangeMul = 1) {
+function findPlayerMeleeTargets(rangeMul = 1) {
   player.getForwardXZ(_meleeForward)
   const playerPos = player.getPosition()
   const cfg = BALANCE.combat.melee
@@ -1404,45 +1451,35 @@ function findPlayerMeleeTarget(rangeMul = 1) {
   const maxDistSq = hitRange * hitRange
   const cosHalf = Math.cos(THREE.MathUtils.degToRad(cfg.hitAngleDeg * 0.5))
 
-  const isNpcInMeleeArc = (npc) => {
-    if (!npc?.isHostile) return false
-    if (!npc.isAlive?.() || !npc.isAlive()) return false
+  const getMeleeTargetDistSq = (npc) => {
+    if (!npc?.isHostile) return null
+    if (!npc.isAlive?.() || !npc.isAlive()) return null
     _toMeleeTarget.subVectors(npc.getPosition(), playerPos).setY(0)
     const distSq = _toMeleeTarget.lengthSq()
-    if (distSq <= 0.0001 || distSq > maxDistSq) return false
+    if (distSq <= 0.0001 || distSq > maxDistSq) return null
     const invLen = 1 / Math.sqrt(distSq)
     const dot = (_toMeleeTarget.x * _meleeForward.x + _toMeleeTarget.z * _meleeForward.z) * invLen
-    if (dot < cosHalf) return false
-    return true
+    if (dot < cosHalf) return null
+    return distSq
   }
 
-  let best = null
-  let bestDistSq = maxDistSq
+  const targets = []
 
   const lockTarget = lockState.targetNpc
-  if (lockTarget && isNpcInMeleeArc(lockTarget)) {
-    best = lockTarget
-    _toMeleeTarget.subVectors(best.getPosition(), playerPos).setY(0)
-    bestDistSq = _toMeleeTarget.lengthSq()
+  const lockTargetDistSq = lockTarget ? getMeleeTargetDistSq(lockTarget) : null
+  if (lockTargetDistSq !== null) {
+    targets.push({ npc: lockTarget, distSq: lockTargetDistSq, priority: -1 })
   }
 
   npcs.forEach(npc => {
-    if (!npc?.isHostile) return
-    if (!npc.isAlive?.() || !npc.isAlive()) return
-    if (best && npc === best) return
-    _toMeleeTarget.subVectors(npc.getPosition(), playerPos).setY(0)
-    const distSq = _toMeleeTarget.lengthSq()
-    if (distSq <= 0.0001 || distSq > maxDistSq) return
-    const invLen = 1 / Math.sqrt(distSq)
-    const dot = (_toMeleeTarget.x * _meleeForward.x + _toMeleeTarget.z * _meleeForward.z) * invLen
-    if (dot < cosHalf) return
-    if (distSq < bestDistSq) {
-      best = npc
-      bestDistSq = distSq
-    }
+    if (npc === lockTarget) return
+    const distSq = getMeleeTargetDistSq(npc)
+    if (distSq === null) return
+    targets.push({ npc, distSq, priority: 0 })
   })
 
-  return best
+  targets.sort((a, b) => a.priority - b.priority || a.distSq - b.distSq)
+  return targets.map(target => target.npc)
 }
 
 function processSwordAirCue() {
@@ -1452,7 +1489,7 @@ function processSwordAirCue() {
     if (cue.id <= lastProcessedSwordAirCueEventId) return
     lastProcessedSwordAirCueEventId = cue.id
   }
-  if (findPlayerMeleeTarget(typeof cue === 'object' ? (cue.rangeMul ?? 1) : 1)) return
+  if (findPlayerMeleeTargets(typeof cue === 'object' ? (cue.rangeMul ?? 1) : 1).length > 0) return
   if (typeof cue === 'object' && cue.stepId !== undefined) lastSwordAirPlayedStepId = cue.stepId
   playSfx('swordAir', { volume: 0.7, startAt: 0.05 })
 }
@@ -1467,9 +1504,9 @@ function processPlayerMeleeAttack() {
 
   const rangeMul = typeof hitInfo === 'object' ? (hitInfo.rangeMul ?? 1) : 1
   const damageMul = typeof hitInfo === 'object' ? (hitInfo.damageMul ?? 1) : 1
-  const best = findPlayerMeleeTarget(rangeMul)
+  const targets = findPlayerMeleeTargets(rangeMul)
   const weaponId = player.getWeaponId?.()
-  if (!best) {
+  if (targets.length <= 0) {
     if (
       weaponId === 'sword' &&
       (typeof hitInfo !== 'object' || hitInfo.stepId === undefined || hitInfo.stepId !== lastSwordAirPlayedStepId)
@@ -1479,12 +1516,14 @@ function processPlayerMeleeAttack() {
     return true
   }
   const damage = Math.round((player.getAtk?.() ?? BALANCE.player.atk) * damageMul)
-  const hp = best.onHit ? best.onHit(damage) : best.takeDamage(damage)
   if (weaponId === 'hammer') playSfx('hammerHit', { volume: 0.58 })
   else if (weaponId === 'sword') playSfx('sword', { volume: 0.58, startAt: 0.14 })
-  handleNpcHit(best, damage)
-  spawnMeleeBloodSplatter(best, weaponId === 'hammer' ? 1.25 : damageMul)
-  if (hp <= 0) handleNpcDeath(best)
+  targets.forEach((npc) => {
+    const hp = npc.onHit ? npc.onHit(damage) : npc.takeDamage(damage)
+    handleNpcHit(npc, damage)
+    spawnMeleeBloodSplatter(npc, weaponId === 'hammer' ? 1.25 : damageMul)
+    if (hp <= 0) handleNpcDeath(npc)
+  })
   requestHitstop(BALANCE.combat.hitstop.attackHit)
   return true
 }
@@ -2008,17 +2047,23 @@ function gameLoop() {
   updateLockToggle(input, player.getPosition())
   validateLock(player.getPosition())
   const moveIntent = getThirdPersonMoveIntent(input)
+  const preMoveRiver = sampleRiver?.(player.getPosition().x, player.getPosition().z)
+  player.setInWater(Boolean(preMoveRiver?.inWater))
   player.update(dt, input, collision, getTerrainHeight, playerCollidable, moveIntent, false, null)
   updateHealAura(dt, clock.elapsedTime)
   updatePlayerFootsteps()
 
   const pos = player.getPosition()
+  const riverSample = sampleRiver?.(pos.x, pos.z)
+  applyRiverCurrent(dt, riverSample)
+  const pushedPos = player.getPosition()
+  const pushedRiverSample = sampleRiver?.(pushedPos.x, pushedPos.z)
+  player.setInWater(Boolean(pushedRiverSample?.inWater))
   if (checkOutdoorFallDeath(pos)) return
   setMineCaveEnemyOcclusion(isPlayerInMineCaveUnderground(pos))
   updateCombatPerfMode(dt, pos)
   playerCollidable.x = pos.x
   playerCollidable.z = pos.z
-  player.setInWater(false)
   updatePlayerSpellCasting(dt, pos)
   spells.update(dt, npcs, getTerrainHeight, handleNpcDeath, handleNpcHit)
   updateEstusFlask(dt)

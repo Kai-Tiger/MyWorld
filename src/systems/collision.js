@@ -174,9 +174,9 @@ export class CollisionSystem {
     return false
   }
 
-  // 返回玩家脚下最高的可登陆表面高度，无则 0
+  // 返回玩家脚下最高的可登陆表面高度，无则 -Infinity，由地形高度兜底
   getSurfaceHeight(nx, nz, playerY = 0, maxStep = 0.55) {
-    let bestBelow = 0
+    let bestBelow = -Infinity
     let bestReachable = -Infinity
     for (const o of this.collidables) {
       const h = this._surfaceHeightAt(o, nx, nz)

@@ -2,6 +2,7 @@ import * as THREE from 'three'
 import { BALANCE } from '../config/balance.js'
 import { playSfx, startLoop, stopLoop, setLoopVolume } from '../systems/audio.js'
 import { cloneModel, loadFBXClips } from '../systems/modelAssets.js'
+import { createDashDust } from '../effects/dashDust.js'
 import mainFbxUrl from '../characters/enemy/main.fbx?url'
 import sitFbxUrl from '../characters/enemy/sit.fbx?url'
 import standFbxUrl from '../characters/enemy/Stand.fbx?url'
@@ -84,6 +85,10 @@ export function createEnemyNpcFBX(scene, {
   guardDashStopDistance = BALANCE.combat.enemy.guardDashStopDistance,
   guardDashSpeedMultiplier = BALANCE.combat.enemy.guardDashSpeedMultiplier,
   guardDashUseOnHitAggro = BALANCE.combat.enemy.guardDashUseOnHitAggro,
+  guardDashDustEnabled = BALANCE.combat.enemy.guardDashDustEnabled,
+  guardDashDustRate = BALANCE.combat.enemy.guardDashDustRate,
+  guardDashDustPoolSize = BALANCE.combat.enemy.guardDashDustPoolSize,
+  guardDashDustColor = BALANCE.combat.enemy.guardDashDustColor,
   attackCooldown = BALANCE.combat.enemy.attackCooldown,
   attackDamage = BALANCE.combat.enemy.attackDamage,
   attackTimeScale = BALANCE.combat.enemy.attackTimeScale,
@@ -109,6 +114,14 @@ export function createEnemyNpcFBX(scene, {
   const guardDashStop = Math.max(0, guardDashStopDistance ?? 1)
   const guardDashSpeed = moveSpeed * Math.max(0.001, guardDashSpeedMultiplier ?? 1.8)
   const useGuardDashOnHitAggro = guardDashUseOnHitAggro !== false
+  const dashDust = createDashDust(scene, {
+    enabled: guardDashDustEnabled,
+    rate: guardDashDustRate,
+    poolSize: guardDashDustPoolSize,
+    color: guardDashDustColor,
+  })
+  const dashDustPosition = new THREE.Vector3()
+  const dashDustDirection = new THREE.Vector3()
   const ENGAGEMENT_COMMIT_SECONDS = Math.max(Math.max(0, alertDuration) + 0.4, 0.8)
   let avoidanceSide = instanceId % 2 === 0 ? 1 : -1
   const homeX = x
@@ -1065,6 +1078,13 @@ export function createEnemyNpcFBX(scene, {
     if (move) {
       group.position.x = move.x
       group.position.z = move.z
+      dashDustPosition.set(
+        group.position.x,
+        getTerrainHeight ? getTerrainHeight(group.position.x, group.position.z) : group.position.y,
+        group.position.z,
+      )
+      dashDustDirection.set(move.dirX, 0, move.dirZ)
+      dashDust.emit(dashDustPosition, dashDustDirection, dt, dashSpeed / guardDashSpeed)
       const moveYaw = Math.atan2(move.dirX, move.dirZ)
       const moveTurn = THREE.MathUtils.euclideanModulo(moveYaw - group.rotation.y + Math.PI, Math.PI * 2) - Math.PI
       group.rotation.y += moveTurn * Math.min(1, dt * turnSpeed * 0.8)
@@ -1084,6 +1104,7 @@ export function createEnemyNpcFBX(scene, {
 
     update(dt, player, collision, options = {}) {
       if (mixer && !options.skipAnimation) mixer.update(dt)
+      dashDust.update(dt)
       if (!alive) return
 
       const shakeYaw = getShakeYaw(dt)
@@ -1303,6 +1324,10 @@ export function createEnemyNpcFBX(scene, {
     startTalk() {},
     endTalk() {},
     setPlayerOccluded,
+
+    dispose() {
+      dashDust.dispose()
+    },
 
     collidable,
   }
