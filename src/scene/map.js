@@ -2750,19 +2750,21 @@ function applyCenterWestStreamValleyHeight(x, z, height) {
 }
 
 function applySnowMountainHeight(x, z, height) {
+  // 加大体量：更高(h)、基底更宽(rx/rz)，让远山更有压迫感
   const peaks = [
-    { x: -530, z: 545, rx: 240, rz: 210, h: 230 },
-    { x: -305, z: 650, rx: 230, rz: 190, h: 185 },
-    { x: -690, z: 330, rx: 190, rz: 250, h: 150 },
-    { x: -120, z: 500, rx: 260, rz: 230, h: 126 },
+    { x: -530, z: 545, rx: 285, rz: 250, h: 300 },
+    { x: -305, z: 650, rx: 270, rz: 225, h: 245 },
+    { x: -690, z: 330, rx: 230, rz: 290, h: 205 },
+    { x: -120, z: 500, rx: 300, rz: 270, h: 172 },
   ]
   let mountain = height
   for (const peak of peaks) {
     const d = Math.hypot((x - peak.x) / peak.rx, (z - peak.z) / peak.rz)
     if (d > 1.35) continue
     const core = 1 - THREE.MathUtils.smoothstep(d, 0.08, 1.35)
-    const ridge = Math.max(0, Math.sin((x - peak.x) * 0.026) + Math.cos((z - peak.z) * 0.021)) * 5.5
-    mountain = Math.max(mountain, height + peak.h * Math.pow(core, 1.35) + ridge * core)
+    // 指数降到 1.22：山体更饱满厚重而非细尖；ridge 维持山脊轮廓
+    const ridge = Math.max(0, Math.sin((x - peak.x) * 0.026) + Math.cos((z - peak.z) * 0.021)) * 6.0
+    mountain = Math.max(mountain, height + peak.h * Math.pow(core, 1.22) + ridge * core)
   }
   const pass = getRiverSampleAt(x, z)
   if (pass.t < 0.46 && pass.distance < 58) {
@@ -3459,7 +3461,17 @@ function createDistantTerrainProxyMaterial(texLoader) {
     polygonOffsetFactor: 1,
     polygonOffsetUnits: 1,
   })
+  // 远山虽用无光照的 MeshBasicMaterial，但通过这些 uniform 在 shader 里手算廉价
+  // 太阳光照与大气透视；每帧由 map.update() 写入（见 material.userData.uniforms）。
+  const uniforms = {
+    uSunDir: { value: new THREE.Vector3(0.4, 0.85, 0.35).normalize() },
+    uNightFactor: { value: 0 },
+    uSkyColor: { value: new THREE.Color(0xb8ddff) },    // 半球环境光-天空
+    uGroundColor: { value: new THREE.Color(0x6a6e72) }, // 半球环境光-地面（中性灰，非草绿）
+  }
+  material.userData.uniforms = uniforms
   material.onBeforeCompile = (shader) => {
+    Object.assign(shader.uniforms, uniforms)
     shader.vertexShader = `
       varying vec3 vProxyWorldPos;
       varying vec3 vProxyWorldNormal;
@@ -3472,6 +3484,10 @@ function createDistantTerrainProxyMaterial(texLoader) {
     shader.fragmentShader = `
       varying vec3 vProxyWorldPos;
       varying vec3 vProxyWorldNormal;
+      uniform vec3 uSunDir;
+      uniform float uNightFactor;
+      uniform vec3 uSkyColor;
+      uniform vec3 uGroundColor;
 
       float proxyHash(vec2 p) {
         return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
@@ -3492,27 +3508,55 @@ function createDistantTerrainProxyMaterial(texLoader) {
       `
       vec4 sampledDiffuseColor = texture2D(map, vMapUv);
       diffuseColor *= sampledDiffuseColor;
-      float slope = 1.0 - clamp(dot(normalize(vProxyWorldNormal), vec3(0.0, 1.0, 0.0)), 0.0, 1.0);
+      vec3 proxyN = normalize(vProxyWorldNormal);
+      float slope = 1.0 - clamp(proxyN.y, 0.0, 1.0);
       float broad = proxyNoise(vProxyWorldPos.xz * 0.018 + vec2(5.1, 3.7));
       float fine = proxyNoise(vProxyWorldPos.xz * 0.20 + vec2(9.4, 1.8));
+      float streakN = proxyNoise(vProxyWorldPos.xz * 0.42 + vec2(13.7, 2.4));
       float alpine = smoothstep(22.0, 74.0, vProxyWorldPos.y);
       vec3 lowGround = diffuseColor.rgb * vec3(0.76, 0.78, 0.70);
-      vec3 coldRock = mix(vec3(0.42, 0.45, 0.47), vec3(0.64, 0.66, 0.67), broad);
-      coldRock = mix(coldRock, vec3(0.32, 0.37, 0.41), smoothstep(0.36, 0.88, slope) * 0.42);
+      vec3 coldRock = mix(vec3(0.40, 0.43, 0.45), vec3(0.64, 0.66, 0.67), broad);
+      // 陡岩更暗更冷，强化裸岩与雪的明度对比
+      coldRock = mix(coldRock, vec3(0.26, 0.31, 0.36), smoothstep(0.30, 0.82, slope) * 0.55);
       coldRock *= vec3(0.84, 0.92, 1.0) * (0.92 + fine * 0.10);
       vec3 baseMountain = mix(lowGround, coldRock, alpine);
-      float settledSnow = smoothstep(54.0, 118.0, vProxyWorldPos.y) * (1.0 - smoothstep(0.18, 0.68, slope));
-      float streakSnow = smoothstep(74.0, 150.0, vProxyWorldPos.y)
-        * smoothstep(0.44, 0.80, broad + fine * 0.22)
-        * (1.0 - smoothstep(0.78, 1.0, slope));
-      float summitSnow = smoothstep(122.0, 174.0, vProxyWorldPos.y) * 0.88;
+      // 大尺度伪 AO：山谷/背阴处压暗，增加体积层次
+      baseMountain *= 0.82 + broad * 0.18;
+      // 平缓处积雪
+      float settledSnow = smoothstep(56.0, 120.0, vProxyWorldPos.y) * (1.0 - smoothstep(0.14, 0.58, slope));
+      // 雪沟 streak：顺坡而下的纵向雪带，陡面被裸岩切断
+      float streakMask = smoothstep(0.42, 0.78, broad * 0.7 + streakN * 0.5 + fine * 0.18);
+      float streakSnow = smoothstep(78.0, 150.0, vProxyWorldPos.y)
+        * streakMask
+        * (1.0 - smoothstep(0.62, 0.92, slope));
+      float summitSnow = smoothstep(120.0, 176.0, vProxyWorldPos.y) * 0.92;
       float snow = clamp(max(settledSnow, streakSnow) + summitSnow, 0.0, 1.0);
-      vec3 snowColor = vec3(0.92, 0.96, 0.98) * (0.96 + fine * 0.06);
+      vec3 snowColor = vec3(0.95, 0.97, 1.0) * (0.97 + fine * 0.05);
       diffuseColor.rgb = mix(baseMountain, snowColor, snow);
+
+      // ── 廉价太阳光照（MeshBasicMaterial 本身不受光，这里手算）──
+      vec3 sunDir = normalize(uSunDir);
+      float ndl = dot(proxyN, sunDir);
+      float lit = clamp(ndl, 0.0, 1.0);            // 直射高光项
+      float wrap = ndl * 0.5 + 0.5;                // half-lambert 软填充，避免背光死黑
+      float hemi = proxyN.y * 0.5 + 0.5;
+      vec3 ambient = mix(uGroundColor, uSkyColor, hemi) * mix(0.55, 0.34, uNightFactor);
+      vec3 sunCol = mix(vec3(1.0, 0.95, 0.86), vec3(0.50, 0.58, 0.74), uNightFactor); // 夜晚转冷
+      float sunStrength = mix(1.05, 0.30, uNightFactor);
+      vec3 lightTerm = ambient + sunCol * (wrap * 0.55 + lit * 0.55) * sunStrength;
+      diffuseColor.rgb *= lightTerm;
+
+      // ── 高度感知大气透视（在线性雾之上叠加，营造纵深）──
+      float aerial = smoothstep(420.0, 2400.0, vFogDepth);
+      aerial *= 1.0 - smoothstep(50.0, 180.0, vProxyWorldPos.y) * 0.55; // 山脚比峰顶更"化"
+      vec3 hazeColor = mix(vec3(0.60, 0.69, 0.82), vec3(0.16, 0.20, 0.30), uNightFactor);
+      float lum = dot(diffuseColor.rgb, vec3(0.299, 0.587, 0.114));
+      diffuseColor.rgb = mix(diffuseColor.rgb, vec3(lum), aerial * 0.22);   // 去饱和
+      diffuseColor.rgb = mix(diffuseColor.rgb, hazeColor, aerial * 0.34);   // 偏冷蓝
       `
     )
   }
-  material.customProgramCacheKey = () => 'distant-terrain-snow-proxy-v1'
+  material.customProgramCacheKey = () => 'distant-terrain-snow-proxy-v2'
   return material
 }
 
@@ -4927,9 +4971,19 @@ export function createMap(scene, { onStaticModelReady = null } = {}) {
 
   }
 
+  // 每帧由主循环（updateDayNightLighting）喂入太阳方向与夜晚因子，
+  // 驱动远山 proxy 的廉价光照与大气透视冷暖。
+  function setDistantTerrainSun(sunDir, nightFactor) {
+    const u = distantProxyMat?.userData?.uniforms
+    if (!u) return
+    u.uSunDir.value.copy(sunDir)
+    u.uNightFactor.value = nightFactor
+  }
+
   return {
     collidables,
     update,
+    setDistantTerrainSun,
     ponds: [],
     spawnRipple: () => {},
     getTerrainHeight: getGroundHeight,

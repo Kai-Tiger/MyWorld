@@ -21,7 +21,8 @@ GRASS_VARIANTS = [
             "tip": (0.047, 0.078, 0.047, 1.0),
             "shadow": (0.000, 0.012, 0.004, 1.0),
         },
-        "blade_count": 21,
+        "blade_count": 20,
+        "blade_segments": 2,
         "height_base": 0.72,
         "height_step": 0.045,
         "height_cycle": 5,
@@ -47,7 +48,8 @@ GRASS_VARIANTS = [
             "tip": (0.255, 0.410, 0.130, 1.0),
             "shadow": (0.015, 0.035, 0.012, 1.0),
         },
-        "blade_count": 28,
+        "blade_count": 22,
+        "blade_segments": 2,
         "height_base": 0.54,
         "height_step": 0.034,
         "height_cycle": 5,
@@ -73,7 +75,8 @@ GRASS_VARIANTS = [
             "tip": (0.430, 0.335, 0.115, 1.0),
             "shadow": (0.040, 0.030, 0.012, 1.0),
         },
-        "blade_count": 15,
+        "blade_count": 16,
+        "blade_segments": 2,
         "height_base": 0.62,
         "height_step": 0.060,
         "height_cycle": 7,
@@ -305,8 +308,10 @@ def main():
             continue
         reset_scene()
         obj = build_grass_clump(variant)
+        mesh = obj.data
+        tri_count = sum(max(0, len(poly.vertices) - 2) for poly in mesh.polygons)
         export_glb(obj, variant["out_path"])
-        print(f"Exported {variant['out_path']}")
+        print(f"Exported {variant['out_path']} (verts={len(mesh.vertices)}, tris={tri_count})")
 
 
 if __name__ == "__main__":

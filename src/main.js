@@ -145,7 +145,12 @@ function updateDayNightLighting(sunPhase) {
     sun.castShadow = _shadowCaster === 'sun'
     moon.castShadow = _shadowCaster === 'moon'
   }
+
+  // 把太阳方向与夜晚因子喂给远山 proxy，驱动其廉价光照与大气透视
+  _proxySunDir.set(Math.cos(sunPhase) * 40, sunH, Math.sin(sunPhase * 0.6) * 25).normalize()
+  setDistantTerrainSun?.(_proxySunDir, nightFactor)
 }
+const _proxySunDir = new THREE.Vector3()
 // 优先加载存档，无存档时使用默认地图配置
 const INITIAL_CAMPFIRE_POSITION = { x: 0, z: 50 }
 const INITIAL_PLAYER_POSITION = { x: 0, z: 40 }
@@ -183,7 +188,7 @@ let resolveOutdoorStaticReady = null
 const outdoorStaticReadyPromise = new Promise(resolve => {
   resolveOutdoorStaticReady = resolve
 })
-const { collidables, update: updateMap, getTerrainHeight: getRawTerrainHeight, sampleRiver, getNearbyForestPackLabel } = createMap(scene, {
+const { collidables, update: updateMap, getTerrainHeight: getRawTerrainHeight, sampleRiver, getNearbyForestPackLabel, setDistantTerrainSun } = createMap(scene, {
   onStaticModelReady: (model) => {
     resolveOutdoorStaticReady?.(model)
   },
