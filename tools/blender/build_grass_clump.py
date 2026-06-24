@@ -143,8 +143,8 @@ LEAN_BASE_JITTER = 0.9   # root azimuth jitter (rad) so roots aren't perfectly e
 LEAN_MUL_MIN = 0.15      # min lean strength multiplier (near-upright blades)
 LEAN_MUL_RANGE = 1.6     # extra lean strength range (flopped-over blades)
 LEAN_MUL_BIAS = 1.6      # >1 skews most blades toward the upright end
-RADIUS_MIN = 0.02        # root disk inner radius (m)
-RADIUS_RANGE = 0.085     # root disk spread (m) — wider so blades don't pinch into one point at the root
+RADIUS_MIN = 0.03        # root disk inner radius (m)
+RADIUS_RANGE = 0.14      # root disk spread (m) — wider so blades don't pinch into one point at the root
 
 
 def hash01(n):
