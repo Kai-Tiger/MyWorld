@@ -1048,7 +1048,7 @@ export function createPlayer(scene) {
   const AUTO_STEP   = 0.55
   const TERRAIN_DESCEND_SNAP = 24
   const FLY_SPEED   = 10   // 调试：按住 Shift 上升 / Ctrl 下降的竖直速度 m/s
-  const FLY_MOVE_SPEED = 30   // 调试：飞行（悬停）时的水平移动速度 m/s，不受 inWater 减速
+  const FLY_MOVE_SPEED = 50   // 调试：飞行（悬停）时的水平移动速度 m/s，不受 inWater 减速
 
   let currentSpeed    = 0
   let vy              = 0

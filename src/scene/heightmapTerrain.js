@@ -28,6 +28,9 @@ function sampleBilinear(data, w, h, u, v) {
 export function createHeightmapTerrain(scene, {
   material,
   size = 192,
+  heightmapSize = null,   // 高度图 UV 映射尺寸（与网格范围解耦）；null = 用 size
+  extendXNeg = 0,         // 网格向 −X 外扩（世界单位），不动 +X 边
+  extendZNeg = 0,         // 网格向 −Z 外扩（世界单位），不动 +Z 边
   segments = 256,
   chunkSize = null,
   chunkSegments = 48,
@@ -53,10 +56,15 @@ export function createHeightmapTerrain(scene, {
   const proxyMeshes = new Map()
   const chunked = Number.isFinite(chunkSize) && chunkSize > 0
   const useDistantProxy = chunked && distantProxyMaterial
-  const terrainHalf = size * 0.5
-  const chunkCount = chunked ? Math.ceil(size / chunkSize) : 0
-  const chunkExtent = chunked ? chunkCount * chunkSize : size
-  const chunkHalf = chunkExtent * 0.5
+  const hmSize = heightmapSize ?? size
+  // 网格按轴计数 + 显式原点：基准方格 ±baseHalf，向 −X/−Z 外扩，+X/+Z 边不变
+  const baseCount = chunked ? Math.ceil(size / chunkSize) : 0
+  const exNegX = chunked ? Math.ceil(Math.max(0, extendXNeg) / chunkSize) : 0
+  const exNegZ = chunked ? Math.ceil(Math.max(0, extendZNeg) / chunkSize) : 0
+  const chunkCountX = baseCount + exNegX
+  const chunkCountZ = baseCount + exNegZ
+  const gridMinX = -baseCount * chunkSize * 0.5 - exNegX * chunkSize
+  const gridMinZ = -baseCount * chunkSize * 0.5 - exNegZ * chunkSize
   const chunkBuildBudgetPerUpdate = 1
   const proxyBuildBudgetPerUpdate = 2
   let mesh = null
@@ -74,8 +82,8 @@ export function createHeightmapTerrain(scene, {
   }
 
   function sampleBaseHeight(x, z) {
-    const u = x / size + 0.5
-    const v = 0.5 - z / size
+    const u = x / hmSize + 0.5
+    const v = 0.5 - z / hmSize
     return shapeHeight(sampleBilinear(hmData, hmW, hmH, u, v)) * maxHeight
   }
 
@@ -224,8 +232,8 @@ export function createHeightmapTerrain(scene, {
 
   function chunkCenter(ix, iz) {
     return {
-      x: -chunkHalf + ix * chunkSize + chunkSize * 0.5,
-      z: -chunkHalf + iz * chunkSize + chunkSize * 0.5,
+      x: gridMinX + ix * chunkSize + chunkSize * 0.5,
+      z: gridMinZ + iz * chunkSize + chunkSize * 0.5,
     }
   }
 
@@ -300,8 +308,8 @@ export function createHeightmapTerrain(scene, {
 
   function queueDistantProxyChunks(centerIx, centerIz) {
     if (!useDistantProxy) return
-    for (let iz = 0; iz < chunkCount; iz++) {
-      for (let ix = 0; ix < chunkCount; ix++) {
+    for (let iz = 0; iz < chunkCountZ; iz++) {
+      for (let ix = 0; ix < chunkCountX; ix++) {
         const key = chunkKey(ix, iz)
         if (proxyMeshes.has(key)) continue
         const distance = Math.max(Math.abs(ix - centerIx), Math.abs(iz - centerIz))
@@ -313,8 +321,8 @@ export function createHeightmapTerrain(scene, {
 
   function updateDistantProxyVisibility(centerIx, centerIz) {
     if (!useDistantProxy) return
-    for (let iz = 0; iz < chunkCount; iz++) {
-      for (let ix = 0; ix < chunkCount; ix++) {
+    for (let iz = 0; iz < chunkCountZ; iz++) {
+      for (let ix = 0; ix < chunkCountX; ix++) {
         const proxy = proxyMeshes.get(chunkKey(ix, iz))
         if (!proxy) continue
         proxy.visible = proxyShouldBeVisible(ix, iz)
@@ -353,8 +361,8 @@ export function createHeightmapTerrain(scene, {
     if (!chunked || !hmData) return
     const px = Number.isFinite(playerPosition?.x) ? playerPosition.x : 0
     const pz = Number.isFinite(playerPosition?.z) ? playerPosition.z : 0
-    const centerIx = THREE.MathUtils.clamp(Math.floor((px + chunkHalf) / chunkSize), 0, chunkCount - 1)
-    const centerIz = THREE.MathUtils.clamp(Math.floor((pz + chunkHalf) / chunkSize), 0, chunkCount - 1)
+    const centerIx = THREE.MathUtils.clamp(Math.floor((px - gridMinX) / chunkSize), 0, chunkCountX - 1)
+    const centerIz = THREE.MathUtils.clamp(Math.floor((pz - gridMinZ) / chunkSize), 0, chunkCountZ - 1)
     const centerKey = chunkKey(centerIx, centerIz)
     currentCenterIx = centerIx
     currentCenterIz = centerIz
@@ -365,9 +373,9 @@ export function createHeightmapTerrain(scene, {
       visibleChunkKeys.clear()
 
       for (let iz = centerIz - preloadRadius; iz <= centerIz + preloadRadius; iz++) {
-        if (iz < 0 || iz >= chunkCount) continue
+        if (iz < 0 || iz >= chunkCountZ) continue
         for (let ix = centerIx - preloadRadius; ix <= centerIx + preloadRadius; ix++) {
-          if (ix < 0 || ix >= chunkCount) continue
+          if (ix < 0 || ix >= chunkCountX) continue
           const dx = Math.abs(ix - centerIx)
           const dz = Math.abs(iz - centerIz)
           const distance = Math.max(dx, dz)

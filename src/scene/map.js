@@ -1,6 +1,6 @@
 import * as THREE from 'three'
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
-import { WORLD_SIZE, OUTDOOR_MOUNTAIN_BOUNDS, MOUNTAIN_FALL_FLOOR_Y, CANYON } from '../config/world.js'
+import { WORLD_SIZE, OUTDOOR_MOUNTAIN_BOUNDS, MOUNTAIN_FALL_FLOOR_Y, TREE_COLOR_GRADE } from '../config/world.js'
 import { createHeightmapTerrain } from './heightmapTerrain.js'
 import { CASTLE_EXTERIOR } from '../config/castle.js'
 import oldChurchRuinsUrl from '../place/old_church_ruins_medium.glb?url'
@@ -151,7 +151,11 @@ const WORLD_TREE_TREELINE_HI = 64            // 树线软带上沿（以上裸�
 const WORLD_TREE_RIVER_HANDOFF = 6           // 距水道边缘 <此值 不种（避水/河岸）
 const WORLD_TREE_HEIGHT_BOOST = 1.8          // 散布树高度倍数（与手工林地一致）
 const WORLD_TREE_MAX_INSTANCES = 38000       // 总实例上限（护栏）
-const WORLD_TREE_VISIBLE_DIST = 360          // cell 可见距离（外则隐藏，限制 overdraw）
+// 距离分级 LOD（按 cell 中心到玩家水平距离）：始终渲染到 COVERAGE，靠近逐级提质量
+const WORLD_TREE_LOD_NEAR = 130              // <=near：树冠+树干+树下草（全质量）
+const WORLD_TREE_LOD_MID = 520               // near..mid：树冠+树干，去树下草
+const WORLD_TREE_COVERAGE = 1800             // mid..coverage：仅树冠；超出全隐（雾已淡化，< 相机 far 3000）
+const WORLD_TREE_LOD_HYST = 24               // 分档滞后带（米），防边界来回抖动
 const WORLD_TREE_CLUSTER_THRESHOLD = 0.4     // 林斑噪声阈值（下方=林间空地）
 const WORLD_TREE_BUILD_MS_PER_FRAME = 5      // 增量构建每帧预算（毫秒）
 const WORLD_TREE_VIS_INTERVAL = 0.25         // cell 可见性评估节流（秒）
@@ -166,7 +170,6 @@ const WORLD_TREE_MODELS = [                  // 复用 forest_pack 模型 + 基�
   { file: 'background_tree_11.glb', scale: 0.90 },
 ]
 const FOREST_CASTLE_GATE_CLEARING = { minX: 39, maxX: 52, minZ: -11, maxZ: 4 }
-const CANYON_FOREST_REPLACEMENT = { minX: -120, maxX: -40, origin: { x: 0, z: 0 } }
 const CASTLE_APPROACH_MOUNDS = [
   { x: 8, z: -13, rx: 5.6, rz: 3.7, h: 4.8, rot: -0.32, r: 5.4 },
   { x: 11, z: 20, rx: 6.2, rz: 4.1, h: 5.4, rot: 0.18, r: 5.8 },
@@ -1003,72 +1006,6 @@ function createForestSegmentPlacementsForTypes(types, count, {
   return placements
 }
 
-function isInCanyonForestReplacementRange(x) {
-  return x >= CANYON_FOREST_REPLACEMENT.minX && x <= CANYON_FOREST_REPLACEMENT.maxX
-}
-
-function createCanyonForestReplacementPlacementsForTypes(types, count, {
-  minSide,
-  maxSide,
-  forwardJitter = 2.2,
-  sideJitter = 1.8,
-  angleOffset = 0,
-  scaleJitter = 0.12,
-  colliderScale = 1,
-  seedOffset = 0,
-} = {}) {
-  const placements = []
-  for (let i = 0; i < count; i++) {
-    const type = types[i % types.length]
-    const t = count === 1 ? 0.5 : i / (count - 1)
-    const side = i % 2 === 0 ? -1 : 1
-    const x = THREE.MathUtils.lerp(CANYON_FOREST_REPLACEMENT.minX, CANYON_FOREST_REPLACEMENT.maxX, t)
-      + (forestPlacementNoise(seedOffset + i * 5 + 1) - 0.5) * forwardJitter
-    const centerZ = canyonCenterZ(x)
-    const sideDistance = THREE.MathUtils.lerp(minSide, maxSide, forestPlacementNoise(seedOffset + i * 5 + 2))
-      + (forestPlacementNoise(seedOffset + i * 5 + 3) - 0.5) * sideJitter
-    const scaleNoise = 1 + (forestPlacementNoise(seedOffset + i * 5 + 4) - 0.5) * 2 * scaleJitter
-    const placement = {
-      file: type.file,
-      origin: CANYON_FOREST_REPLACEMENT.origin,
-      dx: Number(x.toFixed(2)),
-      dz: Number((centerZ + side * sideDistance).toFixed(2)),
-      rotY: Number((angleOffset + forestPlacementNoise(seedOffset + i * 5 + 5) * Math.PI * 2).toFixed(3)),
-      scale: Number((type.scale * scaleNoise).toFixed(3)),
-    }
-    if (type.r) placement.r = Number((type.r * scaleNoise * colliderScale).toFixed(2))
-    placements.push(placement)
-  }
-  return placements
-}
-
-function createCanyonForestReplacementPlacements() {
-  return [
-    ...createCanyonForestReplacementPlacementsForTypes(FOREST_GROVE_TREE_TYPES, 46, {
-      minSide: CANYON.walkHalfWidth + 8.8,
-      maxSide: CANYON.wallHalfGap + 14.5,
-      angleOffset: 0.44,
-      colliderScale: FOREST_TREE_COLLIDER_SCALE,
-      seedOffset: 2900,
-    }),
-    ...createCanyonForestReplacementPlacementsForTypes(FOREST_GROVE_SHRUB_TYPES, 34, {
-      minSide: CANYON.walkHalfWidth + 6.8,
-      maxSide: CANYON.wallHalfGap + 11.0,
-      angleOffset: 1.36,
-      scaleJitter: 0.18,
-      seedOffset: 3100,
-    }),
-    ...createCanyonForestReplacementPlacementsForTypes(FOREST_GROVE_ROCK_TYPES, 20, {
-      minSide: CANYON.walkHalfWidth + 5.2,
-      maxSide: CANYON.wallHalfGap + 9.5,
-      angleOffset: 2.58,
-      scaleJitter: 0.16,
-      colliderScale: FOREST_ROCK_COLLIDER_SCALE,
-      seedOffset: 3300,
-    }),
-  ]
-}
-
 function isInsideRandomForestClearing(x, z) {
   if (x * x + z * z <= RANDOM_FOREST_SPAWN_CLEAR_RADIUS * RANDOM_FOREST_SPAWN_CLEAR_RADIUS) return true
 
@@ -1641,12 +1578,82 @@ function createCheapStaticMaterial(source) {
 function configureVegetationAlphaCutout(material) {
   if (!material?.map || !material.transparent) return
   const name = material.name ?? ''
-  if (!/(tree|branch|leaf|leaves|background)/i.test(name)) return
+  if (!VEGETATION_NAME_RE.test(name)) return
   material.alphaTest = Math.max(material.alphaTest ?? 0, 0.35)
   material.transparent = false
   material.depthWrite = true
   material.depthTest = true
   material.needsUpdate = true
+}
+
+// ── GLB 树调色：共享 uniform + onBeforeCompile 注入 ──
+// 所有树材质共享同一组 uniform，运行时改 .value 即可全量生效（见 setTreeColorGrade）。
+const _treeGradeUniforms = {
+  uTreeSat:    { value: TREE_COLOR_GRADE.saturation },
+  uTreeBright: { value: TREE_COLOR_GRADE.brightness },
+  uTreeHue:    { value: TREE_COLOR_GRADE.hueShift },
+}
+
+const VEGETATION_NAME_RE = /(tree|branch|leaf|leaves|background)/i
+
+// 给单个树材质注入调色片元钩子（贴图采样后做 色相旋转→饱和度→明度）。幂等。
+function applyTreeColorGrade(material) {
+  if (!material || material.userData?.__treeGraded) return
+  material.userData = material.userData || {}
+  material.userData.__treeGraded = true
+  const prevOnBeforeCompile = material.onBeforeCompile
+  material.onBeforeCompile = (shader, renderer) => {
+    if (typeof prevOnBeforeCompile === 'function') prevOnBeforeCompile(shader, renderer)
+    shader.uniforms.uTreeSat = _treeGradeUniforms.uTreeSat
+    shader.uniforms.uTreeBright = _treeGradeUniforms.uTreeBright
+    shader.uniforms.uTreeHue = _treeGradeUniforms.uTreeHue
+    shader.fragmentShader = `
+      uniform float uTreeSat;
+      uniform float uTreeBright;
+      uniform float uTreeHue;
+    ` + shader.fragmentShader.replace(
+      '#include <map_fragment>',
+      `#include <map_fragment>
+      {
+        // 色相旋转（YIQ 空间，便宜）
+        float ch = cos(uTreeHue);
+        float sh = sin(uTreeHue);
+        vec3 yiq = vec3(
+          dot(diffuseColor.rgb, vec3(0.299, 0.587, 0.114)),
+          dot(diffuseColor.rgb, vec3(0.596, -0.274, -0.322)),
+          dot(diffuseColor.rgb, vec3(0.211, -0.523, 0.312))
+        );
+        float i2 = yiq.y * ch - yiq.z * sh;
+        float q2 = yiq.y * sh + yiq.z * ch;
+        vec3 hueAdj = vec3(
+          yiq.x + 0.956 * i2 + 0.621 * q2,
+          yiq.x - 0.272 * i2 - 0.647 * q2,
+          yiq.x - 1.106 * i2 + 1.703 * q2
+        );
+        diffuseColor.rgb = clamp(hueAdj, 0.0, 1.0);
+        // 饱和度
+        float luma = dot(diffuseColor.rgb, vec3(0.2126, 0.7152, 0.0722));
+        diffuseColor.rgb = mix(vec3(luma), diffuseColor.rgb, uTreeSat);
+        // 明度
+        diffuseColor.rgb *= uTreeBright;
+      }
+      `
+    )
+  }
+  material.customProgramCacheKey = () => 'tree-color-grade-v1'
+  material.needsUpdate = true
+}
+
+// 运行时调色：直接写共享 uniform，下一帧生效（无需 needsUpdate）。
+export function setTreeColorGrade({ saturation, brightness, hueShift } = {}) {
+  if (Number.isFinite(saturation)) _treeGradeUniforms.uTreeSat.value = saturation
+  if (Number.isFinite(brightness)) _treeGradeUniforms.uTreeBright.value = brightness
+  if (Number.isFinite(hueShift)) _treeGradeUniforms.uTreeHue.value = hueShift
+  return {
+    saturation: _treeGradeUniforms.uTreeSat.value,
+    brightness: _treeGradeUniforms.uTreeBright.value,
+    hueShift: _treeGradeUniforms.uTreeHue.value,
+  }
 }
 
 function configureStaticGltfModel(root, {
@@ -1673,6 +1680,7 @@ function configureStaticGltfModel(root, {
     mats.forEach((mat) => {
       if (!mat) return
       configureVegetationAlphaCutout(mat)
+      if (VEGETATION_NAME_RE.test(mat.name ?? '')) applyTreeColorGrade(mat)
       mat.needsUpdate = true
     })
   })
@@ -2486,11 +2494,18 @@ function loadTreeInstanceParts(file, baseScale) {
       const geom = c.geometry.clone()
       geom.applyMatrix4(c.matrixWorld)          // 烘入节点变换 → 各子件落在同一根坐标系
       const mat = c.material                      // 复用材质（保留树叶 alpha 等设置）
+      applyTreeColorGrade(mat)                     // 散布树全是树 → 无条件接入调色
       parts.push({ geometry: geom, material: mat })
     })
     let minY = Infinity
     for (const p of parts) { p.geometry.computeBoundingBox(); minY = Math.min(minY, p.geometry.boundingBox.min.y) }
     if (Number.isFinite(minY)) for (const p of parts) p.geometry.translate(0, -minY, 0)  // base→y=0
+    // 距离 LOD 角色：按 base 对齐后包围盒顶高（max.y）降序，最高者=树冠（主导轮廓，远处也保留），其余=树干。
+    // 单 part 模型唯一 part 记为 crown，保证远处永不整树消失。
+    const byTop = parts
+      .map((p) => ({ p, top: (p.geometry.computeBoundingBox(), p.geometry.boundingBox.max.y) }))
+      .sort((a, b) => b.top - a.top)
+    byTop.forEach((e, i) => { e.p.lodRole = i === 0 ? 'crown' : 'trunk' })
     return { file, baseScale, parts }
   })
 }
@@ -2543,6 +2558,8 @@ function buildWorldTreeCellMeshes(b, cell, byModel, grassArr) {
       inst.castShadow = false
       inst.receiveShadow = true
       inst.frustumCulled = true
+      inst.userData.treeLodRole = part.lodRole || 'crown'  // 距离分级：crown 始终渲染，trunk 远处剔除
+      inst.visible = false                                 // 由首次 LOD pass 点亮，避免远处刚建好闪一帧全质量
       for (let i = 0; i < arr.length; i++) {
         const p = arr[i]
         _worldTreeDummy.position.set(p.x, p.y, p.z)
@@ -2565,6 +2582,8 @@ function buildWorldTreeCellMeshes(b, cell, byModel, grassArr) {
     ginst.castShadow = false
     ginst.receiveShadow = false
     ginst.frustumCulled = true
+    ginst.userData.treeLodRole = 'grass'  // 仅近档显示
+    ginst.visible = false
     for (let i = 0; i < grassArr.length; i++) {
       const p = grassArr[i]
       _spawnGrassDummy.position.set(p.x, p.y, p.z)
@@ -2588,7 +2607,7 @@ function buildWorldTreeCellMeshes(b, cell, byModel, grassArr) {
     b.grassTotal += grassArr.length
   }
   if (meshes.length) {
-    b.cellMeshes.push({ cx: cell.minX + WORLD_TREE_CELL_LEN / 2, cz: cell.minZ + WORLD_TREE_CELL_LEN / 2, meshes })
+    b.cellMeshes.push({ cx: cell.minX + WORLD_TREE_CELL_LEN / 2, cz: cell.minZ + WORLD_TREE_CELL_LEN / 2, meshes, tier: -1 })
   }
 }
 
@@ -2675,18 +2694,38 @@ function stepWorldTreeBuild() {
   console.log(`[world-trees] built ${b.total} trees + ${b.grassTotal} under-tree grass over ${(performance.now() - b.t0).toFixed(0)}ms wall` + (b.dropped ? `, dropped ${b.dropped} over cap` : ''))
 }
 
-// 按 cell 中心到玩家水平距离剔除（远处隐藏，限制 overdraw）。
+// 按 cell 中心到玩家水平距离分级 LOD：始终渲染到 COVERAGE，靠近逐级提质量。
+//   档 0 近 (<NEAR)：树冠+树干+树下草   档 1 中 (..MID)：树冠+树干（去草）
+//   档 2 远 (..COVERAGE)：仅树冠         档 3 超出：全隐（雾已淡化）
+// 滞后带：靠近需越过 阈值-HYST 才升档，远离需越过 阈值+HYST 才降档，避免悬停时反复开关。
+const _WORLD_TREE_LOD_BOUNDS = [WORLD_TREE_LOD_NEAR, WORLD_TREE_LOD_MID, WORLD_TREE_COVERAGE]
+function worldTreeLodTier(dist, prev) {
+  const hyst = WORLD_TREE_LOD_HYST
+  let tier = 0
+  for (let i = 0; i < _WORLD_TREE_LOD_BOUNDS.length; i++) {
+    const edge = prev > i ? _WORLD_TREE_LOD_BOUNDS[i] - hyst : _WORLD_TREE_LOD_BOUNDS[i] + hyst
+    if (dist >= edge) tier = i + 1
+  }
+  return tier
+}
 function updateWorldTreeVisibility(playerPosition) {
   const b = _worldTreeBuild
   if (!b || !playerPosition) return
   const px = playerPosition.x
   const pz = playerPosition.z
-  const maxSq = WORLD_TREE_VISIBLE_DIST * WORLD_TREE_VISIBLE_DIST
   for (const c of b.cellMeshes) {
     const dx = c.cx - px
     const dz = c.cz - pz
-    const vis = (dx * dx + dz * dz) < maxSq
-    for (const m of c.meshes) m.visible = vis
+    const tier = worldTreeLodTier(Math.sqrt(dx * dx + dz * dz), c.tier)
+    if (tier === c.tier) continue            // 档位不变 → 跳过冗余写入
+    c.tier = tier
+    const crownOn = tier <= 2
+    const trunkOn = tier <= 1
+    const grassOn = tier === 0
+    for (const m of c.meshes) {
+      const role = m.userData.treeLodRole
+      m.visible = role === 'grass' ? grassOn : role === 'trunk' ? trunkOn : crownOn
+    }
   }
 }
 
@@ -3227,6 +3266,60 @@ function applyLargeWorldHeight(x, z, height) {
   const northRise = THREE.MathUtils.smoothstep(z, 80, 600) * (18 + Math.sin(x * 0.009) * 8)
   const westRise = THREE.MathUtils.smoothstep(-x, 120, 620) * (12 + Math.sin(z * 0.008) * 5)
   return height + (broad + northRise + westRise) * (1 - protect * 0.92)
+}
+
+// 新区（向 −X/−Z 外扩部分）连绵草地丘陵：忽略高度图边缘 clamp，用干净多倍频起伏；
+// 在旧图边界（−760）外用 smoothstep 平滑接缝到新基底，旧图本身不动。只做丘陵，不放其它。
+// 域扭曲多倍频脊状噪声 0..1：用于雪脊/矮山的锯齿状起伏（craggy）
+function alpineRidgedNoise(x, z) {
+  const wx = x + Math.sin(x * 0.006 + z * 0.009) * 40 + Math.sin(z * 0.013) * 18
+  const wz = z + Math.sin(z * 0.007 - x * 0.008) * 40 + Math.sin(x * 0.015) * 18
+  const r1 = 1 - Math.abs(Math.sin(wx * 0.0042 + wz * 0.0031))
+  const r2 = 1 - Math.abs(Math.sin(wx * 0.0098 - wz * 0.0081))
+  const r3 = 1 - Math.abs(Math.sin(wx * 0.0205 + wz * 0.0233))
+  return r1 * 0.55 + r2 * 0.30 + r3 * 0.15
+}
+
+// 新区（−X/−Z 外扩）完整地形：近区连绵丘陵 → 中景矮山 → 外缘连续雪脊（内缓外陡，比着参考图）。
+// 雪/岩着色由地形材质按高度自动出；外缘超出 bounds 部分由 applyMountainEdgeHeight 截成 void 崖藏山后。
+function applyExtendedRegionHeight(x, z, height) {
+  const w = Math.max(
+    THREE.MathUtils.smoothstep(-x, 760, 920),   // 进入 −X 新区
+    THREE.MathUtils.smoothstep(-z, 760, 920),   // 进入 −Z 新区
+  )
+  if (w <= 0) return height
+  // 连绵丘陵基底
+  const hills =
+      Math.sin(x * 0.0115 + z * 0.0083) * 7.0
+    + Math.sin(x * 0.0068 - z * 0.0121) * 5.0
+    + Math.sin(x * 0.0235 + z * 0.0192) * 2.2
+    + Math.sin(x * 0.039 - z * 0.031) * 1.1
+  let base = 3.0 + hills
+  const crag = alpineRidgedNoise(x, z)
+
+  // ── 外缘雪脊：沿边距离 e（−1500 起脚 → −2300 脊顶），内缓外陡 ──
+  const eX = THREE.MathUtils.smoothstep(-x, 1500, 2300)
+  const eZ = THREE.MathUtils.smoothstep(-z, 1500, 2300)
+  const e = Math.max(eX, eZ)
+  if (e > 0) {
+    const shape = Math.pow(e, 2.3)                       // 内侧长缓、临外缘急升
+    base += 230 * shape * (0.60 + crag * 0.60)           // 连续雪脊 + 锯齿峰
+    base += 175 * Math.pow(eX * eZ, 0.7) * (0.8 + crag * 0.4)  // −X−Z 角填成连绵主峰群（填补转角缺口）
+  }
+
+  // ── 中近景独立矮山（低于雪线 → 绿/岩山丘，长草长树）──
+  const foot = (cx, cz, r, h) => {
+    const d = Math.hypot(x - cx, z - cz) / r
+    if (d >= 1) return 0
+    const b = 1 - THREE.MathUtils.smoothstep(0, 1, d)
+    return h * Math.pow(b, 1.3) * (0.65 + crag * 0.6)
+  }
+  base += foot(-1250, -650, 360, 55)
+        + foot(-700, -1300, 340, 48)
+        + foot(-1550, -1550, 400, 80)
+        + foot(-950, -1000, 300, 40)
+
+  return THREE.MathUtils.lerp(height, base, w)
 }
 
 function applyLargeRiverValleyHeight(x, z, height) {
@@ -4225,7 +4318,7 @@ ${TERRAIN_BRANCH_SAMPLE_GLSL}
       cliffRock *= 0.86 + terrainNoiseTP(0.42, tpW) * 0.20;
       terrainColor = mix(terrainColor, cliffRock, cliffMask * 0.92);
       float snowMountainMask = smoothstep(22.0, 64.0, vWorldPos.y);
-      float highAlpineMask = smoothstep(112.0, 198.0, vWorldPos.y);
+      float highAlpineMask = smoothstep(95.0, 175.0, vWorldPos.y);
       float slopeMask = terrainSlopeMask();
       // ── 高山岩：三平面噪声做"地层带"明暗 + 颗粒，陡面深冷灰、缓坡略暖，杜绝竖直拉伸 ──
       float strata = terrainNoiseTP(0.045, tpW);          // 低频：沉积/节理大带
@@ -4242,12 +4335,13 @@ ${TERRAIN_BRANCH_SAMPLE_GLSL}
       float streakSnow = smoothstep(44.0, 116.0, vWorldPos.y)
         * smoothstep(0.42, 0.74, snowPatch + windSnow * 0.22)
         * (1.0 - smoothstep(0.66, 0.96, slopeMask));
-      float summitSnow = highAlpineMask * (1.0 - smoothstep(0.72, 1.0, slopeMask)) * 0.95;    // 极陡岩峰仍露岩
-      float snowMask = clamp(max(max(settledSnow, streakSnow), summitSnow), 0.0, 1.0);
+      float summitSnow = highAlpineMask * (1.0 - smoothstep(0.86, 1.05, slopeMask)) * 0.98;    // 高山雪盖（仅近垂直露岩）
+      float glacierSnow = smoothstep(150.0, 240.0, vWorldPos.y) * (1.0 - smoothstep(0.95, 1.12, slopeMask)); // 极高处雪原/冰川，覆盖陡雪峰
+      float snowMask = clamp(max(max(max(settledSnow, streakSnow), summitSnow), glacierSnow), 0.0, 1.0);
       // ── 雪色：亮白基底 + 细颗粒微光，陡面/阴影冷蓝，起伏轻微明暗 ──
       float snowGrain = terrainNoiseTP(1.1, tpW);
       vec3 snowColor = vec3(0.95, 0.97, 0.99) * (0.97 + snowGrain * 0.05);
-      snowColor = mix(snowColor, vec3(0.74, 0.82, 0.92), slopeMask * 0.30);                   // 冷蓝阴影面
+      snowColor = mix(snowColor, vec3(0.68, 0.77, 0.90), slopeMask * 0.44);                   // 冷蓝阴影面（坡面更冷暗，出体积）
       snowColor *= 0.95 + snowPatch * 0.06;
       terrainColor = mix(terrainColor, snowColor, snowMask);
       terrainColor *= 0.93 + terrainNoiseTP(1.3, tpW) * 0.10;
@@ -4451,34 +4545,51 @@ function createDistantTerrainProxyMaterial(texLoader) {
       float streakSnow = smoothstep(78.0, 150.0, vProxyWorldPos.y)
         * streakMask
         * (1.0 - smoothstep(0.62, 0.92, slope));
-      float summitSnow = smoothstep(120.0, 176.0, vProxyWorldPos.y) * 0.92;
-      float snow = clamp(max(settledSnow, streakSnow) + summitSnow, 0.0, 1.0);
-      vec3 snowColor = vec3(0.95, 0.97, 1.0) * (0.97 + fine * 0.05);
-      diffuseColor.rgb = mix(baseMountain, snowColor, snow);
-
+      float summitSnow = smoothstep(95.0, 160.0, vProxyWorldPos.y) * (1.0 - smoothstep(0.80, 1.02, slope)) * 0.97;
+      float glacierSnow = smoothstep(150.0, 240.0, vProxyWorldPos.y) * (1.0 - smoothstep(0.90, 1.10, slope)); // 极高处雪原；最陡岩壁露灰岩
+      float snow = clamp(max(max(max(settledSnow, streakSnow), summitSnow), glacierSnow), 0.0, 1.0);
       // ── 廉价太阳光照（MeshBasicMaterial 本身不受光，这里手算）──
       vec3 sunDir = normalize(uSunDir);
       float ndl = dot(proxyN, sunDir);
-      float lit = clamp(ndl, 0.0, 1.0);            // 直射高光项
-      float wrap = ndl * 0.5 + 0.5;                // half-lambert 软填充，避免背光死黑
+      float lit = clamp(ndl, 0.0, 1.0);            // 直射 N·L
+      float wrap = ndl * 0.5 + 0.5;                // half-lambert 软填充
       float hemi = proxyN.y * 0.5 + 0.5;
       vec3 ambient = mix(uGroundColor, uSkyColor, hemi) * mix(0.55, 0.34, uNightFactor);
       vec3 sunCol = mix(vec3(1.0, 0.95, 0.86), vec3(0.50, 0.58, 0.74), uNightFactor); // 夜晚转冷
       float sunStrength = mix(1.05, 0.30, uNightFactor);
-      vec3 lightTerm = ambient + sunCol * (wrap * 0.55 + lit * 0.55) * sunStrength;
-      diffuseColor.rgb *= lightTerm;
+      // 岩/草基底：偏直射、明暗分明（侧光感）
+      vec3 litBase = baseMountain * (ambient + sunCol * (wrap * 0.35 + lit * 0.75) * sunStrength);
+      // 雪：方向性光影——朝阳亮白、背阴冷暗蓝，造体积（不再扁平死白）
+      // 关键：高太阳 + 平滑低模代理 → N·L 几乎不变 → 死白。
+      // 用噪声梯度扰动法线造"假山脊/沟壑"，再去掉 half-lambert 软填充换真实对比。
+      vec2 rp = vProxyWorldPos.xz;
+      float hC = proxyNoise(rp * 0.020 + vec2(1.7, 8.3));
+      float hX = proxyNoise((rp + vec2(11.0, 0.0)) * 0.020 + vec2(1.7, 8.3));
+      float hZ = proxyNoise((rp + vec2(0.0, 11.0)) * 0.020 + vec2(1.7, 8.3));
+      float gC = proxyNoise(rp * 0.072 + vec2(5.4, 2.1));
+      float gX = proxyNoise((rp + vec2(3.4, 0.0)) * 0.072 + vec2(5.4, 2.1));
+      float gZ = proxyNoise((rp + vec2(0.0, 3.4)) * 0.072 + vec2(5.4, 2.1));
+      vec2 reliefGrad = vec2(hX - hC, hZ - hC) * 4.2 + vec2(gX - gC, gZ - gC) * 1.6;
+      vec3 snowN = normalize(proxyN + vec3(reliefGrad.x, 0.0, reliefGrad.y));
+      float snowNdl = dot(snowN, sunDir);
+      // 真实兰伯特为主、极少填充：朝阳→1，侧/背阴→明显变暗
+      float snowShade = pow(clamp(snowNdl * 0.78 + 0.22, 0.0, 1.0), 1.5);
+      vec3 snowSun = vec3(1.0, 1.0, 1.02) * (0.97 + fine * 0.05);
+      vec3 snowSha = mix(vec3(0.44, 0.53, 0.74), vec3(0.24, 0.28, 0.40), uNightFactor); // 背阴冷暗蓝
+      vec3 snowShaded = mix(snowSha, snowSun, snowShade) * mix(1.0, 0.55, uNightFactor);
+      diffuseColor.rgb = mix(litBase, snowShaded, snow);
 
       // ── 高度感知大气透视（在线性雾之上叠加，营造纵深）──
       float aerial = smoothstep(420.0, 2400.0, vFogDepth);
-      aerial *= 1.0 - smoothstep(50.0, 180.0, vProxyWorldPos.y) * 0.55; // 山脚比峰顶更"化"
+      aerial *= 1.0 - smoothstep(50.0, 180.0, vProxyWorldPos.y) * 0.85; // 峰顶基本不雾化
       vec3 hazeColor = mix(vec3(0.60, 0.69, 0.82), vec3(0.16, 0.20, 0.30), uNightFactor);
       float lum = dot(diffuseColor.rgb, vec3(0.299, 0.587, 0.114));
-      diffuseColor.rgb = mix(diffuseColor.rgb, vec3(lum), aerial * 0.22);   // 去饱和
-      diffuseColor.rgb = mix(diffuseColor.rgb, hazeColor, aerial * 0.34);   // 偏冷蓝
+      diffuseColor.rgb = mix(diffuseColor.rgb, vec3(lum), aerial * 0.18);   // 去饱和
+      diffuseColor.rgb = mix(diffuseColor.rgb, hazeColor, aerial * 0.30);   // 偏冷蓝
       `
     )
   }
-  material.customProgramCacheKey = () => 'distant-terrain-snow-proxy-v3'
+  material.customProgramCacheKey = () => 'distant-terrain-snow-proxy-v7'
   return material
 }
 
@@ -5757,159 +5868,6 @@ export function makeCampfire(scene, x, z) {
   return group
 }
 
-function canyonCenterZ(x) {
-  const t = THREE.MathUtils.clamp((CANYON.startX - x) / (CANYON.startX - CANYON.endX), 0, 1)
-  return CANYON.centerZ + Math.sin(t * Math.PI * 1.8) * 5.8 + Math.sin(t * Math.PI * 4.6) * 1.6
-}
-
-function canyonLongitudinalMask(x) {
-  const inFromStart = THREE.MathUtils.smoothstep(CANYON.startX - x, 0, 46)
-  const inFromEnd = THREE.MathUtils.smoothstep(x - CANYON.endX, 0, 46)
-  return inFromStart * inFromEnd
-}
-
-function canyonNoise(x, z) {
-  return Math.sin(x * 0.043 + z * 0.071) * 0.5
-    + Math.sin(x * 0.117 - z * 0.053) * 0.32
-    + Math.sin(x * 0.219 + z * 0.173) * 0.18
-}
-
-function applyCanyonHeight(x, z, height) {
-  const mask = canyonLongitudinalMask(x)
-  if (mask <= 0) return height
-
-  const centerZ = canyonCenterZ(x)
-  const distance = Math.abs(z - centerZ)
-  const t = THREE.MathUtils.clamp((CANYON.startX - x) / (CANYON.startX - CANYON.endX), 0, 1)
-  const bend = Math.sin(t * Math.PI * 3.1)
-  const floorHalfWidth = CANYON.walkHalfWidth + bend * 0.8
-  const floorMask = 1 - THREE.MathUtils.smoothstep(distance, floorHalfWidth - 1.2, floorHalfWidth + 2.2)
-  const bankT = THREE.MathUtils.smoothstep(distance, floorHalfWidth, CANYON.wallHalfGap)
-  const cliffT = THREE.MathUtils.smoothstep(distance, CANYON.wallHalfGap, CANYON.wallHalfGap + CANYON.wallThickness)
-  const upperT = THREE.MathUtils.smoothstep(distance, CANYON.wallHalfGap + CANYON.wallThickness * 0.45, CANYON.wallHalfGap + CANYON.wallThickness)
-  const noise = canyonNoise(x, z)
-  const canyonFloor = 0.08 + t * 0.7 + Math.sin(x * 0.045) * 0.08
-  const gravelBank = canyonFloor + 0.35 + bankT * bankT * (4.8 + Math.max(0, noise) * 1.4)
-  const cliffHeight = 8 + t * 12 + Math.max(0, noise) * 4.2 + Math.abs(Math.sin(x * 0.16)) * 1.8
-  const ridgeHeight = cliffHeight + 4 + Math.abs(Math.sin(x * 0.09 + z * 0.12)) * 3
-
-  let result = THREE.MathUtils.lerp(height, canyonFloor, floorMask * mask)
-  result = THREE.MathUtils.lerp(result, Math.max(result, gravelBank), bankT * 0.65 * mask)
-  result = THREE.MathUtils.lerp(result, Math.max(result, cliffHeight), Math.pow(cliffT, 0.9) * 0.82 * mask)
-  result = THREE.MathUtils.lerp(result, Math.max(result, ridgeHeight), upperT * 0.46 * mask)
-  return result
-}
-
-function sampleCanyonHeight(x, z) {
-  return applyCanyonHeight(x, z, 0)
-}
-
-function makeCanyonCliffFace(scene, side, material) {
-  const segments = 92
-  const verts = []
-  const idxs = []
-  const colors = []
-  const color = new THREE.Color()
-
-  for (let i = 0; i <= segments; i++) {
-    const t = i / segments
-    const x = THREE.MathUtils.lerp(CANYON.startX - 6, CANYON.endX + 8, t)
-    const centerZ = canyonCenterZ(x)
-    const bite = Math.sin(i * 1.17) * 1.1 + Math.sin(i * 0.31) * 2.2
-    const baseZ = centerZ + side * (CANYON.walkHalfWidth + 2.8 + bite * 0.12)
-    const midZ = centerZ + side * (CANYON.wallHalfGap + 4.0 + bite)
-    const topZ = centerZ + side * (CANYON.wallHalfGap + 18 + bite * 1.8)
-    const tHeight = THREE.MathUtils.clamp((CANYON.startX - x) / (CANYON.startX - CANYON.endX), 0, 1)
-    const jag = Math.abs(Math.sin(i * 2.31)) * 3.2 + Math.sin(i * 0.71) * 1.6
-    const midY = 4.2 + tHeight * 7.5 + jag * 0.35
-    const topY = 11 + tHeight * 12 + jag
-
-    verts.push(x, 0.12, baseZ, x + Math.sin(i) * 1.2, midY, midZ, x + Math.cos(i * 0.8) * 2.0, topY, topZ)
-    for (const shade of [0.72, 0.86, 0.54]) {
-      color.setRGB(0.24 * shade, 0.23 * shade, 0.2 * shade)
-      colors.push(color.r, color.g, color.b)
-    }
-    if (i < segments) {
-      const a = i * 3
-      const b = a + 3
-      idxs.push(a, b, a + 1, a + 1, b, b + 1, a + 1, b + 1, a + 2, a + 2, b + 1, b + 2)
-    }
-  }
-
-  const geometry = new THREE.BufferGeometry()
-  geometry.setAttribute('position', new THREE.Float32BufferAttribute(verts, 3))
-  geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3))
-  geometry.setIndex(idxs)
-  geometry.computeVertexNormals()
-  const mesh = new THREE.Mesh(geometry, material)
-  mesh.castShadow = false
-  mesh.receiveShadow = true
-  scene.add(mesh)
-}
-
-function buildCanyonDetails(scene) {
-  const rockMat = new THREE.MeshStandardMaterial({ color: 0x4c4942, roughness: 1, flatShading: true })
-  const grassMat = new THREE.MeshStandardMaterial({ color: 0x10140c, roughness: 1 })
-
-  for (let i = 0; i < 72; i++) {
-    const t = i / 71
-    const x = THREE.MathUtils.lerp(CANYON.startX - 10, CANYON.endX + 14, t)
-    const centerZ = canyonCenterZ(x)
-    const side = i % 2 === 0 ? -1 : 1
-    const lateral = CANYON.walkHalfWidth + 3 + (i % 5) * 2.4 + Math.abs(Math.sin(i * 1.7)) * 2.2
-    const z = centerZ + side * lateral
-    const rockX = x + Math.sin(i * 2.4) * 1.8
-    if (isInCanyonForestReplacementRange(rockX)) continue
-
-    const radius = 0.7 + (i % 4) * 0.22
-    const scaleY = 0.55 + (i % 4) * 0.18
-    const groundY = sampleCanyonHeight(rockX, z)
-    const rock = new THREE.Mesh(
-      new THREE.DodecahedronGeometry(radius, 0),
-      rockMat,
-    )
-    rock.position.set(rockX, groundY + radius * scaleY * 0.68, z)
-    rock.scale.set(1.3 + (i % 3) * 0.5, scaleY, 0.9 + (i % 5) * 0.25)
-    rock.rotation.set(i * 0.37, i * 0.71, i * 0.19)
-    rock.castShadow = false
-    rock.receiveShadow = true
-    scene.add(rock)
-
-    if (i % 2 === 0) {
-      const grassX = x + Math.cos(i) * 2.1
-      const grassZ = centerZ - side * (CANYON.walkHalfWidth + 1.5 + (i % 4))
-      const grassHeight = 1.1 + (i % 4) * 0.2
-      const grass = new THREE.Mesh(new THREE.ConeGeometry(0.28 + (i % 3) * 0.08, grassHeight, 5), grassMat)
-      grass.position.set(grassX, sampleCanyonHeight(grassX, grassZ) + grassHeight * 0.5, grassZ)
-      grass.rotation.y = i * 0.53
-      grass.castShadow = false
-      scene.add(grass)
-    }
-  }
-}
-
-function buildCanyon(scene, collidables) {
-  buildCanyonDetails(scene)
-
-  const markerMat = new THREE.MeshStandardMaterial({ color: 0x262728, roughness: 0.95 })
-  for (let i = 0; i < 20; i++) {
-    const t = i / 19
-    const x = THREE.MathUtils.lerp(CANYON.startX - 10, CANYON.endX + 14, t)
-    if (isInCanyonForestReplacementRange(x)) continue
-
-    const z = canyonCenterZ(x)
-    const side = i % 2 === 0 ? -1 : 1
-    const pillarZ = z + side * (CANYON.wallHalfGap + 14 + (i % 4) * 2.2)
-    const pillarHeight = 4.2 + (i % 5) * 1.1
-    const pillar = new THREE.Mesh(new THREE.ConeGeometry(1.4 + (i % 3) * 0.45, pillarHeight, 6), markerMat)
-    pillar.position.set(x, sampleCanyonHeight(x, pillarZ) + pillarHeight * 0.5 - 0.18, pillarZ)
-    pillar.rotation.set(0.15 * side, (i * 0.83) % (Math.PI * 2), -0.08 * side)
-    pillar.castShadow = false
-    pillar.receiveShadow = true
-    scene.add(pillar)
-  }
-}
-
 // ── 主函数 ────────────────────────────────────────────
 
 export function createMap(scene, { onStaticModelReady = null } = {}) {
@@ -5925,6 +5883,9 @@ export function createMap(scene, { onStaticModelReady = null } = {}) {
   const terrainController = createHeightmapTerrain(scene, {
     material: groundMat,
     size: WORLD_SIZE,
+    heightmapSize: WORLD_SIZE,   // 高度图仍按 1600 映射中心 ±800（旧图不变）
+    extendXNeg: 1600,            // 网格向 −X 外扩 ~1600m（西）
+    extendZNeg: 1600,            // 网格向 −Z 外扩 ~1600m（南）
     chunkSize: TERRAIN_CHUNK_SIZE,
     chunkSegments: TERRAIN_CHUNK_SEGMENTS,
     activeRadius: TERRAIN_ACTIVE_RADIUS,
@@ -5955,6 +5916,7 @@ export function createMap(scene, { onStaticModelReady = null } = {}) {
     ],
     heightModifiers: [
       applyLargeWorldHeight,
+      applyExtendedRegionHeight,
       applyLargeRiverValleyHeight,
       applySnowMountainHeight,
       applyHeroRiverHeight,

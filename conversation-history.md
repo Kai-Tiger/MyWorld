@@ -4553,3 +4553,25 @@
 ### 备注
 - 持久记忆已更新：`reference_game_debug_hook.md`（调试钩子）、`project_river_terrain_tuning.md`（参数与未决项）。
 - 未决/范围外：草丛、全局光照、`createDistantTerrainProxyMaterial` 一个与河流无关的既有着色器编译报错（MeshBasicMaterial 引用 `objectNormal`）。
+
+## 2026-06-24 雪山山脚平缓化（探索 + 切底软化交付）
+
+目标：让雪峰朝玩家（南）一侧的"竖条幕布墙/陡山脚"像参考图那样平缓，**保住峰高**。代码集中在 `src/scene/map.js` 的 `applySnowMountainHeight()` 与 `SNOW_PEAKS`。
+
+### 关键定性结论（多轮实测）
+- **山面陡度 = 峰高 ÷ 峰到山脚水平距离**。雪峰 ~190–315m。竖条幕布墙是 >80° 近垂直面的渲染拉丝。
+- **竖墙主因之一：切底 `mountainLift - 100`**——把穹顶下半段缓坡削掉，山从 100m 等高线突兀冒出。
+- **英雄河源头锚定在雪峰**（`HERO_RIVER_CONTROL` 起点 (-575,560) 紧贴 peak1）；河从雪峰流向东南，沿峰群南/东南山脚切出谷地 → 南面山脚就是这条河谷，峰不能移。
+- massif（4 峰 + 5 山脊 + 多层河流下切）高度耦合。实测反效果：
+  - 方向性放宽只能修东/侧面（开阔），修不了玩家正对的南面（被河谷卡死）。
+  - 整体北移 + 加宽并重叠 → 簇峰 `Math.max` 并集成"高原 + 连续陡边墙"，更糟（见 mtn-A-1.jpeg）。
+  - 加宽宽谷（`applyLargeRiverValleyHeight` valleyWidth）→ 抬高山脚基底 → 峰顶整体升高，反向。
+
+### 已交付（低风险、零河流/世界改动，未提交在工作树）
+- 切底 `-100 → -35`，`SNOW_PEAKS` 各峰 `h` 同步 **减 65** 补偿：净峰顶不变（`base+h-100 == base+(h-65)-35`）。h: 315/255/232/188 → 250/190/167/123。
+- 效果：非河谷侧（peak1/peak3）山脚明显变缓；峰高保持（实测 337/258/280/243 ≈ 原 341/259/282/243）。见 mtn-final.jpeg。
+
+### 已知未解决
+- **东南沿英雄河峡谷一侧仍为陡墙**：河流下切的峡谷壁，切底软化覆盖不到。软化它需重做已提交、精调的多层河流下切（耦合极深，本轮参数迭代未能可靠收敛）→ 建议作为可逐项插桩的独立任务，或改用降峰高（路径 B）一步到位。
+- 需求文档：`docs/requirements/2026-06-24-snow-mountain-gentle-foot.md`。回退：`git checkout src/scene/map.js`。
+- 验证用 `window.__MY_GAME_DEBUG__`（`getTerrainHeight` 峰心/南向剖面采样、`sampleRiver` 源头连续性）+ Playwright 同机位截图。

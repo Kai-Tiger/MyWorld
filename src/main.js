@@ -1,6 +1,6 @@
 import * as THREE from 'three'
 import { createScene } from './scene/scene.js'
-import { createMap, MINE_CAVE, isInsideMineCaveUndergroundPath } from './scene/map.js'
+import { createMap, MINE_CAVE, isInsideMineCaveUndergroundPath, setTreeColorGrade } from './scene/map.js'
 import { createLighting } from './scene/lighting.js'
 import { createPlayer } from './entities/player.js'
 import { createFBXNPC } from './entities/npcFBX.js'
@@ -732,6 +732,7 @@ if (import.meta.env.DEV) {
       thirdPerson.distance = THREE.MathUtils.clamp(distance, thirdPerson.minDistance, thirdPerson.maxDistance)
       thirdPerson.syncToTarget(player.getPosition())
     },
+    setTreeColorGrade,
   }
 }
 

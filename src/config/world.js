@@ -1,25 +1,18 @@
 export const WORLD_SIZE = 1600
 export const WORLD_HALF_SIZE = WORLD_SIZE * 0.5
 
+// 世界向 −X / −Z 各外扩 ~1600m（保留 +X 城堡 / +Z 雪山边）；网格在 heightmapTerrain 解耦扩展
 export const OUTDOOR_MOUNTAIN_BOUNDS = {
-  minX: -760,
+  minX: -2360,
   maxX: 760,
-  minZ: -760,
+  minZ: -2360,
   maxZ: 760,
 }
 
-export const OUTDOOR_COLLISION_HALF_SIZE = 820
+// 碰撞盒对称：调大到能覆盖 −2360；+X/+Z 侧仍被 +760 山墙地形挡住，无副作用
+export const OUTDOOR_COLLISION_HALF_SIZE = 2420
 export const MOUNTAIN_FALL_FLOOR_Y = -180
 export const MOUNTAIN_FALL_DEATH_Y = -120
-
-export const CANYON = {
-  startX: -34,
-  endX: -320,
-  centerZ: -8,
-  walkHalfWidth: 6.8,
-  wallHalfGap: 13.5,
-  wallThickness: 26,
-}
 
 // ════════════════════════════════════════════════════
 //  世界布局配置 — 直接编辑这里调整地图元素位置
@@ -61,6 +54,15 @@ export const hills = [
   { x:  5, z: -26 },   // 南侧山丘
   { x: 28, z:  12 },   // 东侧山丘
 ]
+
+// ── GLB 模型树调色（色相/饱和度/明度）──────────────────
+// 统一作用于 forest_pack 系列模型树（散布树 + 手工林地树/灌木）。
+// saturation=1, brightness=1, hueShift=0 时与原始贴图完全一致（恒等）。
+export const TREE_COLOR_GRADE = {
+  saturation: 1.0,  // 1=原样，<1 去饱和，>1 更艳
+  brightness: 1.0,  // 整体明度乘子
+  hueShift: 0.0,    // 色相旋转（弧度，0=不变）
+}
 
 // ── 敌对 NPC（追击/攻击）──────────────────────────────
 export const enemyNpcs = [
