@@ -29,13 +29,15 @@ const MINE_CAVE_COLLIDER_MANIFEST_URL = '/models/mine_cave/mine_cave_colliders.j
 const OUTDOOR_LANDMARK_MODEL_URL = '/models/outdoor_landmarks/outdoor_landmarks.glb'
 const OUTDOOR_LANDMARK_MANIFEST_URL = '/models/outdoor_landmarks/outdoor-landmarks-manifest.json'
 const SPAWN_GRASS_MODEL_VARIANTS = [
-  { name: 'dark', url: '/models/grass/grass_clump_low.glb' },
-  { name: 'fresh', url: '/models/grass/grass_clump_fresh.glb' },
-  { name: 'dry', url: '/models/grass/grass_clump_dry.glb' },
+  { name: 'fresh2', url: '/models/grass/grass_clump_fresh.glb', lodUrl: '/models/grass/grass_clump_fresh_lod.glb' },
+  { name: 'fresh', url: '/models/grass/grass_clump_fresh.glb', lodUrl: '/models/grass/grass_clump_fresh_lod.glb' },
+  { name: 'dry', url: '/models/grass/grass_clump_dry.glb', lodUrl: '/models/grass/grass_clump_dry_lod.glb' },
 ]
+// 模型草距离 LOD：块中心到玩家水平距离 < 此值用 3 段高模，否则换 2 段低模（仅切 geometry 指针）
+const GRASS_LOD_NEAR_DIST = 60
+const GRASS_LOD_INTERVAL = 0.2   // LOD 评估节流（秒）
 const SPAWN_GRASS_60_REF_MODEL_URL = '/models/grass/grass_clump_60_ref.glb'
 const SPAWN_GRASS_60_REF_PLACEMENT = { x: 2.5, z: 42, rotY: 0.35, scale: 1.15 }
-const DISTANT_GRASS_CARD_TEXTURE_URL = '/textures/generated/model_grass_card.png'
 const GROUND_LEAF_TEXTURES = ['/textures/leaf1.png', '/textures/leaf2.png']
 const TERRAIN_CHUNK_SIZE = 128
 // 顶点间距 128/72≈1.78m（原 56≈2.29m），让网格能更好表现河岸坡度，减少人物/水面穿模
@@ -69,26 +71,37 @@ const LOCAL_MODEL_GRASS_PILES = [
   { x: OLD_CHURCH_RUINS_PLACEMENT.x + 9.0, z: OLD_CHURCH_RUINS_PLACEMENT.z - 5.5, seed: 11200 },
   { x: OLD_CHURCH_RUINS_PLACEMENT.x + 1.0, z: OLD_CHURCH_RUINS_PLACEMENT.z + 11.0, seed: 11300 },
 ]
-const LOCAL_MODEL_GRASS_Y_OFFSET = -0.06
+const LOCAL_MODEL_GRASS_Y_OFFSET = -0.10
+// 三层模型草统一的形状调整：竖向压扁 + 横向展开 → 叶片更平贴、叶尖间距更大，覆盖更好（不改 glb 几何）
+const MODEL_GRASS_FLATTEN_Y = 0.6   // 乘到 scaleY：变矮变平，减小叶片与地面夹角
+const MODEL_GRASS_SPREAD_XZ = 1.4   // 乘到 scaleX/scaleZ：叶片横向展开、间距变大
 const LOCAL_MODEL_GRASS_SPACING = 0.28
 const LOCAL_MODEL_GRASS_JITTER = 0.30
 const LOCAL_MODEL_GRASS_SHAPE_SEGMENTS = 10
+// 河岸生态草：沿主河 + 全部支流两岸铺草。生态分区：坡顶平台密、河岸斜坡空、露出的干河床稀疏。
+const RIVERSIDE_GRASS_ALONG_SPACING = 0.5    // 沿河中心线行走步距（米）
+const RIVERSIDE_GRASS_LATERAL_SPACING = 0.48 // 坡顶带横向网格步距（米）
+const RIVERSIDE_GRASS_TERRACE_WIDTH = 14.0   // 坡顶平台铺草带宽（米），向外延伸覆盖更大地面
+const RIVERSIDE_GRASS_TERRACE_PLATEAU = 0.30 // 内侧满密度占带宽比例，其后向外自然渐稀淡出
+const RIVERSIDE_GRASS_SLOPE_MARGIN = 0.5     // 坡顶让出余量，避开下切斜坡肩（米）
+const RIVERSIDE_GRASS_BED_PROB = 0.05        // 干河床稀疏几丛的放置概率
+const RIVERSIDE_GRASS_BED_SAMPLES = 4        // 每 station 在干河床横向尝试的采样数
+const RIVERSIDE_GRASS_JITTER = 0.55          // 位置抖动比例（相对步距）
+const RIVERSIDE_GRASS_CHUNK_LEN = 40         // 空间分块边长（米），用于视锥剔除
+const RIVERSIDE_GRASS_MAX_INSTANCES = 140000 // 实例上限，超出截断并打印丢弃数
+const RIVERSIDE_GRASS_MAX_GROUND_RISE = 0.85 // 局部坡度守卫：1m 内地面抬升超过此值则跳过（防爬谷壁）
+// 草甸草：把整片低谷地面（地面高度 ≤ 7.5m）铺满 3D 模型草，原裸沙地变草地。河岸密草层保留为近水细节层。
+const MEADOW_GRASS_SPACING = 0.85            // 全场网格步距（米），约 1 丛/0.7m²（高密铺满）
+const MEADOW_GRASS_JITTER = 0.7              // 位置抖动比例（相对步距），打散网格感
+const MEADOW_GRASS_CHUNK_LEN = 64            // 空间分块边长（米），比河岸大以压低 draw call
+const MEADOW_GRASS_MAX_INSTANCES = 750000    // 实例上限，超出截断并打印丢弃数
+const MEADOW_GRASS_MAX_GROUND_Y = 26         // 草甸高度上限（米）：覆盖整个高度图丘陵（~24m），陡坡/雪峰靠坡度守卫排除
+const MEADOW_GRASS_MAX_GROUND_RISE = 0.85    // 局部坡度守卫：1m 内地面抬升超过此值则跳过（防爬陡坎/谷壁）
+const MEADOW_GRASS_RIVER_HANDOFF = 16.5      // 距河道边缘 < 此值跳过：排除水面/斜坡，并在河岸层密度淡出到 0 处接手
 const GRASS_FIELD_BOUNDS = OUTDOOR_MOUNTAIN_BOUNDS
-const DISTANT_GRASS_BOUNDS = {
-  minX: -WORLD_SIZE * 0.5,
-  maxX: WORLD_SIZE * 0.5,
-  minZ: -WORLD_SIZE * 0.5,
-  maxZ: WORLD_SIZE * 0.5,
-}
-const DISTANT_GRASS_PATCH_COUNT = 360000
-const DISTANT_GRASS_PLANES_PER_PATCH = 2
-const DISTANT_GRASS_MAX_GROUND_Y = 7.5
-const DISTANT_GRASS_CELL_SIZE = 24
-const DISTANT_GRASS_CULL_PADDING = 4
-const DISTANT_GRASS_GRID_JITTER = 0.20
+const DISTANT_GRASS_MAX_GROUND_Y = 7.5    // 地表高于此值不铺草（草甸/坡度守卫共用）
 const GRASS_CAMPFIRE_CLEAR_RADIUS = 4.5
 const MODEL_GRASS_FOOTPRINT_PADDING = 2.5
-const GRASS_CARD_CLEAR_PADDING = 2.5
 const MINE_CAVE_MODEL_GRASS_PADDING = 4
 const MINE_CAVE_CARD_GRASS_PADDING = 4
 const GRASS_CAMPFIRE_CLEARINGS = [
@@ -97,7 +110,6 @@ const GRASS_CAMPFIRE_CLEARINGS = [
   { x: -18, z: -2 },
   { x: 22, z: 22 },
 ]
-const DISTANT_GRASS_Y_OFFSET = 0.03
 const RANDOM_FOREST_TREE_COUNT = 120
 const RANDOM_FOREST_BOUNDS = { minX: -118, maxX: 112, minZ: -92, maxZ: 86 }
 const RANDOM_FOREST_TREE_MIN_SPACING = 7.5
@@ -113,7 +125,6 @@ const FOREST_GROVE_TREE_TYPES = [
   { file: 'tree_04.glb', scale: 0.84, r: 1.05 },
 ]
 const FOREST_GROVE_SHRUB_TYPES = [
-  { file: 'background_tree_09.glb', scale: 0.75 },
   { file: 'background_tree_10.glb', scale: 0.70 },
   { file: 'background_tree_11.glb', scale: 0.90 },
   { file: 'background_tree_12.glb', scale: 0.85 },
@@ -128,6 +139,32 @@ const FOREST_GROVE_ROCK_TYPES = [
 ]
 const FOREST_TREE_COLLIDER_SCALE = 0.6
 const FOREST_ROCK_COLLIDER_SCALE = 0.85
+
+// ── 世界级实例化树木散布（铺满全世界，复用草地分块/实例化框架）──
+const FOREST_GROVE_HEIGHT_BOOST = 1.8        // 手工林地树/灌木同步加高（岩石不受影响）
+const WORLD_TREE_CELL_LEN = 128              // 空间分块边长（米）：每 (cell×模型×子件) 一个 InstancedMesh
+const WORLD_TREE_SPACING = 6.5               // 撒点网格步距（米）
+const WORLD_TREE_JITTER = 0.75               // 位置抖动比例（相对步距）
+const WORLD_TREE_MAX_SLOPE = 1.3             // 每 1.5m 地面起伏上限（超出=崖/陡坡，不种）
+const WORLD_TREE_TREELINE_LO = 46            // 树线软带下沿（开始变稀）
+const WORLD_TREE_TREELINE_HI = 64            // 树线软带上沿（以上裸岩/雪，不种）
+const WORLD_TREE_RIVER_HANDOFF = 6           // 距水道边缘 <此值 不种（避水/河岸）
+const WORLD_TREE_HEIGHT_BOOST = 1.8          // 散布树高度倍数（与手工林地一致）
+const WORLD_TREE_MAX_INSTANCES = 38000       // 总实例上限（护栏）
+const WORLD_TREE_VISIBLE_DIST = 360          // cell 可见距离（外则隐藏，限制 overdraw）
+const WORLD_TREE_CLUSTER_THRESHOLD = 0.4     // 林斑噪声阈值（下方=林间空地）
+const WORLD_TREE_BUILD_MS_PER_FRAME = 5      // 增量构建每帧预算（毫秒）
+const WORLD_TREE_VIS_INTERVAL = 0.25         // cell 可见性评估节流（秒）
+const WORLD_TREE_THIN = 0.10                 // 确定性概率剔除比例（减少 ~10% 树）
+const WORLD_TREE_GRASS_PER_TREE = 6          // 每棵树脚下补的草簇数
+const WORLD_TREE_GRASS_RADIUS = 2.6          // 树下补草散布半径（米）
+const WORLD_TREE_MODELS = [                  // 复用 forest_pack 模型 + 基准缩放
+  { file: 'tree_01.glb', scale: 0.42 },
+  { file: 'tree_02.glb', scale: 0.50 },
+  { file: 'tree_03.glb', scale: 0.88 },
+  { file: 'tree_04.glb', scale: 0.84 },
+  { file: 'background_tree_11.glb', scale: 0.90 },
+]
 const FOREST_CASTLE_GATE_CLEARING = { minX: 39, maxX: 52, minZ: -11, maxZ: 4 }
 const CANYON_FOREST_REPLACEMENT = { minX: -120, maxX: -40, origin: { x: 0, z: 0 } }
 const CASTLE_APPROACH_MOUNDS = [
@@ -172,7 +209,6 @@ const CASTLE_NORTH_HIGHLAND_PLACEMENTS = [
   { file: 'tree_01.glb', dx: 51.0, dz: 38.0, rotY: 0.6, scale: 0.46, r: 0.86 },
   { file: 'tree_02.glb', dx: 52.0, dz: 34.0, rotY: 2.1, scale: 0.52, r: 0.78 },
   { file: 'tree_04.glb', dx: 63.0, dz: 27.5, rotY: 4.4, scale: 0.82, r: 0.86 },
-  { file: 'background_tree_09.glb', dx: 47.0, dz: 24.5, rotY: 1.2, scale: 0.76 },
   { file: 'background_tree_11.glb', dx: 58.0, dz: 31.0, rotY: 3.8, scale: 0.92 },
   { file: 'background_tree_13.glb', dx: 61.0, dz: 21.0, rotY: 5.2, scale: 0.70 },
   { file: 'tree_01.glb', dx: 70.0, dz: 32.0, rotY: 2.9, scale: 0.44, r: 0.84 },
@@ -251,15 +287,6 @@ const HERO_RIVER_CONTROL = [
 // 采样密度 2：平滑曲线（消除折角）同时把每顶点的全路径扫描成本压到基线的 ~2 倍。
 // 此路径同时用于碳刻/碰撞/水面网格中心线，并与地形着色器 GLSL 湿泥带（同为密度 2）精确对齐。
 const HERO_RIVER_POINTS = resampleRiverPath(HERO_RIVER_CONTROL, 2)
-const CENTER_WEST_STREAM_CONTROL = [
-  { x: -340, z: -44 },
-  { x: -310, z: -30 },
-  { x: -282, z: -8 },
-  { x: -258, z: 2 },
-  { x: -226, z: 18 },
-  { x: -194, z: 46 },
-]
-const CENTER_WEST_STREAM_POINTS = resampleRiverPath(CENTER_WEST_STREAM_CONTROL, 3)
 const RIVER_BRANCHES = [
   {
     id: 'north_creek',
@@ -309,15 +336,16 @@ const RIVER_BRANCHES = [
   },
   {
     id: 'central_north_rill',
+    // 源头从高沙丘 (-90,170)/(-128,112)(床≈+4~5) 裁掉，起点挪进低地形 (-133,100)(床≈-2)，
+    // 消除从 +4 一步跌进 -2 河床的 57° 垂直跌水水片。
     points: [
-      { x: -90, z: 170 },
-      { x: -128, z: 112 },
+      { x: -133, z: 100 },
       { x: -160, z: 40 },
       { x: -160, z: -52 },
     ],
-    halfWidthStart: 1.05,
-    halfWidthEnd: 2.35,
-    sourceLift: 3.5,
+    halfWidthStart: 1.4,
+    halfWidthEnd: 2.7,
+    sourceLift: 1.0,
   },
 ]
 // 支流控制点同样平滑；保留原控制点供地形着色器低密度生成 GLSL 采样器
@@ -356,12 +384,12 @@ function emitTerrainRiverGLSL(fnName, paths) {
 // 性能：GLSL 逐像素遍历这些线段，是每帧全屏地形的恒定开销。只让主河平滑（用户实际看到的那条），
 // 且用较低密度；支流/中心溪的泥带回退到原控制折线（细流，弯道回退不可见），把段数拉回接近基线。
 const TERRAIN_RIVER_SAMPLE_GLSL = emitTerrainRiverGLSL('terrainRiverSample', [resampleRiverPath(HERO_RIVER_CONTROL, 2)])
-const TERRAIN_CENTER_WEST_STREAM_SAMPLE_GLSL = emitTerrainRiverGLSL('terrainCenterWestStreamSample', [CENTER_WEST_STREAM_CONTROL])
 const TERRAIN_BRANCH_SAMPLE_GLSL = emitTerrainRiverGLSL('terrainBranchSample', RIVER_BRANCHES.map(b => b.controlPoints))
 const EROSION_GULLIES = [
   { id: 'nw_terrace', wet: true, width: 4.2, influence: 34, depth: 2.8, points: [{ x: -250, z: 180 }, { x: -220, z: 138 }, { x: -171, z: 100 }, { x: -128, z: 70 }] },
-  { id: 'west_ridge', wet: false, width: 5.0, influence: 38, depth: 3.2, points: [{ x: -330, z: 155 }, { x: -260, z: 116 }, { x: -205, z: 82 }, { x: -160, z: 40 }] },
-  { id: 'central_fan', wet: false, width: 4.8, influence: 36, depth: 2.9, points: [{ x: -50, z: 155 }, { x: -82, z: 110 }, { x: -128, z: 75 }, { x: -160, z: 40 }] },
+  // 干沟末端从汇聚节点 (-160,40) 拉回上坡、扇开，避免紧贴 rill 水潭缘再切出尖角沙楔
+  { id: 'west_ridge', wet: false, width: 5.0, influence: 38, depth: 3.2, points: [{ x: -330, z: 155 }, { x: -260, z: 116 }, { x: -205, z: 82 }, { x: -182, z: 52 }] },
+  { id: 'central_fan', wet: false, width: 4.8, influence: 36, depth: 2.9, points: [{ x: -50, z: 155 }, { x: -82, z: 110 }, { x: -128, z: 75 }, { x: -150, z: 60 }] },
   { id: 'center_left', wet: true, width: 3.8, influence: 30, depth: 2.4, points: [{ x: -210, z: 60 }, { x: -180, z: 20 }, { x: -160, z: -52 }] },
   { id: 'center_right', wet: false, width: 4.4, influence: 34, depth: 2.7, points: [{ x: -22, z: 132 }, { x: -30, z: 70 }, { x: -42, z: -72 }] },
   { id: 'east_north', wet: true, width: 4.2, influence: 32, depth: 2.5, points: [{ x: 80, z: 150 }, { x: 145, z: 84 }, { x: 220, z: 70 }] },
@@ -370,7 +398,9 @@ const EROSION_GULLIES = [
   { id: 'southwest_furrow', wet: false, width: 4.6, influence: 36, depth: 2.9, points: [{ x: -300, z: -180 }, { x: -230, z: -130 }, { x: -170, z: -150 }] },
   { id: 'south_channel', wet: true, width: 3.8, influence: 30, depth: 2.5, points: [{ x: -80, z: -210 }, { x: -88, z: -116 }] },
   { id: 'far_west', wet: false, width: 5.4, influence: 42, depth: 3.4, points: [{ x: -520, z: 150 }, { x: -440, z: 90 }, { x: -430, z: 20 }] },
-  { id: 'old_center', wet: true, width: 3.6, influence: 30, depth: 2.2, points: [{ x: -235, z: 140 }, { x: -171, z: 100 }, { x: -160, z: 40 }] },
+  // old_center 源头从高沙丘 (-235,140)/(-171,100)(床≈+5~-2.5) 裁掉，起点挪进低地形 (-181,106)(床≈-2.5)，
+  // 消除 61° 垂直跌水；sourceLift 显式压低，避免解析水位在源头架高。
+  { id: 'old_center', wet: true, width: 3.6, influence: 30, depth: 2.2, sourceLift: 0.8, points: [{ x: -181, z: 106 }, { x: -168, z: 78 }, { x: -160, z: 40 }] },
 ]
 function makePathBounds(points, padding = 0) {
   let minX = Infinity
@@ -451,11 +481,31 @@ function localGrassPatchEdgeScale(patch, dx, dz) {
   return THREE.MathUtils.lerp(1, 0.45, Math.max(outerEdgeT, innerEdgeT))
 }
 
-function spawnGrassVariantIndex(seed) {
-  const t = forestPlacementNoise(seed + 10)
-  if (t < 0.5) return 0
-  if (t < 0.75) return 1
-  return 2
+// ── 草色聚类：低频平滑空间场，使绿/枯成片而非逐株随机噪点 ──
+function _grassHash2(ix, iz) {
+  return forestPlacementNoise(ix * 127.1 + iz * 311.7)
+}
+function valueNoise2(x, z) {
+  const ix = Math.floor(x), iz = Math.floor(z)
+  const fx = x - ix, fz = z - iz
+  const u = fx * fx * (3 - 2 * fx), v = fz * fz * (3 - 2 * fz)
+  const a = _grassHash2(ix, iz), b = _grassHash2(ix + 1, iz)
+  const c = _grassHash2(ix, iz + 1), d = _grassHash2(ix + 1, iz + 1)
+  return THREE.MathUtils.lerp(THREE.MathUtils.lerp(a, b, u), THREE.MathUtils.lerp(c, d, u), v)
+}
+// 0..1 平滑"干燥度"场（~12m 主特征 + 细节）→ 黄枯成片
+function grassDryAt(x, z) {
+  const n = valueNoise2(x * 0.085, z * 0.085) * 0.68
+          + valueNoise2(x * 0.19 + 41.3, z * 0.19 + 17.7) * 0.32
+  return THREE.MathUtils.clamp(n, 0, 1)
+}
+// 按空间聚类选变体：干燥场高的成片区出黄枯(2)，其余绿(0/1)；freshWeight 高(近水/低地)更绿
+function grassClusterVariant(x, z, seed, freshWeight = 1) {
+  const dry = grassDryAt(x, z)
+  const thr = 0.75 - (1 - THREE.MathUtils.clamp(freshWeight, 0, 1)) * 0.12   // 基数 +0.07：枯黄面积减半
+  const jitter = (forestPlacementNoise(seed + 10) - 0.5) * 0.10   // 簇边软化
+  if (dry + jitter > thr) return 2                                // 成簇黄枯（少数）
+  return forestPlacementNoise(seed + 11) < 0.62 ? 0 : 1           // 绿（两种 fresh 变体）
 }
 
 function createSpawnGrassPlacements() {
@@ -477,7 +527,7 @@ function createSpawnGrassPlacements() {
       edgeScale: Number(edgeScale.toFixed(3)),
       tiltX: Number(THREE.MathUtils.lerp(-0.16, 0.16, forestPlacementNoise(seed + 7)).toFixed(3)),
       tiltZ: Number(THREE.MathUtils.lerp(-0.16, 0.16, forestPlacementNoise(seed + 8)).toFixed(3)),
-      variantIndex: spawnGrassVariantIndex(seed),
+      variantIndex: grassClusterVariant(x, z, seed),
     })
   }
 
@@ -539,12 +589,6 @@ function shouldSkipModelGrassPlacement(x, z) {
   return getGroundHeight(x, z) > DISTANT_GRASS_MAX_GROUND_Y
 }
 
-function shouldSkipDistantGrassPlacement(x, z) {
-  if (isNearGrassCampfire(x, z, GRASS_CAMPFIRE_CLEAR_RADIUS + GRASS_CARD_CLEAR_PADDING)) return true
-  if (isInsideMineCaveClearing(x, z, MINE_CAVE_CARD_GRASS_PADDING)) return true
-  return getGroundHeight(x, z) > DISTANT_GRASS_MAX_GROUND_Y
-}
-
 function findFirstMesh(root) {
   let firstMesh = null
   root.traverse((child) => {
@@ -556,6 +600,49 @@ function findFirstMesh(root) {
 let _spawnGrassWindUniforms = []
 let _spawnGrassInstancedMeshes = []
 const _spawnGrassDummy = new THREE.Object3D()
+// 距离 LOD 管理的分块草 mesh（河岸/草甸）；每项 userData.grassLod = { hi, lo, cur }
+let _grassLodMeshes = []
+let _grassLodTimer = 0
+
+// 同一变体的高/低模 geometry 只解析一次；返回 { hi, lo }
+function loadGrassVariantGeometries(variant) {
+  return Promise.all([
+    loadGLTF(variant.url),
+    variant.lodUrl ? loadGLTF(variant.lodUrl) : Promise.resolve(null),
+  ]).then(([hiGltf, loGltf]) => {
+    const hi = hiGltf ? findFirstMesh(hiGltf.scene)?.geometry ?? null : null
+    const lo = loGltf ? findFirstMesh(loGltf.scene)?.geometry ?? null : null
+    return { hi, lo: lo ?? hi }
+  })
+}
+
+// 给分块草 mesh 登记 LOD 高/低模，纳入逐帧距离切换
+function registerGrassLodMesh(inst, geometries) {
+  if (!inst || !geometries || !geometries.lo || geometries.lo === geometries.hi) return
+  inst.userData.grassLod = { hi: geometries.hi, lo: geometries.lo, cur: 'hi' }
+  _grassLodMeshes.push(inst)
+}
+
+// 按块中心到玩家水平距离切换 geometry（仅在档位变化时赋值，避免每帧 churn）
+function updateGrassLod(playerPosition) {
+  if (!playerPosition || !_grassLodMeshes.length) return
+  const px = playerPosition.x
+  const pz = playerPosition.z
+  const nearSq = GRASS_LOD_NEAR_DIST * GRASS_LOD_NEAR_DIST
+  for (let i = 0; i < _grassLodMeshes.length; i++) {
+    const inst = _grassLodMeshes[i]
+    const lod = inst.userData.grassLod
+    const c = inst.boundingSphere?.center
+    if (!lod || !c) continue
+    const dx = c.x - px
+    const dz = c.z - pz
+    const want = (dx * dx + dz * dz) < nearSq ? 'hi' : 'lo'
+    if (want !== lod.cur) {
+      inst.geometry = want === 'hi' ? lod.hi : lod.lo
+      lod.cur = want
+    }
+  }
+}
 
 function configureSpawnGrassMaterial(material) {
   material.side = THREE.DoubleSide
@@ -591,7 +678,7 @@ function applySpawnGrassPlacements(inst, placements = createSpawnGrassPlacements
   placements.forEach(({ x, z, rotY, scaleX, scaleY, scaleZ, edgeScale, tiltX, tiltZ }, index) => {
     _spawnGrassDummy.position.set(x, getGroundHeight(x, z) + LOCAL_MODEL_GRASS_Y_OFFSET, z)
     _spawnGrassDummy.rotation.set(tiltX, rotY, tiltZ)
-    _spawnGrassDummy.scale.set(scaleX * edgeScale, scaleY * edgeScale, scaleZ * edgeScale)
+    _spawnGrassDummy.scale.set(scaleX * edgeScale * MODEL_GRASS_SPREAD_XZ, scaleY * edgeScale * MODEL_GRASS_FLATTEN_Y, scaleZ * edgeScale * MODEL_GRASS_SPREAD_XZ)
     _spawnGrassDummy.updateMatrix()
     inst.setMatrixAt(index, _spawnGrassDummy.matrix)
   })
@@ -609,114 +696,6 @@ function applySpawnGrassPlacements(inst, placements = createSpawnGrassPlacements
   inst.computeBoundingSphere()
 }
 
-function createDistantGrassCardMaterial() {
-  const texture = _roadTextureLoader.load(DISTANT_GRASS_CARD_TEXTURE_URL)
-  texture.colorSpace = THREE.SRGBColorSpace
-
-  return new THREE.MeshBasicMaterial({
-    color: 0xffffff,
-    map: texture,
-    alphaTest: 0.32,
-    depthWrite: true,
-    side: THREE.DoubleSide,
-  })
-}
-
-function setDistantGrassPatchMatrices(inst, patch) {
-  for (let plane = 0; plane < DISTANT_GRASS_PLANES_PER_PATCH; plane++) {
-    _spawnGrassDummy.position.set(patch.x, patch.y, patch.z)
-    _spawnGrassDummy.rotation.set(patch.leanX, patch.baseRotY + plane * Math.PI * 0.5, patch.leanZ)
-    _spawnGrassDummy.scale.set(patch.width, patch.height, 1)
-    _spawnGrassDummy.updateMatrix()
-    inst.setMatrixAt(patch.baseIndex + plane, _spawnGrassDummy.matrix)
-  }
-}
-
-function buildDistantGrassCards(scene) {
-  const geometry = new THREE.PlaneGeometry(1, 1, 1, 3)
-  geometry.translate(0, 0.5, 0)
-  const material = createDistantGrassCardMaterial()
-  const totalArea = (DISTANT_GRASS_BOUNDS.maxX - DISTANT_GRASS_BOUNDS.minX)
-    * (DISTANT_GRASS_BOUNDS.maxZ - DISTANT_GRASS_BOUNDS.minZ)
-  const patchSpacing = Math.sqrt(totalArea / DISTANT_GRASS_PATCH_COUNT)
-  const cols = Math.ceil((DISTANT_GRASS_BOUNDS.maxX - DISTANT_GRASS_BOUNDS.minX) / DISTANT_GRASS_CELL_SIZE)
-  const rows = Math.ceil((DISTANT_GRASS_BOUNDS.maxZ - DISTANT_GRASS_BOUNDS.minZ) / DISTANT_GRASS_CELL_SIZE)
-
-  for (let row = 0; row < rows; row++) {
-    for (let col = 0; col < cols; col++) {
-      const minX = DISTANT_GRASS_BOUNDS.minX + col * DISTANT_GRASS_CELL_SIZE
-      const minZ = DISTANT_GRASS_BOUNDS.minZ + row * DISTANT_GRASS_CELL_SIZE
-      const maxX = Math.min(minX + DISTANT_GRASS_CELL_SIZE, DISTANT_GRASS_BOUNDS.maxX)
-      const maxZ = Math.min(minZ + DISTANT_GRASS_CELL_SIZE, DISTANT_GRASS_BOUNDS.maxZ)
-      const startGridX = Math.floor(minX / patchSpacing)
-      const endGridX = Math.ceil(maxX / patchSpacing) - 1
-      const startGridZ = Math.floor(minZ / patchSpacing)
-      const endGridZ = Math.ceil(maxZ / patchSpacing) - 1
-      const candidateCount = Math.max(1, (endGridX - startGridX + 1) * (endGridZ - startGridZ + 1))
-      const count = candidateCount * DISTANT_GRASS_PLANES_PER_PATCH
-      const inst = new THREE.InstancedMesh(geometry, material, count)
-      inst.name = `distant_grass_card_cell_${col}_${row}`
-      inst.castShadow = false
-      inst.receiveShadow = false
-      inst.frustumCulled = true
-
-      let instanceIndex = 0
-      const jitter = patchSpacing * DISTANT_GRASS_GRID_JITTER
-      for (let gridZ = startGridZ; gridZ <= endGridZ; gridZ++) {
-        for (let gridX = startGridX; gridX <= endGridX && instanceIndex < count; gridX++) {
-          const seed = 71000 + gridX * 100003 + gridZ * 4099
-          const x = (gridX + 0.5) * patchSpacing + (forestPlacementNoise(seed + 1) - 0.5) * jitter
-          const z = (gridZ + 0.5) * patchSpacing + (forestPlacementNoise(seed + 2) - 0.5) * jitter
-          if (
-            x < DISTANT_GRASS_BOUNDS.minX || x > DISTANT_GRASS_BOUNDS.maxX
-            || z < DISTANT_GRASS_BOUNDS.minZ || z > DISTANT_GRASS_BOUNDS.maxZ
-          ) continue
-          if (shouldSkipDistantGrassPlacement(x, z)) continue
-
-          const groundY = getGroundHeight(x, z)
-
-          const y = groundY + DISTANT_GRASS_Y_OFFSET
-          const baseRotY = forestPlacementNoise(seed + 3) * Math.PI * 2
-          const width = THREE.MathUtils.lerp(0.72, 1.10, forestPlacementNoise(seed + 4))
-          const height = THREE.MathUtils.lerp(0.62, 1.05, forestPlacementNoise(seed + 5))
-          const leanX = THREE.MathUtils.lerp(-0.08, 0.08, forestPlacementNoise(seed + 6))
-          const leanZ = THREE.MathUtils.lerp(-0.08, 0.08, forestPlacementNoise(seed + 7))
-          const patch = {
-            x,
-            y,
-            z,
-            baseRotY,
-            width,
-            height,
-            leanX,
-            leanZ,
-            baseIndex: instanceIndex,
-          }
-
-          setDistantGrassPatchMatrices(inst, patch)
-          instanceIndex += DISTANT_GRASS_PLANES_PER_PATCH
-        }
-      }
-
-      if (instanceIndex === 0) continue
-
-      for (; instanceIndex < count; instanceIndex++) {
-        _spawnGrassDummy.position.set(0, MOUNTAIN_FALL_FLOOR_Y - 10, 0)
-        _spawnGrassDummy.rotation.set(0, 0, 0)
-        _spawnGrassDummy.scale.set(0, 0, 0)
-        _spawnGrassDummy.updateMatrix()
-        inst.setMatrixAt(instanceIndex, _spawnGrassDummy.matrix)
-      }
-
-      inst.instanceMatrix.needsUpdate = true
-      inst.computeBoundingBox()
-      inst.computeBoundingSphere()
-      if (inst.boundingSphere) inst.boundingSphere.radius += DISTANT_GRASS_CULL_PADDING
-      scene.add(inst)
-    }
-  }
-}
-
 function isInsideCastleApproachClearing(x, z) {
   return x >= -8 && x <= 58 && z >= -26 && z <= 24
 }
@@ -724,6 +703,19 @@ function isInsideCastleApproachClearing(x, z) {
 function shouldSkipGroundDebrisPlacement(x, z) {
   if (!isInsideOutdoorMountainBounds(x, z, 0)) return true
   if (getGroundHeight(x, z) > GROUND_DEBRIS_MAX_GROUND_Y) return true
+  if (isNearGrassCampfire(x, z, GRASS_CAMPFIRE_CLEAR_RADIUS + GROUND_DEBRIS_CLEAR_PADDING)) return true
+  if (isInsideMineCaveClearing(x, z, MINE_CAVE_CARD_GRASS_PADDING + GROUND_DEBRIS_CLEAR_PADDING)) return true
+  if (isInsideCastleApproachClearing(x, z)) return true
+  if (x >= CANYON.endX && x <= CANYON.startX + 8) {
+    const dz = z - canyonCenterZ(x)
+    if (Math.abs(dz) <= CANYON.walkHalfWidth + 4.5) return true
+  }
+  return false
+}
+
+// 草甸专用排除：复用碎屑层的清场项，但不含 7.5m 高度门（高度由 MEADOW_GRASS_MAX_GROUND_Y 单独管，以铺满丘陵山坡）
+function shouldSkipMeadowGrassPlacement(x, z) {
+  if (!isInsideOutdoorMountainBounds(x, z, 0)) return true
   if (isNearGrassCampfire(x, z, GRASS_CAMPFIRE_CLEAR_RADIUS + GROUND_DEBRIS_CLEAR_PADDING)) return true
   if (isInsideMineCaveClearing(x, z, MINE_CAVE_CARD_GRASS_PADDING + GROUND_DEBRIS_CLEAR_PADDING)) return true
   if (isInsideCastleApproachClearing(x, z)) return true
@@ -1761,7 +1753,9 @@ function loadForestGrove(scene, collidables) {
       group.name = `forest_grove_${placement.file.replace(/\.glb$/i, '')}`
       group.position.set(x, 0, z)
       group.rotation.y = placement.rotY ?? 0
-      group.scale.setScalar(placement.scale ?? 1)
+      // 树/灌木加高（岩石 rock_* 保持原尺寸）
+      const heightBoost = /^(tree_|background_tree_)/i.test(placement.file) ? FOREST_GROVE_HEIGHT_BOOST : 1
+      group.scale.setScalar((placement.scale ?? 1) * heightBoost)
       configureStaticGltfModel(root, { castShadows: false, receiveShadows: true, cheapMaterials: false })
       group.add(root)
       scene.add(group)
@@ -2098,6 +2092,7 @@ function loadSpawnGrass(scene) {
 
   _spawnGrassWindUniforms = []
   _spawnGrassInstancedMeshes = []
+  _grassLodMeshes = []
   Promise.all(SPAWN_GRASS_MODEL_VARIANTS.map((variant, variantIndex) => (
     loadGLTF(variant.url).then((gltf) => ({ variant, variantIndex, gltf }))
   ))).then((loadedVariants) => {
@@ -2126,6 +2121,586 @@ function loadSpawnGrass(scene) {
   }).catch((error) => {
     console.warn('Spawn grass asset failed', error)
   })
+}
+
+// ---- 河岸生态草（Riverside riparian grass）----
+function riverPathTotalLength(points) {
+  let total = 0
+  for (let i = 0; i < points.length - 1; i++) {
+    total += Math.hypot(points[i + 1].x - points[i].x, points[i + 1].z - points[i].z)
+  }
+  return total
+}
+
+// 通用版 getHeroRiverPointAtT：对任意中心线点数组按归一化参数 t 取点与流向
+function pointAlongPathAtT(points, pathT) {
+  const lengths = []
+  let total = 0
+  for (let i = 0; i < points.length - 1; i++) {
+    const len = Math.hypot(points[i + 1].x - points[i].x, points[i + 1].z - points[i].z)
+    lengths.push(len)
+    total += len
+  }
+  let accumulated = 0
+  for (let i = 0; i < points.length - 1; i++) {
+    const a = points[i]
+    const b = points[i + 1]
+    const segmentStart = accumulated / total
+    const segmentEnd = (accumulated + lengths[i]) / total
+    if (pathT <= segmentEnd || i === points.length - 2) {
+      const localT = THREE.MathUtils.clamp((pathT - segmentStart) / Math.max(0.0001, segmentEnd - segmentStart), 0, 1)
+      const len = Math.max(0.0001, lengths[i])
+      return {
+        x: THREE.MathUtils.lerp(a.x, b.x, localT),
+        z: THREE.MathUtils.lerp(a.z, b.z, localT),
+        dirX: (b.x - a.x) / len,
+        dirZ: (b.z - a.z) / len,
+      }
+    }
+    accumulated += lengths[i]
+  }
+  return { ...points[0], dirX: 1, dirZ: 0 }
+}
+
+// 低频"沙斑"掩码：让坡顶草不连成死板地毯，露出沙地空斑（0=沙地，1=可密铺）
+function riparianPatchMask(x, z) {
+  const coarse = forestPlacementNoise(Math.floor(x / 6) * 131.1 + Math.floor(z / 6) * 197.3 + 31.7)
+  const fine = forestPlacementNoise(Math.floor(x / 2.5) * 53.7 + Math.floor(z / 2.5) * 89.1 + 7.3)
+  return THREE.MathUtils.smoothstep(coarse * 0.65 + fine * 0.35, 0.15, 0.55)
+}
+
+// 湿度梯度选变体：freshWeight 越高（越近水）越偏 fresh 绿草，越远越偏 dark/dry
+function chooseRiparianVariant(seed, freshWeight) {
+  const r = forestPlacementNoise(seed + 10)
+  const fresh = THREE.MathUtils.clamp(freshWeight, 0, 1) * 0.7
+  if (r < fresh) return 1            // fresh 绿草
+  if (r < fresh + 0.25) return 0     // dark 暗草
+  return 2                            // dry 枯草
+}
+
+// 通过排除区/淹没/陡坡检查后，生成一条草的 placement（与 spawn grass 同格式）
+function emitRiparianGrass(placements, counters, x, z, waterY, seed, freshWeight) {
+  if (placements.length >= RIVERSIDE_GRASS_MAX_INSTANCES) { counters.dropped++; return }
+  if (shouldSkipModelGrassPlacement(x, z)) return
+  const groundY = getGroundHeight(x, z)
+  if (groundY <= waterY + 0.04) return  // 在水面或水下 → 不种
+  // 局部坡度守卫：避免草爬上谷壁/陡坎
+  const riseX = Math.abs(getGroundHeight(x + 1, z) - groundY)
+  const riseZ = Math.abs(getGroundHeight(x, z + 1) - groundY)
+  if (riseX > RIVERSIDE_GRASS_MAX_GROUND_RISE || riseZ > RIVERSIDE_GRASS_MAX_GROUND_RISE) return
+  placements.push({
+    x: Number(x.toFixed(2)),
+    z: Number(z.toFixed(2)),
+    rotY: Number((forestPlacementNoise(seed + 3) * Math.PI * 2).toFixed(3)),
+    scaleX: Number(THREE.MathUtils.lerp(0.75, 1.35, forestPlacementNoise(seed + 4)).toFixed(3)),
+    scaleY: Number(THREE.MathUtils.lerp(0.75, 1.25, forestPlacementNoise(seed + 5)).toFixed(3)),
+    scaleZ: Number(THREE.MathUtils.lerp(0.75, 1.35, forestPlacementNoise(seed + 6)).toFixed(3)),
+    tiltX: Number(THREE.MathUtils.lerp(-0.16, 0.16, forestPlacementNoise(seed + 7)).toFixed(3)),
+    tiltZ: Number(THREE.MathUtils.lerp(-0.16, 0.16, forestPlacementNoise(seed + 8)).toFixed(3)),
+    variantIndex: grassClusterVariant(x, z, seed, freshWeight),
+  })
+  counters.kept++
+}
+
+// 沿一条河道行走，按生态分区把草写入 placements
+function appendRiparianGrassForChannel(spec, placements, counters) {
+  const total = riverPathTotalLength(spec.points)
+  if (total < 1) return
+  const run = channelBankRun(spec.cutDepth, spec.slopeDeg)
+  const stationCount = Math.max(2, Math.ceil(total / RIVERSIDE_GRASS_ALONG_SPACING))
+  const lateralCount = Math.max(1, Math.ceil(RIVERSIDE_GRASS_TERRACE_WIDTH / RIVERSIDE_GRASS_LATERAL_SPACING))
+  const alongJitter = RIVERSIDE_GRASS_ALONG_SPACING * RIVERSIDE_GRASS_JITTER
+  const latJitter = RIVERSIDE_GRASS_LATERAL_SPACING * RIVERSIDE_GRASS_JITTER
+
+  for (let s = 0; s <= stationCount; s++) {
+    const t = s / stationCount
+    const c = pointAlongPathAtT(spec.points, t)
+    const halfWidth = spec.halfWidthAt(t)
+    const waterY = spec.waterYAt(t)
+    const rightX = -c.dirZ
+    const rightZ = c.dirX
+    const terraceInner = halfWidth + run + RIVERSIDE_GRASS_SLOPE_MARGIN
+    const terraceOuter = terraceInner + RIVERSIDE_GRASS_TERRACE_WIDTH
+
+    for (const side of [-1, 1]) {
+      const sideSeed = spec.seedBase + (side > 0 ? 500003 : 0)
+      // 1) 坡顶平台带（密）：近坡顶密、向外渐稀
+      for (let l = 0; l < lateralCount; l++) {
+        const seed = sideSeed + s * 1009 + l * 53
+        const baseD = terraceInner + (l + 0.5) * RIVERSIDE_GRASS_LATERAL_SPACING
+        const d = baseD + (forestPlacementNoise(seed + 1) - 0.5) * latJitter
+        if (d <= terraceInner || d > terraceOuter) continue
+        const along = (forestPlacementNoise(seed + 2) - 0.5) * alongJitter
+        const x = c.x + c.dirX * along + rightX * side * d
+        const z = c.z + c.dirZ * along + rightZ * side * d
+        // 近坡顶权重（也用作 fresh 权重）：靠内 ~1，靠外 ~0
+        // 内侧 plateau 满密度，其后向外平滑淡出到 0（自然边界，无矩形硬边）
+        const proximity = 1 - THREE.MathUtils.smoothstep(d, terraceInner + RIVERSIDE_GRASS_TERRACE_WIDTH * RIVERSIDE_GRASS_TERRACE_PLATEAU, terraceOuter)
+        const keepProb = proximity * riparianPatchMask(x, z)
+        if (forestPlacementNoise(seed + 9) > keepProb) continue
+        emitRiparianGrass(placements, counters, x, z, waterY, seed, 0.35 + proximity * 0.6)
+      }
+      // 2) 干河床带（稀疏几丛）：仅露出水面处，emitRiparianGrass 内已做淹没剔除
+      for (let b = 0; b < RIVERSIDE_GRASS_BED_SAMPLES; b++) {
+        const seed = sideSeed + s * 1009 + 777 + b * 17
+        if (forestPlacementNoise(seed + 9) > RIVERSIDE_GRASS_BED_PROB) continue
+        const d = forestPlacementNoise(seed + 1) * halfWidth
+        const along = (forestPlacementNoise(seed + 2) - 0.5) * alongJitter
+        const x = c.x + c.dirX * along + rightX * side * d
+        const z = c.z + c.dirZ * along + rightZ * side * d
+        emitRiparianGrass(placements, counters, x, z, waterY, seed, 0.25)
+      }
+    }
+  }
+}
+
+function buildRiparianChannelSpecs() {
+  const specs = [{
+    points: HERO_RIVER_POINTS,
+    halfWidthAt: (t) => riverHalfWidthAt(t),
+    waterYAt: (t) => riverWaterYAt(t),
+    cutDepth: MAIN_RIVER_CHANNEL_CUT,
+    slopeDeg: MAIN_RIVER_CHANNEL_SLOPE_DEG,
+    seedBase: 30000,
+  }]
+  RIVER_BRANCHES.forEach((branch, i) => {
+    specs.push({
+      points: branch.points,
+      halfWidthAt: (t) => branchHalfWidthAt(branch, t),
+      waterYAt: (t) => branchWaterYAt(branch, t),
+      cutDepth: RIVER_CHANNEL_MIN_CUT,
+      slopeDeg: RIVER_CHANNEL_MIN_SLOPE_DEG,
+      seedBase: 40000 + i * 3000,
+    })
+  })
+  return specs
+}
+
+function createRiversideGrassPlacements() {
+  const placements = []
+  const counters = { kept: 0, dropped: 0 }
+  for (const spec of buildRiparianChannelSpecs()) {
+    appendRiparianGrassForChannel(spec, placements, counters)
+  }
+  return { placements, dropped: counters.dropped }
+}
+
+function loadRiversideGrass(scene) {
+  const { placements, dropped } = createRiversideGrassPlacements()
+  if (!placements.length) return
+
+  // 按空间网格 + 变体分块，使离屏河段可被视锥剔除
+  const groups = new Map()
+  for (const p of placements) {
+    const cx = Math.floor(p.x / RIVERSIDE_GRASS_CHUNK_LEN)
+    const cz = Math.floor(p.z / RIVERSIDE_GRASS_CHUNK_LEN)
+    const key = `${cx}|${cz}|${p.variantIndex}`
+    let arr = groups.get(key)
+    if (!arr) { arr = []; groups.set(key, arr) }
+    arr.push(p)
+  }
+
+  Promise.all(SPAWN_GRASS_MODEL_VARIANTS.map((variant, variantIndex) => (
+    loadGrassVariantGeometries(variant).then((geom) => ({ variant, variantIndex, geom }))
+  ))).then((loadedVariants) => {
+    // 每变体一份共享高/低模几何 + 共享材质（材质带风动 uniform，复用现有更新循环）
+    const perVariant = loadedVariants.map(({ variant, variantIndex, geom }) => {
+      const material = geom.hi ? configureSpawnGrassMaterial(new THREE.MeshBasicMaterial({
+        vertexColors: true,
+        side: THREE.DoubleSide,
+        depthWrite: true,
+      })) : null
+      return { variant, variantIndex, geom, material }
+    })
+
+    groups.forEach((arr, key) => {
+      const variantIndex = Number(key.split('|')[2])
+      const v = perVariant[variantIndex]
+      if (!v || !v.geom.hi || !v.material) return
+      const inst = new THREE.InstancedMesh(v.geom.hi, v.material, arr.length)
+      inst.name = `riverside_grass_${v.variant.name}_${key}`
+      inst.castShadow = false
+      inst.receiveShadow = false
+      inst.frustumCulled = true
+      arr.forEach((p, index) => {
+        _spawnGrassDummy.position.set(p.x, getGroundHeight(p.x, p.z) + LOCAL_MODEL_GRASS_Y_OFFSET, p.z)
+        _spawnGrassDummy.rotation.set(p.tiltX, p.rotY, p.tiltZ)
+        _spawnGrassDummy.scale.set(p.scaleX * MODEL_GRASS_SPREAD_XZ, p.scaleY * MODEL_GRASS_FLATTEN_Y, p.scaleZ * MODEL_GRASS_SPREAD_XZ)
+        _spawnGrassDummy.updateMatrix()
+        inst.setMatrixAt(index, _spawnGrassDummy.matrix)
+      })
+      inst.instanceMatrix.needsUpdate = true
+      inst.computeBoundingBox()
+      inst.computeBoundingSphere()
+      _spawnGrassInstancedMeshes.push(inst)
+      registerGrassLodMesh(inst, v.geom)
+      scene.add(inst)
+    })
+    console.log(`[riverside-grass] placed ${placements.length} clumps across ${groups.size} chunks` + (dropped ? `, dropped ${dropped} over cap` : ''))
+  }).catch((error) => {
+    console.warn('Riverside grass asset failed', error)
+  })
+}
+
+// ---- 全场草甸草（Meadow grass）：铺满低谷地面（≤7.5m），河岸层在 ~16m 处接手 ----
+// 为避免一次性同步生成造成启动卡顿（全场 getGroundHeight 全管线极贵），改为跨帧增量构建：
+// 地图即时加载，草甸按 64m 块由出生区向外逐帧填充（每帧 ~5ms 预算），整块高地廉价跳过。
+let _meadowBuild = null
+const MEADOW_BUILD_MS_PER_FRAME = 6
+
+function initMeadowGrass(scene) {
+  Promise.all(SPAWN_GRASS_MODEL_VARIANTS.map((variant, variantIndex) => (
+    loadGrassVariantGeometries(variant).then((geom) => ({ variant, variantIndex, geom }))
+  ))).then((loaded) => {
+    const perVariant = loaded.map(({ variant, variantIndex, geom }) => {
+      const material = geom.hi ? configureSpawnGrassMaterial(new THREE.MeshBasicMaterial({
+        vertexColors: true,
+        side: THREE.DoubleSide,
+        depthWrite: true,
+      })) : null
+      return { variant, variantIndex, geom, material }
+    })
+    const cellStep = MEADOW_GRASS_CHUNK_LEN
+    const cells = []
+    for (let cz = Math.floor(GRASS_FIELD_BOUNDS.minZ / cellStep); cz < Math.ceil(GRASS_FIELD_BOUNDS.maxZ / cellStep); cz++) {
+      for (let cx = Math.floor(GRASS_FIELD_BOUNDS.minX / cellStep); cx < Math.ceil(GRASS_FIELD_BOUNDS.maxX / cellStep); cx++) {
+        const minX = cx * cellStep
+        const minZ = cz * cellStep
+        const ccx = minX + cellStep / 2
+        const ccz = minZ + cellStep / 2
+        cells.push({ minX, minZ, d2: ccx * ccx + ccz * ccz })
+      }
+    }
+    cells.sort((a, b) => a.d2 - b.d2) // 由中心（出生区）向外逐块填充
+    _meadowBuild = { scene, perVariant, cells, ci: 0, cur: null, total: 0, dropped: 0, t0: performance.now() }
+  }).catch((error) => console.warn('Meadow grass asset failed', error))
+}
+
+function buildMeadowCellMeshes(b, cell, byVariant) {
+  for (let vi = 0; vi < byVariant.length; vi++) {
+    const arr = byVariant[vi]
+    if (!arr.length) continue
+    const v = b.perVariant[vi]
+    if (!v || !v.geom.hi || !v.material) continue
+    const inst = new THREE.InstancedMesh(v.geom.hi, v.material, arr.length)
+    inst.name = `meadow_grass_${v.variant.name}_${cell.minX}_${cell.minZ}`
+    inst.castShadow = false
+    inst.receiveShadow = false
+    inst.frustumCulled = true
+    for (let i = 0; i < arr.length; i++) {
+      const p = arr[i]
+      const seed = p.seed
+      _spawnGrassDummy.position.set(p.x, p.y, p.z)
+      _spawnGrassDummy.rotation.set(
+        THREE.MathUtils.lerp(-0.16, 0.16, forestPlacementNoise(seed + 7)),
+        forestPlacementNoise(seed + 3) * Math.PI * 2,
+        THREE.MathUtils.lerp(-0.16, 0.16, forestPlacementNoise(seed + 8)),
+      )
+      _spawnGrassDummy.scale.set(
+        THREE.MathUtils.lerp(1.0, 1.7, forestPlacementNoise(seed + 4)) * MODEL_GRASS_SPREAD_XZ,
+        THREE.MathUtils.lerp(0.9, 1.45, forestPlacementNoise(seed + 5)) * MODEL_GRASS_FLATTEN_Y,
+        THREE.MathUtils.lerp(1.0, 1.7, forestPlacementNoise(seed + 6)) * MODEL_GRASS_SPREAD_XZ,
+      )
+      _spawnGrassDummy.updateMatrix()
+      inst.setMatrixAt(i, _spawnGrassDummy.matrix)
+    }
+    inst.instanceMatrix.needsUpdate = true
+    inst.computeBoundingBox()
+    inst.computeBoundingSphere()
+    _spawnGrassInstancedMeshes.push(inst)
+    registerGrassLodMesh(inst, v.geom)
+    b.scene.add(inst)
+  }
+}
+
+function stepMeadowGrassBuild() {
+  const b = _meadowBuild
+  if (!b) return
+  const spacing = MEADOW_GRASS_SPACING
+  const jitter = spacing * MEADOW_GRASS_JITTER
+  const cellStep = MEADOW_GRASS_CHUNK_LEN
+  const tStart = performance.now()
+  let processed = 0
+
+  while (b.ci < b.cells.length) {
+    const cell = b.cells[b.ci]
+    const baseGX = Math.floor(cell.minX / spacing)
+    const endGX = Math.ceil((cell.minX + cellStep) / spacing) - 1
+    const endGZ = Math.ceil((cell.minZ + cellStep) / spacing) - 1
+    if (!b.cur) {
+      // 廉价整块剔除：四角+中心地面都高于上限 → 整块高地，跳过（省下全块 getGroundHeight）
+      const cs = cellStep
+      let minH = Infinity
+      for (const [cxw, czw] of [
+        [cell.minX + 1, cell.minZ + 1], [cell.minX + cs - 1, cell.minZ + 1],
+        [cell.minX + 1, cell.minZ + cs - 1], [cell.minX + cs - 1, cell.minZ + cs - 1],
+        [cell.minX + cs / 2, cell.minZ + cs / 2],
+      ]) minH = Math.min(minH, getGroundHeight(cxw, czw))
+      if (minH > MEADOW_GRASS_MAX_GROUND_Y + 1.5) { b.ci++; continue }
+      b.cur = { gx: baseGX, gz: Math.floor(cell.minZ / spacing), byVariant: [[], [], []] }
+    }
+    let { gx, gz, byVariant } = b.cur
+
+    while (gz <= endGZ) {
+      const seed = 90000 + gx * 100003 + gz * 4099
+      const x = (gx + 0.5) * spacing + (forestPlacementNoise(seed + 1) - 0.5) * jitter
+      const z = (gz + 0.5) * spacing + (forestPlacementNoise(seed + 2) - 0.5) * jitter
+      processed++
+      if (!(x < GRASS_FIELD_BOUNDS.minX || x > GRASS_FIELD_BOUNDS.maxX || z < GRASS_FIELD_BOUNDS.minZ || z > GRASS_FIELD_BOUNDS.maxZ)) {
+        const groundY = getGroundHeight(x, z)
+        if (groundY <= MEADOW_GRASS_MAX_GROUND_Y && !shouldSkipMeadowGrassPlacement(x, z)) {
+          const channel = sampleChannelNetwork(x, z)
+          if (!(channel && channel.edge < MEADOW_GRASS_RIVER_HANDOFF)) {
+            const riseX = Math.abs(getGroundHeight(x + 1, z) - groundY)
+            const riseZ = Math.abs(getGroundHeight(x, z + 1) - groundY)
+            if (riseX <= MEADOW_GRASS_MAX_GROUND_RISE && riseZ <= MEADOW_GRASS_MAX_GROUND_RISE) {
+              if (b.total < MEADOW_GRASS_MAX_INSTANCES) {
+                const freshWeight = THREE.MathUtils.lerp(0.85, 0.4, THREE.MathUtils.smoothstep(groundY, 1, 7.5))
+                byVariant[grassClusterVariant(x, z, seed, freshWeight)].push({ x, y: groundY + LOCAL_MODEL_GRASS_Y_OFFSET, z, seed })
+                b.total++
+              } else { b.dropped++ }
+            }
+          }
+        }
+      }
+      gx++
+      if (gx > endGX) { gx = baseGX; gz++ }
+      if ((processed & 63) === 0 && performance.now() - tStart > MEADOW_BUILD_MS_PER_FRAME) {
+        b.cur = { gx, gz, byVariant }
+        return
+      }
+    }
+    // 本块完成 → 建该块各变体 InstancedMesh
+    buildMeadowCellMeshes(b, cell, byVariant)
+    b.ci++
+    b.cur = null
+    if (performance.now() - tStart > MEADOW_BUILD_MS_PER_FRAME) return
+  }
+  console.log(`[meadow-grass] built ${b.total} clumps over ${(performance.now() - b.t0).toFixed(0)}ms wall` + (b.dropped ? `, dropped ${b.dropped} over cap` : ''))
+  _meadowBuild = null
+}
+
+// ════════════════════════════════════════════════════
+//  世界级实例化树木散布
+// ════════════════════════════════════════════════════
+const _worldTreeDummy = new THREE.Object3D()
+let _worldTreeBuild = null
+let _worldTreeVisTimer = 0
+
+// 把一个 forest_pack GLB 解析为可实例化的 parts：[{geometry, material}]。
+// 树为 2 mesh（树干+树冠分材质）→ 每子件一个 part；几何烘入节点世界变换并把整模型 base 对齐到 y=0（贴地）。
+function loadTreeInstanceParts(file, baseScale) {
+  return loadGLTF(`${FOREST_GROVE_ASSETS_BASE}/${file}`).then((gltf) => {
+    const root = gltf.scene
+    root.updateMatrixWorld(true)
+    const parts = []
+    root.traverse((c) => {
+      if (!c.isMesh || !c.geometry) return
+      const geom = c.geometry.clone()
+      geom.applyMatrix4(c.matrixWorld)          // 烘入节点变换 → 各子件落在同一根坐标系
+      const mat = c.material                      // 复用材质（保留树叶 alpha 等设置）
+      parts.push({ geometry: geom, material: mat })
+    })
+    let minY = Infinity
+    for (const p of parts) { p.geometry.computeBoundingBox(); minY = Math.min(minY, p.geometry.boundingBox.min.y) }
+    if (Number.isFinite(minY)) for (const p of parts) p.geometry.translate(0, -minY, 0)  // base→y=0
+    return { file, baseScale, parts }
+  })
+}
+
+function initWorldTrees(scene) {
+  Promise.all([
+    Promise.all(WORLD_TREE_MODELS.map((m) => loadTreeInstanceParts(m.file, m.scale))),
+    loadGrassVariantGeometries(SPAWN_GRASS_MODEL_VARIANTS[0]), // 树下补草复用草甸几何
+  ])
+    .then(([models, grassGeom]) => {
+      // 树下草材质：与草甸同款（configureSpawnGrassMaterial 会注册风 uniform → 自动随风动）
+      const grassMat = grassGeom?.hi
+        ? configureSpawnGrassMaterial(new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.DoubleSide, depthWrite: true }))
+        : null
+      const cellStep = WORLD_TREE_CELL_LEN
+      const b = OUTDOOR_MOUNTAIN_BOUNDS
+      const cells = []
+      for (let cz = Math.floor(b.minZ / cellStep); cz < Math.ceil(b.maxZ / cellStep); cz++) {
+        for (let cx = Math.floor(b.minX / cellStep); cx < Math.ceil(b.maxX / cellStep); cx++) {
+          const minX = cx * cellStep
+          const minZ = cz * cellStep
+          const ccx = minX + cellStep / 2
+          const ccz = minZ + cellStep / 2
+          cells.push({ minX, minZ, d2: ccx * ccx + ccz * ccz })
+        }
+      }
+      cells.sort((a, b2) => a.d2 - b2.d2) // 由中心（出生区）向外逐块成型
+      _worldTreeBuild = { scene, models, grassHi: grassGeom?.hi ?? null, grassMat, cells, ci: 0, cur: null, total: 0, grassTotal: 0, dropped: 0, cellMeshes: [], done: false, t0: performance.now() }
+    })
+    .catch((error) => console.warn('World trees asset failed', error))
+}
+
+// 低频聚集噪声 → 林斑/林间空地（返回 ~[0,1]）。
+function worldTreeClusterNoise(x, z) {
+  return 0.5
+    + Math.sin(x * 0.0125 + z * 0.0083) * 0.30
+    + Math.sin(x * 0.0041 - z * 0.0061 + 2.1) * 0.13
+    + Math.sin(x * 0.027 + z * 0.019 + 0.7) * 0.07
+}
+
+function buildWorldTreeCellMeshes(b, cell, byModel, grassArr) {
+  const meshes = []
+  for (let mi = 0; mi < b.models.length; mi++) {
+    const arr = byModel[mi]
+    if (!arr.length) continue
+    const model = b.models[mi]
+    for (const part of model.parts) {
+      const inst = new THREE.InstancedMesh(part.geometry, part.material, arr.length)
+      inst.name = `world_tree_${model.file.replace(/\.glb$/i, '')}_${cell.minX}_${cell.minZ}`
+      inst.castShadow = false
+      inst.receiveShadow = true
+      inst.frustumCulled = true
+      for (let i = 0; i < arr.length; i++) {
+        const p = arr[i]
+        _worldTreeDummy.position.set(p.x, p.y, p.z)
+        _worldTreeDummy.rotation.set(0, forestPlacementNoise(p.seed + 3) * Math.PI * 2, 0)
+        const s = model.baseScale * WORLD_TREE_HEIGHT_BOOST * THREE.MathUtils.lerp(0.82, 1.22, forestPlacementNoise(p.seed + 5))
+        _worldTreeDummy.scale.setScalar(s)
+        _worldTreeDummy.updateMatrix()
+        inst.setMatrixAt(i, _worldTreeDummy.matrix)
+      }
+      inst.instanceMatrix.needsUpdate = true
+      inst.computeBoundingSphere()
+      b.scene.add(inst)
+      meshes.push(inst)
+    }
+  }
+  // 树下草：单个 InstancedMesh（复刻 buildMeadowCellMeshes 的缩放/旋转），随树一起剔除
+  if (grassArr && grassArr.length && b.grassHi && b.grassMat) {
+    const ginst = new THREE.InstancedMesh(b.grassHi, b.grassMat, grassArr.length)
+    ginst.name = `world_tree_grass_${cell.minX}_${cell.minZ}`
+    ginst.castShadow = false
+    ginst.receiveShadow = false
+    ginst.frustumCulled = true
+    for (let i = 0; i < grassArr.length; i++) {
+      const p = grassArr[i]
+      _spawnGrassDummy.position.set(p.x, p.y, p.z)
+      _spawnGrassDummy.rotation.set(
+        THREE.MathUtils.lerp(-0.16, 0.16, forestPlacementNoise(p.seed + 7)),
+        forestPlacementNoise(p.seed + 3) * Math.PI * 2,
+        THREE.MathUtils.lerp(-0.16, 0.16, forestPlacementNoise(p.seed + 8)),
+      )
+      _spawnGrassDummy.scale.set(
+        THREE.MathUtils.lerp(1.0, 1.7, forestPlacementNoise(p.seed + 4)) * MODEL_GRASS_SPREAD_XZ,
+        THREE.MathUtils.lerp(0.9, 1.45, forestPlacementNoise(p.seed + 5)) * MODEL_GRASS_FLATTEN_Y,
+        THREE.MathUtils.lerp(1.0, 1.7, forestPlacementNoise(p.seed + 6)) * MODEL_GRASS_SPREAD_XZ,
+      )
+      _spawnGrassDummy.updateMatrix()
+      ginst.setMatrixAt(i, _spawnGrassDummy.matrix)
+    }
+    ginst.instanceMatrix.needsUpdate = true
+    ginst.computeBoundingSphere()
+    b.scene.add(ginst)
+    meshes.push(ginst)
+    b.grassTotal += grassArr.length
+  }
+  if (meshes.length) {
+    b.cellMeshes.push({ cx: cell.minX + WORLD_TREE_CELL_LEN / 2, cz: cell.minZ + WORLD_TREE_CELL_LEN / 2, meshes })
+  }
+}
+
+function stepWorldTreeBuild() {
+  const b = _worldTreeBuild
+  if (!b || b.done) return
+  const spacing = WORLD_TREE_SPACING
+  const jitter = spacing * WORLD_TREE_JITTER
+  const cellStep = WORLD_TREE_CELL_LEN
+  const bounds = OUTDOOR_MOUNTAIN_BOUNDS
+  const tStart = performance.now()
+  let processed = 0
+
+  while (b.ci < b.cells.length) {
+    const cell = b.cells[b.ci]
+    const baseGX = Math.floor(cell.minX / spacing)
+    const endGX = Math.ceil((cell.minX + cellStep) / spacing) - 1
+    const endGZ = Math.ceil((cell.minZ + cellStep) / spacing) - 1
+    if (!b.cur) {
+      // 廉价整块剔除：四角+中心地面都高于树线 → 整块高山，跳过
+      const cs = cellStep
+      let minH = Infinity
+      for (const [cxw, czw] of [
+        [cell.minX + 1, cell.minZ + 1], [cell.minX + cs - 1, cell.minZ + 1],
+        [cell.minX + 1, cell.minZ + cs - 1], [cell.minX + cs - 1, cell.minZ + cs - 1],
+        [cell.minX + cs / 2, cell.minZ + cs / 2],
+      ]) minH = Math.min(minH, getGroundHeight(cxw, czw))
+      if (minH > WORLD_TREE_TREELINE_HI + 2) { b.ci++; continue }
+      b.cur = { gx: baseGX, gz: Math.floor(cell.minZ / spacing), byModel: b.models.map(() => []), grassArr: [] }
+    }
+    let { gx, gz, byModel, grassArr } = b.cur
+
+    while (gz <= endGZ) {
+      const seed = 70000 + gx * 100003 + gz * 4099
+      const x = (gx + 0.5) * spacing + (forestPlacementNoise(seed + 1) - 0.5) * jitter
+      const z = (gz + 0.5) * spacing + (forestPlacementNoise(seed + 2) - 0.5) * jitter
+      processed++
+      placeOne: {
+        if (x < bounds.minX || x > bounds.maxX || z < bounds.minZ || z > bounds.maxZ) break placeOne
+        // 林斑/空地：聚集噪声低于（带抖动的）阈值 → 留空
+        if (worldTreeClusterNoise(x, z) < WORLD_TREE_CLUSTER_THRESHOLD + (forestPlacementNoise(seed + 9) - 0.5) * 0.12) break placeOne
+        // 整体减密 ~10%（确定性，按坐标稳定，不破坏林斑形态）
+        if (forestPlacementNoise(seed + 11) < WORLD_TREE_THIN) break placeOne
+        // 避开手工林地中心区（防与 curated 堆叠）+ 结构空地
+        if (x >= RANDOM_FOREST_BOUNDS.minX && x <= RANDOM_FOREST_BOUNDS.maxX && z >= RANDOM_FOREST_BOUNDS.minZ && z <= RANDOM_FOREST_BOUNDS.maxZ) break placeOne
+        if (isInsideRandomForestClearing(x, z)) break placeOne
+        const groundY = getGroundHeight(x, z)
+        // 树线：高处按概率渐稀，>HI 不种
+        const treelineP = 1 - THREE.MathUtils.smoothstep(groundY, WORLD_TREE_TREELINE_LO, WORLD_TREE_TREELINE_HI)
+        if (treelineP <= 0 || forestPlacementNoise(seed + 10) > treelineP) break placeOne
+        // 水体避让
+        const channel = sampleChannelNetwork(x, z)
+        if (channel && channel.edge < WORLD_TREE_RIVER_HANDOFF) break placeOne
+        // 坡度守卫（不上崖面）
+        const riseX = Math.abs(getGroundHeight(x + 1.5, z) - groundY)
+        const riseZ = Math.abs(getGroundHeight(x, z + 1.5) - groundY)
+        if (riseX > WORLD_TREE_MAX_SLOPE || riseZ > WORLD_TREE_MAX_SLOPE) break placeOne
+        if (b.total >= WORLD_TREE_MAX_INSTANCES) { b.dropped++; break placeOne }
+        const mi = Math.floor(forestPlacementNoise(seed + 4) * b.models.length) % b.models.length
+        byModel[mi].push({ x, y: groundY, z, seed })
+        b.total++
+        // 树下补草：脚下散布一小簇（逐簇采样地面高度，贴坡）
+        if (b.grassMat) {
+          for (let g = 0; g < WORLD_TREE_GRASS_PER_TREE; g++) {
+            const gxw = x + (forestPlacementNoise(seed + 20 + g) - 0.5) * 2 * WORLD_TREE_GRASS_RADIUS
+            const gzw = z + (forestPlacementNoise(seed + 30 + g) - 0.5) * 2 * WORLD_TREE_GRASS_RADIUS
+            grassArr.push({ x: gxw, y: getGroundHeight(gxw, gzw) + LOCAL_MODEL_GRASS_Y_OFFSET, z: gzw, seed: seed + 50 + g })
+          }
+        }
+      }
+      gx++
+      if (gx > endGX) { gx = baseGX; gz++ }
+      if ((processed & 63) === 0 && performance.now() - tStart > WORLD_TREE_BUILD_MS_PER_FRAME) {
+        b.cur = { gx, gz, byModel, grassArr }
+        return
+      }
+    }
+    buildWorldTreeCellMeshes(b, cell, byModel, grassArr)
+    b.ci++
+    b.cur = null
+    if (performance.now() - tStart > WORLD_TREE_BUILD_MS_PER_FRAME) return
+  }
+  b.done = true
+  console.log(`[world-trees] built ${b.total} trees + ${b.grassTotal} under-tree grass over ${(performance.now() - b.t0).toFixed(0)}ms wall` + (b.dropped ? `, dropped ${b.dropped} over cap` : ''))
+}
+
+// 按 cell 中心到玩家水平距离剔除（远处隐藏，限制 overdraw）。
+function updateWorldTreeVisibility(playerPosition) {
+  const b = _worldTreeBuild
+  if (!b || !playerPosition) return
+  const px = playerPosition.x
+  const pz = playerPosition.z
+  const maxSq = WORLD_TREE_VISIBLE_DIST * WORLD_TREE_VISIBLE_DIST
+  for (const c of b.cellMeshes) {
+    const dx = c.cx - px
+    const dz = c.cz - pz
+    const vis = (dx * dx + dz * dz) < maxSq
+    for (const m of c.meshes) m.visible = vis
+  }
 }
 
 function loadSpawnGrass60Ref(scene) {
@@ -2390,9 +2965,6 @@ function getRiverPathSample(x, z) {
   return getPathSample(HERO_RIVER_POINTS, x, z)
 }
 
-function getCenterWestStreamPathSample(x, z) {
-  return getPathSample(CENTER_WEST_STREAM_POINTS, x, z)
-}
 
 function riverHalfWidthAt(t) {
   const centralBelt = Math.exp(-Math.pow((t - 0.56) / 0.25, 2))
@@ -2442,7 +3014,6 @@ const MAIN_RIVER_CHANNEL_SLOPE_DEG = 46
 const MAIN_RIVER_WATER_DEPTH = 0.75
 const BRANCH_RIVER_WATER_DEPTH = 0.45
 const GULLY_STREAM_WATER_DEPTH = 0.35
-const CENTER_WEST_STREAM_WATER_DEPTH = 0.38
 
 function channelBankRun(cutDepth, slopeDeg = RIVER_CHANNEL_MIN_SLOPE_DEG) {
   return cutDepth / Math.tan(THREE.MathUtils.degToRad(slopeDeg))
@@ -2546,7 +3117,7 @@ function applyRiverBranchHeight(x, z, height) {
   const swaleNoise = Math.sin(x * 0.055 + z * 0.039) * 0.22 + Math.sin(x * 0.031 - z * 0.071) * 0.16
   const floor = branch.waterY - THREE.MathUtils.lerp(0.32, 0.72, branch.whitewater) + bedNoise
   const nearBank = branch.waterY + 0.34
-    + THREE.MathUtils.smoothstep(branch.distance, branch.halfWidth + 0.2, branch.halfWidth + 6) * 0.72
+    + THREE.MathUtils.smoothstep(branch.distance, branch.halfWidth + 0.1, branch.halfWidth + 3) * 1.15
     + Math.max(0, swaleNoise) * 0.10
   const swale = branch.waterY + 0.86
     + slopeT * (branch.branch.sideChannel ? 1.0 : 1.55)
@@ -2643,7 +3214,7 @@ function applyGullyNetworkHeight(x, z, height) {
   const bankNoise = Math.sin(x * 0.053 + z * 0.041) * 0.24 + Math.sin(x * 0.027 - z * 0.067) * 0.18
   const floor = gully.waterY - THREE.MathUtils.lerp(0.24, 0.52, gully.whitewater) + bedNoise
   const wetBank = gully.waterY + 0.24
-    + THREE.MathUtils.smoothstep(gully.distance, gully.halfWidth + 0.15, gully.halfWidth + 5.5) * 0.48
+    + THREE.MathUtils.smoothstep(gully.distance, gully.halfWidth + 0.1, gully.halfWidth + 2.8) * 0.95
     + Math.max(0, bankNoise) * 0.08
   const apron = gully.waterY + 0.72
     + THREE.MathUtils.smoothstep(gully.distance, gully.halfWidth + 5, gully.influence) * (0.9 + gully.depth * 0.22)
@@ -2674,6 +3245,8 @@ function applyLargeWorldHeight(x, z, height) {
 function applyLargeRiverValleyHeight(x, z, height) {
   const river = getRiverSampleAt(x, z)
   const centralBelt = Math.exp(-Math.pow((river.t - 0.55) / 0.36, 2))
+  // 宽缓大谷：把主河两侧一大圈地形从自然深坑抬升到 valleyFloor，避免远区塌坑。
+  // （主河"贴岸"由 applyHeroRiverHeight 的近岸收窄负责，与此大谷宽度无关，故此处保持宽。）
   const valleyWidth = river.halfWidth + THREE.MathUtils.lerp(145, 250, centralBelt)
   if (river.distance > valleyWidth) return height
   const protect = protectedTerrainMask(x, z)
@@ -2687,98 +3260,126 @@ function applyLargeRiverValleyHeight(x, z, height) {
   return THREE.MathUtils.lerp(height, target, blend)
 }
 
-function centerWestStreamHalfWidthAt(t) {
-  return THREE.MathUtils.lerp(1.9, 3.4, 0.35 + Math.sin(t * Math.PI) * 0.65)
+
+// 山脚平缓化：corePower>1 让穹顶外凸(山顶不变、中段与脚部压低)；半径保持原值(放大会让山体探入河谷、加高谷壁崖)；
+// h 较原值下调 ~50 以补偿切底从 -100 改为 -50 带来的整体抬升(净山顶高度基本不变)。
+const SNOW_PEAKS = [
+  { x: -530, z: 545, rx: 295, rz: 258, h: 315, axis: 0.62, corePower: 0.86, ridgeHalfWidth: 32, ridgeAmp: 0.32, ridgeFreq: 0.019, ridgeShift: 1.2 },
+  { x: -305, z: 650, rx: 275, rz: 232, h: 255, axis: 1.18, corePower: 0.9, ridgeHalfWidth: 28, ridgeAmp: 0.24, ridgeFreq: 0.021, ridgeShift: 0.5 },
+  { x: -690, z: 330, rx: 244, rz: 292, h: 232, axis: 0.34, corePower: 0.92, ridgeHalfWidth: 30, ridgeAmp: 0.26, ridgeFreq: 0.017, ridgeShift: 2.4 },
+  { x: -120, z: 500, rx: 306, rz: 280, h: 188, axis: 0.92, corePower: 0.94, ridgeHalfWidth: 34, ridgeAmp: 0.22, ridgeFreq: 0.016, ridgeShift: 1.9 },
+]
+
+const SNOW_RIDGE_LINES = [
+  { a: { x: -690, z: 298 }, b: { x: -555, z: 548 }, h: 56, width: 42, freq: 0.013, freq2: 0.019, phase: 0.8, rough: 0.44 },
+  { a: { x: -555, z: 548 }, b: { x: -445, z: 590 }, h: 46, width: 38, freq: 0.016, freq2: 0.021, phase: 1.2, rough: 0.39 },
+  { a: { x: -445, z: 590 }, b: { x: -290, z: 630 }, h: 58, width: 40, freq: 0.014, freq2: 0.017, phase: 0.3, rough: 0.36 },
+  { a: { x: -290, z: 630 }, b: { x: -120, z: 500 }, h: 44, width: 36, freq: 0.018, freq2: 0.015, phase: 0.6, rough: 0.35 },
+  { a: { x: -680, z: 350 }, b: { x: -540, z: 390 }, h: 34, width: 32, freq: 0.021, freq2: 0.009, phase: 2.2, rough: 0.31 },
+]
+
+// 多向叠加正弦基噪声，归一到 ~[-1,1]（3 个旋转方向避免轴向规整）。
+function snowNoiseBase(x, z, f, p) {
+  return (Math.sin(x * f + z * f * 0.81 + p)
+    + Math.sin(x * f * 0.79 - z * f * 1.11 + p * 1.7)
+    + Math.sin(-x * f * 0.57 + z * f * 1.29 + p * 0.4)) / 3
 }
 
-function centerWestStreamWaterYAt(t) {
-  return THREE.MathUtils.lerp(1.8, -2.8, t) + Math.sin(t * Math.PI * 2.0) * 0.12
+// 雪山表面 ridged 噪声：把平滑径向穹顶打散成锐利岩脊 + 次级山脊/沟槽。
+// 频率按 sin 标定（脊—谷间距 ≈ π/f）：oct1≈70m / oct2≈33m / oct3≈16m，最细全波长 ~31m
+// 远在 active mesh 1.78m 分辨率之内（避免走样），更细破碎交给 shader 法线。exposed 越高越增锐。
+function snowMountainSurfaceNoise(x, z, exposed) {
+  // 域扭曲：低频偏移打破轴向条纹的规整
+  const wx = x + Math.sin(x * 0.0067 + z * 0.011) * 26 + Math.sin(z * 0.013) * 13
+  const wz = z + Math.sin(z * 0.0071 - x * 0.009) * 26 + Math.sin(x * 0.015) * 13
+
+  // ridged = 1 - |n| 形成尖脊；减 0.5 中心化 → 有脊(+)有沟(-)，保整体山形体量。
+  const r1 = 1 - Math.abs(snowNoiseBase(wx, wz, 0.045, 1.2))
+  const r2 = 1 - Math.abs(snowNoiseBase(wx, wz, 0.095, 3.7))
+  const r3 = 1 - Math.abs(snowNoiseBase(wx, wz, 0.20, 0.5))
+
+  let disp = (r1 - 0.5) * 7.0
+    + (r2 - 0.5) * 3.6
+    + (r3 - 0.5) * 1.8
+
+  // 轻微 fBm 非对称起伏，避免纯脊过于规则
+  disp += snowNoiseBase(wx, wz, 0.062, 2.1) * 1.3
+
+  // 极顶回收振幅：避免把已很陡的峰尖再推成近垂直细柱（heightfield 近垂直面会暴露竖条）。
+  const summitCalm = 1 - THREE.MathUtils.smoothstep(exposed, 130, 280) * 0.6
+  return disp * summitCalm
 }
 
-function getCenterWestStreamSampleAt(x, z) {
-  const sample = getCenterWestStreamPathSample(x, z)
-  const halfWidth = centerWestStreamHalfWidthAt(sample.t)
-  const waterY = centerWestStreamWaterYAt(sample.t)
-  const edgeDistance = Math.abs(sample.distance - halfWidth)
-  const whitewater = Math.max(
-    Math.exp(-Math.pow((sample.t - 0.32) / 0.08, 2)) * 0.34,
-    Math.exp(-Math.pow((sample.t - 0.72) / 0.09, 2)) * 0.24,
-    THREE.MathUtils.smoothstep(halfWidth - sample.distance, -1.2, 2.2) * 0.22,
-  )
-  return {
-    ...sample,
-    halfWidth,
-    waterY,
-    edgeDistance,
-    whitewater: THREE.MathUtils.clamp(whitewater, 0, 0.55),
-    flowSpeed: THREE.MathUtils.lerp(0.42, 1.25, THREE.MathUtils.clamp(whitewater + (1 - sample.t) * 0.22, 0, 1)),
-  }
-}
-
-function applyCenterWestStreamValleyHeight(x, z, height) {
-  const stream = getCenterWestStreamSampleAt(x, z)
-  const bankWidth = stream.halfWidth + 34
-  if (stream.distance > bankWidth) return height
-  const floorMask = 1 - THREE.MathUtils.smoothstep(stream.distance, stream.halfWidth * 0.52, stream.halfWidth + 0.45)
-  const valleyMask = 1 - THREE.MathUtils.smoothstep(stream.distance, stream.halfWidth + 10, bankWidth)
-  const bankRise = THREE.MathUtils.smoothstep(stream.distance, stream.halfWidth + 0.6, bankWidth)
-  const outerMoundMask = THREE.MathUtils.smoothstep(stream.distance, stream.halfWidth + 13, stream.halfWidth + 24)
-    * (1 - THREE.MathUtils.smoothstep(stream.distance, stream.halfWidth + 28, bankWidth))
-  const leftRight = Math.sign((x - stream.x) * -stream.dirZ + (z - stream.z) * stream.dirX) || 1
-  const bedNoise = Math.sin(x * 0.18 + z * 0.09) * 0.08 + Math.sin(x * 0.06 - z * 0.21) * 0.07
-  const slopeNoise = Math.sin(x * 0.047 + z * 0.038) * 0.42 + Math.sin(x * 0.081 - z * 0.026) * 0.28
-  const smallHillA = Math.exp(-Math.pow((x + 302) / 42, 2) - Math.pow((z - 38) / 32, 2)) * 2.4
-  const smallHillB = Math.exp(-Math.pow((x + 224) / 36, 2) - Math.pow((z + 26) / 28, 2)) * 2.0
-  const swale = Math.exp(-Math.pow((x + 260) / 48, 2) - Math.pow((z - 38) / 24, 2)) * 1.1
-  const streamFloor = stream.waterY - THREE.MathUtils.lerp(0.58, 0.96, stream.whitewater) + bedNoise
-  const nearBank = stream.waterY + 0.28
-    + THREE.MathUtils.smoothstep(stream.distance, stream.halfWidth + 0.2, stream.halfWidth + 8) * 0.82
-    + Math.max(0, slopeNoise) * 0.12
-  const outerSlope = stream.waterY + 1.0
-    + bankRise * (THREE.MathUtils.lerp(2.3, 4.4, Math.sin(stream.t * Math.PI)) + Math.max(0, slopeNoise))
-    + outerMoundMask * (smallHillA + smallHillB - swale + leftRight * 0.34)
-  const bankTarget = THREE.MathUtils.lerp(nearBank, outerSlope, bankRise)
-  const target = THREE.MathUtils.lerp(bankTarget, streamFloor, floorMask)
-  const blend = Math.max(floorMask, valleyMask * 0.96)
-  const shaped = THREE.MathUtils.lerp(height, target, blend)
-  const carved = applySteepChannelCarve(height, stream.distance, stream.halfWidth, {
-    cutDepth: RIVER_CHANNEL_MIN_CUT,
-    slopeDeg: RIVER_CHANNEL_MIN_SLOPE_DEG,
-    bedTarget: streamFloor,
-  })
-  return Math.min(height, shaped, carved)
-}
-
+// 高大陡峭雪山（阿尔卑斯式）：4 峰 + 山脊，原始高度与陡度，靠岩雪贴图呈现真实感。
 function applySnowMountainHeight(x, z, height) {
-  // 加大体量：更高(h)、基底更宽(rx/rz)，让远山更有压迫感
-  const peaks = [
-    { x: -530, z: 545, rx: 285, rz: 250, h: 300 },
-    { x: -305, z: 650, rx: 270, rz: 225, h: 245 },
-    { x: -690, z: 330, rx: 230, rz: 290, h: 205 },
-    { x: -120, z: 500, rx: 300, rz: 270, h: 172 },
-  ]
   let mountain = height
-  for (const peak of peaks) {
+  for (const peak of SNOW_PEAKS) {
+    const axis = peak.axis
     const d = Math.hypot((x - peak.x) / peak.rx, (z - peak.z) / peak.rz)
-    if (d > 1.35) continue
-    const core = 1 - THREE.MathUtils.smoothstep(d, 0.08, 1.35)
-    // 指数降到 1.22：山体更饱满厚重而非细尖；ridge 维持山脊轮廓
-    const ridge = Math.max(0, Math.sin((x - peak.x) * 0.026) + Math.cos((z - peak.z) * 0.021)) * 6.0
-    mountain = Math.max(mountain, height + peak.h * Math.pow(core, 1.22) + ridge * core)
+    if (d > 1.42) continue
+    const localX = x - peak.x
+    const localZ = z - peak.z
+    const axisU = localX * Math.cos(axis) + localZ * Math.sin(axis)
+    const axisV = -localX * Math.sin(axis) + localZ * Math.cos(axis)
+    const body = 1 - THREE.MathUtils.smoothstep(0.02, 1.42, d)
+    const bodySharp = Math.pow(body, peak.corePower)
+    // 山脚平缓化：把窄裙边(0.58~1.18 砍 80%)改为长而缓的过渡(0.40~1.42 砍 60%)。
+    const footScale = 1 - 0.8 * THREE.MathUtils.smoothstep(0.58, 1.18, d)
+    const ridgeBand = Math.max(0, 1 - THREE.MathUtils.smoothstep(0.0, peak.ridgeHalfWidth, Math.abs(axisV)))
+    const ridgeBandShape = Math.pow(ridgeBand, 2.0)
+    const ridgeNoise = Math.sin(axisU * peak.ridgeFreq + peak.ridgeShift) * 0.44 + Math.cos(axisV * 0.042 + peak.ridgeShift * 1.6) * 0.28
+    const ridge = Math.max(0, ridgeNoise) * peak.ridgeAmp * (0.45 + ridgeBandShape)
+    mountain = Math.max(mountain, height + (peak.h * bodySharp + peak.h * ridgeBandShape * ridge) * footScale)
   }
+
+  for (const ridge of SNOW_RIDGE_LINES) {
+    const ax = ridge.a.x
+    const az = ridge.a.z
+    const vx = ridge.b.x - ax
+    const vz = ridge.b.z - az
+    const wx = x - ax
+    const wz = z - az
+    const segLen2 = Math.max(vx * vx + vz * vz, 0.0001)
+    const t = THREE.MathUtils.clamp((wx * vx + wz * vz) / segLen2, 0, 1)
+    const px = ax + vx * t
+    const pz = az + vz * t
+    const ridgeD = Math.hypot(x - px, z - pz)
+    if (ridgeD > ridge.width) continue
+    const crest = 1 - THREE.MathUtils.smoothstep(ridge.width * 0.16, ridge.width, ridgeD)
+    const span = Math.sin(Math.PI * t)
+    const seamNoise = (Math.sin(x * ridge.freq + z * ridge.freq2 + ridge.phase) + 1) * 0.5
+    const ridgeFootScale = 1 - 0.8 * THREE.MathUtils.smoothstep(ridge.width * 0.58, ridge.width, ridgeD)
+    const ridgeLift = ridge.h * Math.pow(crest, 1.3) * Math.pow(Math.max(0.0, span), 0.6) * (0.72 + seamNoise * ridge.rough)
+    mountain = Math.max(mountain, height + ridgeLift * ridgeFootScale)
+  }
+
   const pass = getRiverSampleAt(x, z)
   if (pass.t < 0.46 && pass.distance < 58) {
     const pathBlend = 1 - THREE.MathUtils.smoothstep(pass.distance, 18, 58)
     mountain = THREE.MathUtils.lerp(mountain, Math.min(mountain, pass.waterY + 3 + pass.distance * 0.28), pathBlend * 0.65)
   }
-  return mountain
+
+  const mountainLift = Math.max(0, mountain - height)
+  const exposed = Math.max(0, mountainLift - 100)
+  if (exposed <= 0) return height
+
+  // 表面 ridged 噪声：打散平滑径向穹顶造成的网格台阶/列拉丝。
+  // 山脚渐隐（避免悬空凸起/撞平地竖墙）+ 山口衰减（避免回填已下压的河道）。
+  const footFade = THREE.MathUtils.smoothstep(exposed, 0, 40)
+  let passFade = 1
+  if (pass.t < 0.46 && pass.distance < 58) {
+    passFade = THREE.MathUtils.smoothstep(pass.distance, 18, 58)
+  }
+  const disp = snowMountainSurfaceNoise(x, z, exposed) * footFade * passFade
+  return height + exposed + disp
 }
 
 function applyHeroRiverHeight(x, z, height) {
   const river = getRiverSampleAt(x, z)
   const halfWidth = river.halfWidth
   const centralBelt = Math.exp(-Math.pow((river.t - 0.56) / 0.28, 2))
-  const valleyWidth = halfWidth + THREE.MathUtils.lerp(76, 136, centralBelt)
+  // 收窄主河塑形半径：宽谷 → 较明确河道（外侧自然高地作贴水的岸）
+  const valleyWidth = halfWidth + THREE.MathUtils.lerp(28, 44, centralBelt)
   if (river.distance > valleyWidth) return height
   const protect = protectedTerrainMask(x, z)
   const side = Math.sign((x - river.x) * -river.dirZ + (z - river.z) * river.dirX) || 1
@@ -2786,32 +3387,30 @@ function applyHeroRiverHeight(x, z, height) {
   const innerBank = THREE.MathUtils.clamp(0.5 + side * bend * 0.5, 0, 1)
   const outerBank = 1 - innerBank
   const floorMask = 1 - THREE.MathUtils.smoothstep(river.distance, halfWidth * 0.58, halfWidth + 0.8)
-  const floodplainMask = 1 - THREE.MathUtils.smoothstep(river.distance, halfWidth + 46, valleyWidth)
-  const terraceT = THREE.MathUtils.smoothstep(river.distance, halfWidth + 42, valleyWidth)
+  // 收窄：碳刻只在近槽强、到 halfWidth+20 内迅速归零 → 外侧自然高地保留作贴水的岸
+  const bankMask = 1 - THREE.MathUtils.smoothstep(river.distance, halfWidth + 6, halfWidth + 20)
+  // 阶地从近岸即开始抬升（去掉宽漫滩台阶），让地形从水边 ~8–12m 内升过 waterY+2.5
+  const terraceT = THREE.MathUtils.smoothstep(river.distance, halfWidth + 8, halfWidth + 26)
   const bedNoise = Math.sin(x * 0.21 + z * 0.08) * 0.18 + Math.sin(x * 0.07 - z * 0.18) * 0.12
   const swaleNoise = Math.sin(x * 0.032 + z * 0.047) * 0.34 + Math.sin(x * 0.061 - z * 0.024) * 0.22
   const terraceNoise = Math.sin(x * 0.018 - z * 0.014) * 0.85 + Math.sin(x * 0.011 + z * 0.027) * 0.55
   const riverFloor = river.waterY - THREE.MathUtils.lerp(0.58, 1.08, river.whitewater) + bedNoise
-  const pointBar = river.waterY + 0.68
-    + THREE.MathUtils.smoothstep(river.distance, halfWidth - 0.2, halfWidth + 18) * (1.05 + innerBank * 0.48)
+  // 近岸陡起：在 halfWidth+7~8 内升到 ~waterY+2.6~3.6 的明确河岸（内弯点沙坝略缓，外弯切岸更陡高）
+  const pointBar = river.waterY + 0.7
+    + THREE.MathUtils.smoothstep(river.distance, halfWidth - 0.2, halfWidth + 8) * (2.1 + innerBank * 0.5)
     + swaleNoise * 0.18
-  const cutBank = river.waterY + 0.82
-    + THREE.MathUtils.smoothstep(river.distance, halfWidth - 0.2, halfWidth + 15) * (1.68 + outerBank * 1.45)
+  const cutBank = river.waterY + 0.85
+    + THREE.MathUtils.smoothstep(river.distance, halfWidth - 0.2, halfWidth + 7) * (2.8 + outerBank * 1.5)
     + Math.max(0, swaleNoise) * 0.22
   const nearBank = THREE.MathUtils.lerp(pointBar, cutBank, outerBank * 0.72)
-  const floodplain = river.waterY + 1.05
-    + THREE.MathUtils.smoothstep(river.distance, halfWidth + 10, halfWidth + 44) * (0.85 + centralBelt * 0.72)
-    + swaleNoise * (0.42 + centralBelt * 0.18)
-  const terrace = river.waterY + 2.1
-    + terraceT * (THREE.MathUtils.lerp(5.0, 9.0, centralBelt) + Math.max(0, terraceNoise))
+  const terrace = river.waterY + 3.0
+    + terraceT * (THREE.MathUtils.lerp(4.0, 7.5, centralBelt) + Math.max(0, terraceNoise))
     + terraceNoise * 0.28
-  const bankToPlain = THREE.MathUtils.smoothstep(river.distance, halfWidth + 9, halfWidth + 34)
-  let target = THREE.MathUtils.lerp(nearBank, floodplain, bankToPlain)
-  target = THREE.MathUtils.lerp(target, terrace, terraceT)
+  let target = THREE.MathUtils.lerp(nearBank, terrace, terraceT)
   target = THREE.MathUtils.lerp(target, riverFloor, floorMask)
   if (river.whitewater > 0.55 && river.distance < halfWidth + 4) target -= river.whitewater * 1.4
   const channelProtect = river.distance < halfWidth + 2 ? 0 : protect * 0.82
-  const carve = Math.max(floorMask, floodplainMask * 0.92) * (1 - channelProtect)
+  const carve = Math.max(floorMask, bankMask * 0.92) * (1 - channelProtect)
   const shaped = THREE.MathUtils.lerp(height, target, carve)
   const carved = applySteepChannelCarve(height, river.distance, halfWidth, {
     cutDepth: MAIN_RIVER_CHANNEL_CUT,
@@ -2833,6 +3432,67 @@ function getBestWetGullyStreamSampleAt(x, z) {
   return best
 }
 
+// 返回该点「第二近水道」的边缘距离 edge(=distance-halfWidth)。
+// 取主河/最近支流/最近 wet 冲沟三类各自的 edge，返回第二小者。
+// 第二近水道越近（edge 越小）→ 此处越是两条水道交叠的交汇区；用于在交汇处抑制岸线白边。
+function nearbyChannelSecondEdge(x, z) {
+  const edges = []
+  const push = (s) => { if (s) edges.push(s.distance - s.halfWidth) }
+  push(getRiverSampleAt(x, z))
+  push(getBestBranchSampleAt(x, z))
+  push(getBestWetGullyStreamSampleAt(x, z))
+  if (edges.length < 2) return Infinity
+  edges.sort((a, b) => a - b)
+  return edges[1]
+}
+
+// ── 河道交汇水潭 ──
+// 多条水道在同一节点堆叠时，水带各按"最近河道"取水高、河道间地脊又挖不到 →
+// 渲染出多块错台平面 + 沙楔 + 贴陡岸的垂直水片。每个交汇口用一个显式水潭统一为
+// 单一水面 + 碗状盆地：① 水高在池内收敛到同一 surfaceY（消台阶）② 盆地碳刻把池内
+// 地形统一降到水面下（消沙楔/淹没干沟末端）③ 另配一块水盘网格兜底覆盖（填补水带间缝）。
+const CONFLUENCE_POOLS = [
+  // 三河汇流口：主河 + southwest_creek + 中西溪。该处真实地形是被 applyLargeWorldHeight 压低的宽缓低盆
+  // （实测床 +0.9~+1.7），与解析河水位(+3.0)脱钩 ~1.7m → 解析水面会铺成浮高水板、人物没胸穿模。
+  // 故用实测显式高度锚定到河床：surfaceY≈池外主河水带(床+0.75≈+2.0)；bedY 1.2 碗状统一盆底、消错台。
+  { x: -274, z: 8, rInner: 10, rOuter: 18, depth: 1.0, surfaceY: 2.0, bedY: 1.2 },
+  // rill 汇聚路口：central_north_rill 深槽(床≈-4) + 周边 -2 沙脊上的 west_ridge/central_fan/old_center 碎坑。
+  // 该处地形是与解析水位脱钩的深坑，故用实测的绝对高度直接定面/挖盆：水面≈渲染水带(床+0.45≈-3.6)，
+  // 盆底 -4.3 把 -2 沙脊统一下挖成一处真正下沉的水潭（消尖角沙楔/错台），而非浮在沙上的水包。
+  // （大谷抬升已恢复 → 周边回到 ~-2..-4，故水面/盆底回到 -3.5/-4.3 锚定；不再用 -16 盆地值。）
+  { x: -160, z: 34, rInner: 7, rOuter: 15, depth: 0.8, surfaceY: -3.5, bedY: -4.3 },
+  // 中央三河交汇口：主河 + central_north_rill 终点 + central_side_channel 起点 + center_left 冲沟终点。
+  // 正压主河上、地形≈解析水位，故自动水面即可（同 -274,8）；统一成一个潭以消除白边/分段台阶。
+  { x: -160, z: -52, rInner: 9, rOuter: 17, depth: 0.9 },
+  // central_north_rill × nw_terrace 的 X 形交叉口（约 -145,82）：两条 wet 水道交叉、互不为汇口、
+  // 水位不同且交叉间地脊未挖通 → 干沙坝堵住 + 错台。用水潭统一水面并把沙坝碗状挖到水下打通互通。
+  // 该处地形与解析水位脱钩（实测自然地形 -3.6~-1.3，解析 waterY=2.72 偏高会浮空），故用实测显式高度：
+  // surfaceY≈主导水道(nw_terrace,depth0.35)渲染水面(床-3.6+0.35≈-3.3)；bedY -4.1 把 -1.5 沙坝挖到水下打通。
+  // （大谷抬升已恢复 → 周边回到 ~-2..-4，故回到 -3.3/-4.1 锚定；不再用 -16 盆地值。）
+  { x: -146, z: 80, rInner: 11, rOuter: 19, depth: 0.8, surfaceY: -3.3, bedY: -4.1 },
+]
+function confluencePoolSurfaceY(pool) {
+  // 显式 surfaceY（实测锚定，用于与解析水位脱钩的坑地）优先；否则按解析河水位推导
+  // （与河道渲染水面同高：waterY - 0.15，见 applyChannelNetworkCarve）。
+  if (pool.surfaceY !== undefined) return pool.surfaceY
+  if (pool._surfaceY === undefined || pool._surfaceY === null) {
+    const s = sampleChannelNetwork(pool.x, pool.z)
+    pool._surfaceY = (s ? s.waterY : getRiverSampleAt(pool.x, pool.z).waterY) - 0.15
+  }
+  return pool._surfaceY
+}
+// 返回该点权重最大的水潭及其权重；无任何池覆盖则 weight=0,pool=null。
+function confluencePoolWeightAt(x, z) {
+  let weight = 0
+  let pool = null
+  for (const p of CONFLUENCE_POOLS) {
+    const d = Math.hypot(x - p.x, z - p.z)
+    const w = 1 - THREE.MathUtils.smoothstep(d, p.rInner, p.rOuter)
+    if (w > weight) { weight = w; pool = p }
+  }
+  return { weight, pool }
+}
+
 function sampleChannelNetwork(x, z) {
   let best = null
   const consider = (s, depth) => {
@@ -2845,8 +3505,22 @@ function sampleChannelNetwork(x, z) {
   consider(getRiverSampleAt(x, z), MAIN_RIVER_WATER_DEPTH)
   consider(getBestBranchSampleAt(x, z), BRANCH_RIVER_WATER_DEPTH)
   consider(getBestWetGullyStreamSampleAt(x, z), GULLY_STREAM_WATER_DEPTH)
-  consider(getCenterWestStreamSampleAt(x, z), CENTER_WEST_STREAM_WATER_DEPTH)
   return best
+}
+
+// 统一逐顶点水高：返回该世界点处「最近水道」的实际水面 Y（河床地形 + 深度）。
+// 两片水带在同一 (x,z) 重叠时取到同一 Y → 共面，消除交叉口硬切面。无水道则 null。
+function channelNetworkWaterYAt(x, z, getTerrainHeight) {
+  const s = sampleChannelNetwork(x, z)
+  const { weight: poolW, pool } = confluencePoolWeightAt(x, z)
+  if (!s) {
+    // 池内即使不属于任何水带也给出池面（让水盘/水带在池心共面覆盖）
+    return poolW > 0 ? confluencePoolSurfaceY(pool) : null
+  }
+  const base = getTerrainHeight ? getTerrainHeight(s.x, s.z) + s.depth : s.waterY
+  // 交汇口：把逐顶点水高平滑收敛到统一池面，消除"最近河道分段"造成的台阶
+  if (poolW > 0) return THREE.MathUtils.lerp(base, confluencePoolSurfaceY(pool), poolW)
+  return base
 }
 
 // ── 统一碳刻：保证任何水道（含交叉口）都被挖到河床，消除漏挖/水漫/飘空 ──
@@ -2865,6 +3539,120 @@ function applyChannelNetworkCarve(x, z, height) {
   if (s.distance <= s.halfWidth) return Math.min(height, bedTarget)
   const t = THREE.MathUtils.clamp((s.distance - s.halfWidth) / CHANNEL_NETWORK_CARVE_RUN, 0, 1)
   return Math.min(height, THREE.MathUtils.lerp(bedTarget, height, t))
+}
+
+// 交汇水潭碗状盆地：把池内地形统一降到水面下，抹掉河道间地脊（沙楔），并给水盘让出水深。
+// 只加深(Math.min)、平滑权重 → 不破坏既有塑形、池缘斜坡温和。加在 applyChannelNetworkCarve 之后。
+function applyConfluencePoolCarve(x, z, height) {
+  let out = height
+  for (const pool of CONFLUENCE_POOLS) {
+    const d = Math.hypot(x - pool.x, z - pool.z)
+    const w = 1 - THREE.MathUtils.smoothstep(d, pool.rInner, pool.rOuter)
+    if (w <= 0) continue
+    // 显式 bedY（实测盆底）优先；否则按池面 - 深度
+    const bed = pool.bedY !== undefined ? pool.bedY : confluencePoolSurfaceY(pool) - pool.depth
+    // 原来只 Math.min（只挖深）：若上游 rill 把潭区过挖到远低于 bed，潭底被拖到 -18、水面凸出。
+    // 改为向 bed 双向收敛：池心(w→1)坐落到 bed（含回填被 rill 过挖的部分），池缘(w→0)不动 → 正常水盆。
+    out = THREE.MathUtils.lerp(out, bed, w)
+  }
+  return out
+}
+
+// ── 湿河道纵向限坡缓化：消除"水往坡上爬"的向上台阶/沙脊 ──
+// 渲染水面=河床+depth，河床纵向陡升处水面随之竖起成片。这里把每条 wet 河道的河床沿程做
+// 「双向上坡限速」缓化（每米上升不超过 tan(12°)），只加深(Math.min) → 抹平向上台阶、把进/出
+// 深潭的竖直水台阶缓化为斜坡；向下跌水头另由「裁剪高源头段」消除（碳刻无法抬高下游来削平跌水）。
+const GRADE_MAX_SLOPE = Math.tan(THREE.MathUtils.degToRad(12))
+const GRADE_BANK_RUN = Math.max(0.35, channelBankRun(RIVER_CHANNEL_MIN_CUT, RIVER_CHANNEL_MIN_SLOPE_DEG))
+const GRADE_SAMPLE_STEP = 3
+let _gradeProfiles = null
+// 直接重跑「平滑前」的修改器链求某点河床（不依赖 onReady 时序、不递归进本 modifier）。
+// 仅含影响河道床位的几道；城堡/山缘/矿洞与本河道区无关，略去。
+function channelBedNoSmooth(x, z, sampleBaseHeight) {
+  let h = sampleBaseHeight(x, z)
+  h = applyLargeWorldHeight(x, z, h)
+  h = applyLargeRiverValleyHeight(x, z, h)
+  h = applySnowMountainHeight(x, z, h)
+  h = applyHeroRiverHeight(x, z, h)
+  h = applyRiverBranchHeight(x, z, h)
+  h = applyGullyNetworkHeight(x, z, h)
+  h = applyChannelNetworkCarve(x, z, h)
+  h = applyConfluencePoolCarve(x, z, h)
+  return h
+}
+function getGradeChannels() {
+  const rill = getBranchById('central_north_rill')
+  const oldc = EROSION_GULLIES.find(g => g.id === 'old_center')
+  const cleft = EROSION_GULLIES.find(g => g.id === 'center_left')
+  return [
+    { points: rill.points, halfWidthAt: t => branchHalfWidthAt(rill, t) },
+    { points: oldc.points, halfWidthAt: t => gullyStreamHalfWidthAt(oldc, t) },
+    { points: cleft.points, halfWidthAt: t => gullyStreamHalfWidthAt(cleft, t) },
+  ]
+}
+function buildChannelGradeProfiles(sampleBaseHeight) {
+  const profiles = []
+  for (const ch of getGradeChannels()) {
+    const pts = ch.points
+    const { lengths, total } = getPathMeta(pts)
+    const ts = [], bs = [], xs = [], zs = []
+    let acc = 0
+    for (let i = 0; i < pts.length - 1; i++) {
+      const a = pts[i], b = pts[i + 1]
+      const segLen = lengths[i]
+      const n = Math.max(1, Math.round(segLen / GRADE_SAMPLE_STEP))
+      for (let j = 0; j <= n; j++) {
+        if (i > 0 && j === 0) continue
+        const lt = j / n
+        const x = a.x + (b.x - a.x) * lt
+        const z = a.z + (b.z - a.z) * lt
+        ts.push((acc + segLen * lt) / Math.max(0.0001, total))
+        xs.push(x)
+        zs.push(z)
+        bs.push(channelBedNoSmooth(x, z, sampleBaseHeight))
+      }
+      acc += segLen
+    }
+    // 双向上坡限速：相邻 B 上升不超过 tan(12°)·ds（只压不抬）→ 削平向上台阶
+    for (let i = 1; i < bs.length; i++) {
+      const ds = Math.hypot(xs[i] - xs[i - 1], zs[i] - zs[i - 1]) || 1
+      bs[i] = Math.min(bs[i], bs[i - 1] + GRADE_MAX_SLOPE * ds)
+    }
+    for (let i = bs.length - 2; i >= 0; i--) {
+      const ds = Math.hypot(xs[i + 1] - xs[i], zs[i + 1] - zs[i]) || 1
+      bs[i] = Math.min(bs[i], bs[i + 1] + GRADE_MAX_SLOPE * ds)
+    }
+    profiles.push({ points: pts, halfWidthAt: ch.halfWidthAt, ts, bs, bounds: makePathBounds(pts, 6) })
+  }
+  _gradeProfiles = profiles
+}
+function gradeBedAt(prof, t) {
+  const { ts, bs } = prof
+  if (t <= ts[0]) return bs[0]
+  if (t >= ts[ts.length - 1]) return bs[bs.length - 1]
+  for (let i = 1; i < ts.length; i++) {
+    if (t <= ts[i]) {
+      const f = (t - ts[i - 1]) / ((ts[i] - ts[i - 1]) || 1)
+      return bs[i - 1] + (bs[i] - bs[i - 1]) * f
+    }
+  }
+  return bs[bs.length - 1]
+}
+function applyChannelSmoothGrade(x, z, height, sampleBaseHeight) {
+  if (!_gradeProfiles) buildChannelGradeProfiles(sampleBaseHeight)
+  let out = height
+  for (const prof of _gradeProfiles) {
+    if (!isInsideBounds(prof.bounds, x, z)) continue
+    const s = getPathSample(prof.points, x, z)
+    const hw = prof.halfWidthAt(s.t)
+    if (s.distance > hw + GRADE_BANK_RUN) continue
+    const bed = gradeBedAt(prof, s.t)
+    const target = s.distance <= hw
+      ? bed
+      : THREE.MathUtils.lerp(bed, height, THREE.MathUtils.clamp((s.distance - hw) / GRADE_BANK_RUN, 0, 1))
+    out = Math.min(out, target)
+  }
+  return out
 }
 
 function createRockeryRidgeNetworkGeometry(ridges) {
@@ -3182,6 +3970,20 @@ function createTerrainBlendMaterial(texLoader) {
         return vWorldPos.xz * uRockUvScale;
       }
 
+      // 法线驱动的三平面混合权重：陡面权重转向 zy/xy 投影，避免 xz 俯视投影在竖直坡上拉伸
+      vec3 tpWeights() {
+        vec3 n = abs(normalize(vWorldNormal));
+        n = pow(n, vec3(4.0));            // 锐化，缩窄过渡带、减少接缝糊
+        return n / max(n.x + n.y + n.z, 1e-4);
+      }
+
+      vec3 triplanarColor(sampler2D t, float s, vec3 w) {
+        vec3 cx = texture2D(t, vWorldPos.zy * s).rgb;
+        vec3 cy = texture2D(t, vWorldPos.xz * s).rgb;
+        vec3 cz = texture2D(t, vWorldPos.xy * s).rgb;
+        return cx * w.x + cy * w.y + cz * w.z;
+      }
+
       float terrainHash(vec2 p) {
         return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
       }
@@ -3195,6 +3997,33 @@ function createTerrainBlendMaterial(texLoader) {
         float c = terrainHash(i + vec2(0.0, 1.0));
         float d = terrainHash(i + vec2(1.0, 1.0));
         return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
+      }
+
+      // 三平面程序化噪声：在陡面上同样不沿竖直方向拉伸
+      float terrainNoiseTP(float s, vec3 w) {
+        return terrainNoise(vWorldPos.zy * s) * w.x
+             + terrainNoise(vWorldPos.xz * s) * w.y
+             + terrainNoise(vWorldPos.xy * s) * w.z;
+      }
+
+      // 坐标显式版三平面噪声（供细节法线做有限差分；权重 w 为常量）
+      float terrainNoiseTPAt(vec3 p, float s, vec3 w) {
+        return terrainNoise(p.zy * s) * w.x
+             + terrainNoise(p.xz * s) * w.y
+             + terrainNoise(p.xy * s) * w.z;
+      }
+
+      // 高频细节法线：对三平面噪声做世界空间有限差分梯度，投影到切平面后微扰法线，
+      // 打散几何网格分辨率（~1.78m）以下、几何噪声无法表达的残余细条带。
+      vec3 terrainDetailNormalWS(vec3 wn, vec3 w, float s, float strength) {
+        float e = 0.6;
+        float f0 = terrainNoiseTPAt(vWorldPos, s, w);
+        float fx = terrainNoiseTPAt(vWorldPos + vec3(e, 0.0, 0.0), s, w);
+        float fy = terrainNoiseTPAt(vWorldPos + vec3(0.0, e, 0.0), s, w);
+        float fz = terrainNoiseTPAt(vWorldPos + vec3(0.0, 0.0, e), s, w);
+        vec3 grad = vec3(fx - f0, fy - f0, fz - f0) / e;
+        vec3 tang = grad - dot(grad, wn) * wn;   // 仅取切平面分量
+        return normalize(wn - tang * strength);
       }
 
       float terrainSlopeMask() {
@@ -3227,7 +4056,6 @@ function createTerrainBlendMaterial(texLoader) {
       }
 
 ${TERRAIN_RIVER_SAMPLE_GLSL}
-${TERRAIN_CENTER_WEST_STREAM_SAMPLE_GLSL}
 ${TERRAIN_BRANCH_SAMPLE_GLSL}
 
       vec3 terrainGullySegment(vec2 p, vec2 a, vec2 b, float wet, vec3 best) {
@@ -3275,9 +4103,12 @@ ${TERRAIN_BRANCH_SAMPLE_GLSL}
       '#include <map_fragment>',
       `
       vec2 dirtUv = terrainDirtUv();
-      vec2 rockUv = terrainRockUv();
-      vec4 dirtColor = texture2D(map, dirtUv);
-      vec4 rockColor = texture2D(uRockMap, rockUv);
+      vec3 tpW = tpWeights();
+      // 反照率走三平面：陡坡不再把草/岩沿竖直方向拉成条纹
+      vec4 dirtColor = vec4(triplanarColor(map, uDirtUvScale, tpW), 1.0);
+      // 土壤加深：压暗 + 偏暖褐，从浅沙黄变更深的泥土色
+      dirtColor.rgb *= vec3(0.66, 0.58, 0.50);
+      vec4 rockColor = vec4(triplanarColor(uRockMap, uRockUvScale, tpW), 1.0);
       vec3 debrisColor = texture2D(uDebrisMap, dirtUv * 0.46 + vec2(0.17, 0.09)).rgb;
       float rockMask = terrainRockMask();
       float dampMask = terrainDampMask() * (1.0 - rockMask);
@@ -3299,14 +4130,30 @@ ${TERRAIN_BRANCH_SAMPLE_GLSL}
       float riverMoss = (1.0 - smoothstep(riverWidth + 14.0, riverWidth + 34.0, wetDist)) * smoothstep(riverWidth + 6.0, riverWidth + 18.0, wetDist);
       float riverBankNoise = terrainNoise(vWorldPos.xz * 0.38 + vec2(2.7, 8.1));
       float riverWetBreakup = terrainNoise(vWorldPos.xz * 0.72 + vec2(10.6, 4.7));
-      vec3 bankMoss = vec3(0.20, 0.28, 0.16) * (0.84 + riverBankNoise * 0.20);
-      vec3 riverClay = vec3(0.34, 0.32, 0.26) * (0.84 + riverBankNoise * 0.24);
-      // 更暗、偏棕红的湿泥，模拟被水浸湿的深色河滩（参考图特征）
-      vec3 wetMud = vec3(0.058, 0.044, 0.030) * (0.82 + riverBankNoise * 0.22);
-      vec3 wetSheen = vec3(0.16, 0.15, 0.115) * (0.74 + riverWetBreakup * 0.34);
-      terrainColor = mix(terrainColor, bankMoss, riverMoss * 0.30);
-      terrainColor = mix(terrainColor, riverClay, riverBank * 0.62);
-      terrainColor = mix(terrainColor, wetMud, riverWetEdge * 0.86);
+      // 多色斑驳：用独立尺度/相位的噪声把"湿黑腐殖 / 暖棕泥 / 赭黄黏土 / 苔绿"交错混入岸带，
+      // 而非按距离单调分层，对应参考图那种丰富自然的河岸土壤。
+      float mottleA = terrainNoise(vWorldPos.xz * 0.22 + vec2(13.1, 5.5));
+      float mottleB = terrainNoise(vWorldPos.xz * 0.55 + vec2(4.3, 18.9));
+      float mottleC = terrainNoise(vWorldPos.xz * 1.05 + vec2(9.7, 2.2));
+      vec3 bankMoss = vec3(0.17, 0.26, 0.12) * (0.84 + riverBankNoise * 0.22);
+      vec3 riverClay = vec3(0.30, 0.24, 0.15) * (0.84 + riverBankNoise * 0.26);   // 偏暖赭黄黏土
+      vec3 warmHumus = vec3(0.13, 0.10, 0.06) * (0.82 + mottleB * 0.28);          // 暖棕腐殖
+      // 更暗、偏黑棕的湿泥（参考图水边特征）
+      vec3 wetMud = vec3(0.050, 0.035, 0.022) * (0.82 + riverBankNoise * 0.24);
+      vec3 wetSheen = vec3(0.15, 0.14, 0.105) * (0.74 + riverWetBreakup * 0.34);
+      // 整条近岸带（水边→外）都铺多色斑驳土壤：近水偏湿黑泥，向外渐变到暖棕腐殖/赭黏土/苔绿。
+      // riverWetEdge 作"近水度"：1=贴水边、0=岸带外缘。
+      float nearWet = riverWetEdge;
+      // 距离基底：近水 wetMud↔暖棕腐殖，外侧 黏土↔苔绿
+      vec3 bankSoil = mix(warmHumus, wetMud, smoothstep(0.35, 0.9, nearWet));
+      bankSoil = mix(riverClay, bankSoil, smoothstep(0.12, 0.55, nearWet));
+      // 斑驳：叠加交错的腐殖/黏土/苔绿，使其不是单调一色
+      bankSoil = mix(bankSoil, warmHumus, smoothstep(0.40, 0.78, mottleA) * 0.5);
+      bankSoil = mix(bankSoil, riverClay, smoothstep(0.48, 0.86, mottleB) * 0.4);
+      bankSoil = mix(bankSoil, bankMoss, smoothstep(0.58, 0.9, mottleC) * 0.45);
+      // 覆盖整条近岸带：合并 黏土带 + 湿泥带 + 苔藓带 作 mask（最外到 riverWidth+34）
+      float bankZone = clamp(max(max(riverWetEdge, riverBank), riverMoss * 0.85), 0.0, 1.0);
+      terrainColor = mix(terrainColor, bankSoil, bankZone * 0.88);
       terrainColor = mix(terrainColor, wetSheen, riverWetEdge * smoothstep(0.56, 0.94, riverWetBreakup) * 0.22);
       float centralRiverBelt = exp(-pow((riverSample.y - 0.56) / 0.25, 2.0));
       float centralRiverWidth = mix(4.8, 7.8, pow(riverSample.y, 0.62)) + centralRiverBelt * 3.2;
@@ -3332,11 +4179,16 @@ ${TERRAIN_BRANCH_SAMPLE_GLSL}
       float branchLowland = (1.0 - smoothstep(branchWidth + 10.0, branchWidth + 30.0, branchSample.x)) * smoothstep(branchWidth + 5.0, branchWidth + 14.0, branchSample.x);
       float branchNoise = terrainNoise(vWorldPos.xz * 0.52 + vec2(4.2, 15.8));
       vec3 branchGravel = vec3(0.40, 0.38, 0.31) * (0.84 + branchNoise * 0.22);
-      vec3 branchWetMud = vec3(0.10, 0.09, 0.064) * (0.80 + branchNoise * 0.22);
-      vec3 branchLowGrass = vec3(0.19, 0.27, 0.16) * (0.86 + branchNoise * 0.18);
-      terrainColor = mix(terrainColor, branchGravel, branchBank * 0.48);
-      terrainColor = mix(terrainColor, branchLowGrass, branchLowland * 0.28);
-      terrainColor = mix(terrainColor, branchWetMud, branchWetEdge * 0.74);
+      vec3 branchWetMud = vec3(0.085, 0.066, 0.044) * (0.80 + branchNoise * 0.22);   // 更暗偏棕
+      vec3 branchLowGrass = vec3(0.17, 0.26, 0.13) * (0.86 + branchNoise * 0.18);
+      // 支流湿泥也斑驳：复用主河 mottle 噪声，棕腐/黏土/苔绿交错
+      vec3 branchSoil = branchWetMud;
+      branchSoil = mix(branchSoil, warmHumus, smoothstep(0.35, 0.75, mottleA));
+      branchSoil = mix(branchSoil, riverClay * 0.92, smoothstep(0.45, 0.85, mottleB) * 0.6);
+      branchSoil = mix(branchSoil, bankMoss, smoothstep(0.55, 0.88, mottleC) * 0.5);
+      terrainColor = mix(terrainColor, branchGravel, branchBank * 0.42);
+      terrainColor = mix(terrainColor, branchLowGrass, branchLowland * 0.30);
+      terrainColor = mix(terrainColor, branchSoil, branchWetEdge * 0.82);
       vec3 gullySample = terrainGullySample(vWorldPos.xz);
       float gullyCore = 1.0 - smoothstep(2.4, 8.5, gullySample.x);
       float gullyApron = (1.0 - smoothstep(8.0, 34.0, gullySample.x)) * smoothstep(3.0, 12.0, gullySample.x);
@@ -3347,25 +4199,67 @@ ${TERRAIN_BRANCH_SAMPLE_GLSL}
       terrainColor = mix(terrainColor, gullyGravel, gullyApron * 0.22);
       terrainColor = mix(terrainColor, wetCut, gullyCore * 0.74);
       terrainColor = mix(terrainColor, gullyGrass, gullyApron * 0.26);
-      float snowMountainMask = smoothstep(38.0, 86.0, vWorldPos.y);
+      // ── 陡河岸斑驳岩壁/地衣（参考图对岸特征）：靠近河 ∩ 坡陡 处把 rock 染绿灰 + 深色地衣斑 ──
+      float bankProximity = max(
+        1.0 - smoothstep(riverWidth + 2.0, riverWidth + 30.0, wetDist),
+        1.0 - smoothstep(branchWidth + 1.0, branchWidth + 18.0, branchWetDist)
+      );
+      float bankSteep = smoothstep(0.14, 0.40, 1.0 - clamp(dot(normalize(vWorldNormal), vec3(0.0, 1.0, 0.0)), 0.0, 1.0));
+      float bankRockMask = bankProximity * bankSteep;
+      vec3 lichenRock = rockColor.rgb * vec3(0.62, 0.66, 0.55);   // 绿灰风化岩
+      float lichenPatch = smoothstep(0.52, 0.84, terrainNoise(vWorldPos.xz * 0.30 + vec2(3.3, 7.7)));
+      lichenRock = mix(lichenRock, vec3(0.17, 0.19, 0.15), lichenPatch * 0.7);   // 深色地衣斑
+      lichenRock = mix(lichenRock, vec3(0.30, 0.36, 0.24), smoothstep(0.6, 0.9, terrainNoise(vWorldPos.xz * 0.7)) * 0.35);  // 零星苔绿
+      terrainColor = mix(terrainColor, lichenRock, bankRockMask * 0.7);
+      // ── 远景地面着色（按到相机水平距离）：远山丘刷草绿、河道附近刷岩石色；近处保持土壤/河岸原色 ──
+      float camDistXZ = distance(vWorldPos.xz, cameraPosition.xz);
+      float farFactor = smoothstep(40.0, 110.0, camDistXZ);              // 近处=0 不变，向远处渐入
+      float farGentle = smoothstep(0.55, 0.80,
+        clamp(dot(normalize(vWorldNormal), vec3(0.0, 1.0, 0.0)), 0.0, 1.0));   // 陡坡/崖不染绿
+      // 河道附近（远处）→ 岩石色（复用 bankProximity：主河+支流近岸度）
+      vec3 farRock = rockColor.rgb * vec3(0.78, 0.80, 0.80);
+      terrainColor = mix(terrainColor, farRock, farFactor * bankProximity * 0.7);
+      // 远处山丘缓坡（远离河道、非岩、非高坡）→ 草绿
+      float farMeadowMask = farFactor * farGentle * (1.0 - rockMask)
+        * (1.0 - bankProximity) * (1.0 - smoothstep(24.0, 34.0, vWorldPos.y));
+      vec3 farMeadowGreen = mix(vec3(0.150, 0.250, 0.090), vec3(0.205, 0.330, 0.120),
+        terrainNoise(vWorldPos.xz * 0.21 + vec2(8.3, 2.6)));
+      terrainColor = mix(terrainColor, farMeadowGreen, farMeadowMask * 0.75);
+      // ── 陡面强制裸岩：坡度大处一律盖掉草绿/河岸地衣绿，露中性冷灰岩，
+      //    避免绿草爬上近垂直崖面（河道穿山导致 2D 距离近，绿苔本会染到高崖）──
+      float cliffSlope = 1.0 - clamp(dot(normalize(vWorldNormal), vec3(0.0, 1.0, 0.0)), 0.0, 1.0);
+      float cliffMask = smoothstep(0.44, 0.74, cliffSlope) * smoothstep(12.0, 30.0, vWorldPos.y);
+      vec3 cliffRock = rockColor.rgb * vec3(0.70, 0.73, 0.76);
+      cliffRock = mix(cliffRock, cliffRock * vec3(0.82, 0.86, 0.92), smoothstep(0.62, 0.92, cliffSlope) * 0.5); // 越陡越冷暗
+      cliffRock *= 0.86 + terrainNoiseTP(0.42, tpW) * 0.20;
+      terrainColor = mix(terrainColor, cliffRock, cliffMask * 0.92);
+      float snowMountainMask = smoothstep(22.0, 64.0, vWorldPos.y);
       float highAlpineMask = smoothstep(112.0, 198.0, vWorldPos.y);
       float slopeMask = terrainSlopeMask();
-      float snowPatchNoise = terrainNoise(vWorldPos.xz * 0.032 + vec2(7.4, 13.1));
-      float windSnowNoise = terrainNoise(vWorldPos.xz * 0.18 + vec2(2.6, 9.8));
-      vec3 alpineRock = mix(vec3(0.42, 0.44, 0.45), vec3(0.64, 0.66, 0.67), terrainNoise(vWorldPos.xz * 0.18));
-      alpineRock = mix(alpineRock, vec3(0.32, 0.36, 0.40), slopeMask * 0.42);
-      alpineRock *= vec3(0.84, 0.92, 1.0) * (0.92 + terrainNoise(vWorldPos.xz * 0.46) * 0.10);
-      terrainColor = mix(terrainColor, alpineRock, snowMountainMask * (1.0 - highAlpineMask * 0.32));
-      float settledSnow = smoothstep(74.0, 132.0, vWorldPos.y) * (1.0 - smoothstep(0.16, 0.64, slopeMask));
-      float streakSnow = smoothstep(72.0, 150.0, vWorldPos.y)
-        * smoothstep(0.40, 0.76, snowPatchNoise + windSnowNoise * 0.24)
-        * (1.0 - smoothstep(0.74, 1.0, slopeMask));
-      float summitSnow = highAlpineMask * 0.90;
-      float snowMask = clamp(max(settledSnow, streakSnow) + summitSnow, 0.0, 1.0);
-      vec3 snowColor = vec3(0.92, 0.96, 0.98) * (0.96 + terrainNoise(vWorldPos.xz * 0.46) * 0.06);
-      snowColor = mix(snowColor, vec3(0.80, 0.87, 0.93), slopeMask * 0.16);
+      // ── 高山岩：三平面噪声做"地层带"明暗 + 颗粒，陡面深冷灰、缓坡略暖，杜绝竖直拉伸 ──
+      float strata = terrainNoiseTP(0.045, tpW);          // 低频：沉积/节理大带
+      float rockGrain = terrainNoiseTP(0.5, tpW);         // 高频：岩石颗粒
+      vec3 alpineRock = mix(vec3(0.40, 0.42, 0.44), vec3(0.60, 0.61, 0.62), strata);
+      alpineRock = mix(alpineRock, vec3(0.30, 0.33, 0.37), slopeMask * 0.45);                 // 陡面更深冷
+      alpineRock = mix(alpineRock, alpineRock * vec3(1.05, 1.0, 0.93), (1.0 - slopeMask) * 0.22); // 缓坡略暖
+      alpineRock *= 0.90 + rockGrain * 0.18;
+      terrainColor = mix(terrainColor, alpineRock, snowMountainMask * (1.0 - highAlpineMask * 0.30));
+      // ── 雪分布：缓坡/凹处堆积，陡面露岩；雪线用三平面噪声犬牙交错 ──
+      float snowPatch = terrainNoiseTP(0.03, tpW);
+      float windSnow = terrainNoiseTP(0.16, tpW);
+      float settledSnow = smoothstep(46.0, 100.0, vWorldPos.y) * (1.0 - smoothstep(0.18, 0.62, slopeMask));
+      float streakSnow = smoothstep(44.0, 116.0, vWorldPos.y)
+        * smoothstep(0.42, 0.74, snowPatch + windSnow * 0.22)
+        * (1.0 - smoothstep(0.66, 0.96, slopeMask));
+      float summitSnow = highAlpineMask * (1.0 - smoothstep(0.72, 1.0, slopeMask)) * 0.95;    // 极陡岩峰仍露岩
+      float snowMask = clamp(max(max(settledSnow, streakSnow), summitSnow), 0.0, 1.0);
+      // ── 雪色：亮白基底 + 细颗粒微光，陡面/阴影冷蓝，起伏轻微明暗 ──
+      float snowGrain = terrainNoiseTP(1.1, tpW);
+      vec3 snowColor = vec3(0.95, 0.97, 0.99) * (0.97 + snowGrain * 0.05);
+      snowColor = mix(snowColor, vec3(0.74, 0.82, 0.92), slopeMask * 0.30);                   // 冷蓝阴影面
+      snowColor *= 0.95 + snowPatch * 0.06;
       terrainColor = mix(terrainColor, snowColor, snowMask);
-      terrainColor *= 0.92 + terrainNoise(vWorldPos.xz * 1.35) * 0.12;
+      terrainColor *= 0.93 + terrainNoiseTP(1.3, tpW) * 0.10;
       diffuseColor *= vec4(terrainColor, dirtColor.a);
       `
     )
@@ -3388,12 +4282,44 @@ ${TERRAIN_BRANCH_SAMPLE_GLSL}
 
       #elif defined(USE_NORMALMAP_TANGENTSPACE)
 
+        // dirt 法线仍走切线空间（平地为主，不会拉伸）
         vec3 dirtN = texture2D(normalMap, terrainDirtUv()).xyz * 2.0 - 1.0;
-        vec3 rockN = texture2D(uRockNormalMap, terrainRockUv()).xyz * 2.0 - 1.0;
-        vec3 mapN = normalize(mix(dirtN, rockN, terrainRockMask()));
-        mapN.xy *= normalScale;
+        dirtN.xy *= normalScale;
+        vec3 dirtWorldN = normalize(tbn * dirtN);
 
-        normal = normalize(tbn * mapN);
+        // rock 法线走三平面 Whiteout blend，直接得到世界空间法线，峭壁细节不拉伸
+        vec3 wn = normalize(vWorldNormal);
+        vec3 tpWn = abs(wn);
+        tpWn = pow(tpWn, vec3(4.0));
+        tpWn /= max(tpWn.x + tpWn.y + tpWn.z, 1e-4);
+        vec3 nax = texture2D(uRockNormalMap, vWorldPos.zy * uRockUvScale).xyz * 2.0 - 1.0;
+        vec3 nay = texture2D(uRockNormalMap, vWorldPos.xz * uRockUvScale).xyz * 2.0 - 1.0;
+        vec3 naz = texture2D(uRockNormalMap, vWorldPos.xy * uRockUvScale).xyz * 2.0 - 1.0;
+        nax.xy *= normalScale;
+        nay.xy *= normalScale;
+        naz.xy *= normalScale;
+        nax = vec3(nax.xy + wn.zy, abs(nax.z) * wn.x);
+        nay = vec3(nay.xy + wn.xz, abs(nay.z) * wn.y);
+        naz = vec3(naz.xy + wn.xy, abs(naz.z) * wn.z);
+        vec3 rockWorldN = normalize(
+          nax.zyx * tpWn.x +
+          nay.xzy * tpWn.y +
+          naz.xyz * tpWn.z
+        );
+
+        normal = normalize(mix(dirtWorldN, rockWorldN, terrainRockMask()));
+
+        // 高频程序化细节法线：在高山岩/雪区破碎残余网格列拉丝（陡面竖条）。
+        // 两档尺度叠加：粗档(0.5)给岩面起伏，细档(1.4)直接打散 ~1.78m 网格列。
+        float alpineDetail = smoothstep(22.0, 64.0, vWorldPos.y);
+        if (alpineDetail > 0.001) {
+          vec3 detW = abs(wn);
+          detW = pow(detW, vec3(4.0));
+          detW /= max(detW.x + detW.y + detW.z, 1e-4);
+          vec3 detN = terrainDetailNormalWS(wn, detW, 0.5, 0.6);
+          detN = terrainDetailNormalWS(detN, detW, 1.4, 0.9);
+          normal = normalize(mix(normal, detN, alpineDetail * 0.75));
+        }
 
       #elif defined(USE_BUMPMAP)
 
@@ -3442,7 +4368,7 @@ ${TERRAIN_BRANCH_SAMPLE_GLSL}
     )
   }
 
-  mat.customProgramCacheKey = () => 'terrain-dirt-rock-pbr-v3'
+  mat.customProgramCacheKey = () => 'terrain-dirt-rock-pbr-v9'
   return mat
 }
 
@@ -3479,7 +4405,8 @@ function createDistantTerrainProxyMaterial(texLoader) {
       '#include <worldpos_vertex>',
       `#include <worldpos_vertex>
        vProxyWorldPos = worldPosition.xyz;
-       vProxyWorldNormal = normalize(mat3(modelMatrix) * objectNormal);`
+       // MeshBasicMaterial 不含 <beginnormal_vertex>，无 objectNormal；直接用 normal 属性。
+       vProxyWorldNormal = normalize(mat3(modelMatrix) * normal);`
     )
     shader.fragmentShader = `
       varying vec3 vProxyWorldPos;
@@ -3515,6 +4442,10 @@ function createDistantTerrainProxyMaterial(texLoader) {
       float streakN = proxyNoise(vProxyWorldPos.xz * 0.42 + vec2(13.7, 2.4));
       float alpine = smoothstep(22.0, 74.0, vProxyWorldPos.y);
       vec3 lowGround = diffuseColor.rgb * vec3(0.76, 0.78, 0.70);
+      // 远景低地染草绿，与近处草地衔接（alpine=高山因子，slope=坡度）
+      float proxyMeadow = (1.0 - alpine) * (1.0 - smoothstep(0.30, 0.62, slope));
+      vec3 proxyMeadowGreen = mix(vec3(0.150, 0.250, 0.090), vec3(0.200, 0.320, 0.120), broad);
+      lowGround = mix(lowGround, proxyMeadowGreen, proxyMeadow * 0.6);
       vec3 coldRock = mix(vec3(0.40, 0.43, 0.45), vec3(0.64, 0.66, 0.67), broad);
       // 陡岩更暗更冷，强化裸岩与雪的明度对比
       coldRock = mix(coldRock, vec3(0.26, 0.31, 0.36), smoothstep(0.30, 0.82, slope) * 0.55);
@@ -3556,7 +4487,7 @@ function createDistantTerrainProxyMaterial(texLoader) {
       `
     )
   }
-  material.customProgramCacheKey = () => 'distant-terrain-snow-proxy-v2'
+  material.customProgramCacheKey = () => 'distant-terrain-snow-proxy-v3'
   return material
 }
 
@@ -3920,6 +4851,10 @@ function createHeroRiverMaterial() {
     depthWrite: false,
     side: THREE.DoubleSide,
     vertexShader: `
+      attribute float aShore;
+      attribute float aSubmerge;
+      varying float vShore;
+      varying float vSubmerge;
       varying vec2 vUv;
       varying float vEdge;
       varying float vFlow;
@@ -3928,6 +4863,8 @@ function createHeroRiverMaterial() {
       #include <fog_pars_vertex>
       void main() {
         vUv = uv;
+        vShore = aShore;
+        vSubmerge = aSubmerge;
         vEdge = abs(uv.x - 0.5) * 2.0;
         vFlow = uv.y;
         vec4 worldPos = modelMatrix * vec4(position, 1.0);
@@ -4051,6 +4988,10 @@ function createMainRiverMaterial() {
     depthWrite: false,
     side: THREE.DoubleSide,
     vertexShader: `
+      attribute float aShore;
+      attribute float aSubmerge;
+      varying float vShore;
+      varying float vSubmerge;
       varying vec2 vUv;
       varying float vEdge;
       varying float vFlow;
@@ -4059,6 +5000,8 @@ function createMainRiverMaterial() {
       #include <fog_pars_vertex>
       void main() {
         vUv = uv;
+        vShore = aShore;
+        vSubmerge = aSubmerge;
         vEdge = abs(uv.x - 0.5) * 2.0;
         vFlow = uv.y;
         vec4 worldPos = modelMatrix * vec4(position, 1.0);
@@ -4072,6 +5015,8 @@ function createMainRiverMaterial() {
     fragmentShader: `
       precision highp float;
       uniform float uTime;
+      varying float vShore;
+      varying float vSubmerge;
       varying vec2 vUv;
       varying float vEdge;
       varying float vFlow;
@@ -4115,6 +5060,8 @@ function createMainRiverMaterial() {
       }
 
       void main() {
+        // 地形穿出水面（vSubmerge<0 = 水面在地形之下）→ 丢弃，消除"水盖在沙脊/深槽伪影上"
+        if (vSubmerge < -0.12) discard;
         vec2 world = vWorldPos.xz;
         float time = uTime;
         float side = abs(vUv.x - 0.5) * 2.0;
@@ -4150,11 +5097,14 @@ function createMainRiverMaterial() {
         // 浅/中最亮、深处略暗
         float caustic = causticNet * (0.5 + shallowBank * 0.7) * (0.55 + centerDepth * 0.45);
 
+        // vShore：浅水/真实岸线度（1=贴陆地浅水，0=深水/盖在另一片水之上）。
+        // 边缘高光（绿边/泡沫/水线）只在真实岸线出现，避免交叉口内部重叠边发亮。
+        float shoreGate = smoothstep(0.25, 0.7, vShore);
         float shoreNoise = fbm(vec2(vFlow * 0.62 - time * 0.42, vUv.x * 8.5 + time * 0.10));
         float softFoamBand = smoothstep(0.48, 0.84, sideW) * (1.0 - smoothstep(0.98, 1.0, sideW) * 0.28);
-        float softShoreFoam = softFoamBand * smoothstep(0.24, 0.78, shoreNoise + longRipple * 0.22 + fine * 0.10);
-        float shoreFoam = edgeBand * smoothstep(0.42, 0.82, shoreNoise + longRipple * 0.18);
-        float brokenFoam = smoothstep(0.72, 0.96, caustic + shoreNoise * 0.22) * (edgeBand * 0.72);
+        float softShoreFoam = softFoamBand * smoothstep(0.24, 0.78, shoreNoise + longRipple * 0.22 + fine * 0.10) * shoreGate;
+        float shoreFoam = edgeBand * smoothstep(0.42, 0.82, shoreNoise + longRipple * 0.18) * shoreGate;
+        float brokenFoam = smoothstep(0.72, 0.96, caustic + shoreNoise * 0.22) * (edgeBand * 0.72) * shoreGate;
         float foamMask = clamp(softShoreFoam * 0.66 + shoreFoam * 0.58 + brokenFoam * 0.52, 0.0, 1.0);
         // 飞溅白点/气泡：高频阈值噪声，散布在水面（中心/浅滩稍多），对应参考图的小白点
         float speckNoise = fbm(world * 2.6 + vec2(time * 0.35, -time * 0.28));
@@ -4170,11 +5120,12 @@ function createMainRiverMaterial() {
         vec3 foam = vec3(0.82, 0.92, 0.90);
 
         vec3 color = mix(mid, deep, centerDepth);
-        color = mix(color, shallow, shallowBank * (0.72 + fine * 0.18));
-        // 明亮青绿浅滩发光带（参考图水边特征）：sideW 中段一条亮绿带，最外缘前收住
-        float greenFringe = smoothstep(0.46, 0.82, sideW) * (1.0 - smoothstep(0.90, 1.06, sideW));
+        // 浅水色只在真实浅水（贴岸）出现；盖在另一片深水之上的水带边缘不变浅 → 消除深水里的浅色斜带
+        color = mix(color, shallow, shallowBank * shoreGate * (0.72 + fine * 0.18));
+        // 明亮青绿浅滩发光带（参考图水边特征）：sideW 中段一条亮绿带，最外缘前收住；只在真实岸线
+        float greenFringe = smoothstep(0.46, 0.82, sideW) * (1.0 - smoothstep(0.90, 1.06, sideW)) * shoreGate;
         color = mix(color, vec3(0.16, 0.56, 0.40), greenFringe * 0.34);
-        color = mix(color, silt, edgeBand * (0.26 + shoreNoise * 0.22));
+        color = mix(color, silt, edgeBand * shoreGate * (0.26 + shoreNoise * 0.22));
         // 网格焦散：偏青白的亮光纹（保持深水偏蓝的基调），叠加在整条水面
         color += vec3(0.30, 0.50, 0.46) * caustic;
         color += vec3(0.05, 0.26, 0.20) * greenFringe * (0.5 + caustic * 0.6);
@@ -4189,7 +5140,7 @@ function createMainRiverMaterial() {
                   + 0.03 * sin(time * 0.37 + vFlow * 1.7);
         float edgeCut = clamp(0.86 + lap + bankWarp * 0.35, 0.6, 0.95);
         float edgeAlpha = 1.0 - smoothstep(edgeCut - 0.10, edgeCut + 0.05, side);
-        float lapFoam = smoothstep(0.05, 0.0, abs(side - edgeCut)) * smoothstep(0.55, 0.85, side);
+        float lapFoam = smoothstep(0.05, 0.0, abs(side - edgeCut)) * smoothstep(0.55, 0.85, side) * shoreGate;
         color = mix(color, foam, lapFoam * 0.55);
         float alpha = (mix(0.58, 0.94, centerDepth)
           + edgeBand * 0.04 + softShoreFoam * 0.18 + foamMask * 0.24 + fresnel * 0.10
@@ -4211,6 +5162,8 @@ function buildRiverStripGeometry(points, getSampleAt, {
 } = {}) {
   const verts = []
   const uvs = []
+  const shores = []
+  const submerges = []
   const idx = []
   let row = 0
   let flowV = 0
@@ -4236,15 +5189,25 @@ function buildRiverStripGeometry(points, getSampleAt, {
     const rightX = -sample.dirZ
     const rightZ = sample.dirX
     const y = getSurfaceYAt ? getSurfaceYAt(sample) : sample.waterY
-    // 逐侧把水带延伸到真实岸线（地形升到水面 y 处）：填满碳刻河道/交叉口盆地，消除飘空
+    // 逐侧把水带延伸到真实岸线（地形升到水面 y 处）：填满碳刻河道/交叉口盆地，消除飘空。
+    // 同时：一旦该点被「另一条水道」主导就停止外延，避免与其水带重叠（消除交叉口叠加亮线）。
     const shoreExtent = (sign) => {
       if (!getGroundYAt) return halfWidth
       const maxExt = sample.halfWidth + maxShoreExtend
       let ext = halfWidth
       for (let off = sample.halfWidth; off <= maxExt; off += 0.6) {
-        if (getGroundYAt(sample.x + rightX * sign * off, sample.z + rightZ * sign * off) >= y) {
-          return Math.min(off + 0.4, maxExt)
+        const wx = sample.x + rightX * sign * off
+        const wz = sample.z + rightZ * sign * off
+        // 只裁「外侧裙边」与另一水道的重叠（消除远处大片叠加亮线）；近核心(±2.5)不裁，
+        // 让两条水带在汇入口附近薄薄重叠，填满交角处的干缝楔形（共面重叠≈churning 水，自然）。
+        if (off > sample.halfWidth + 2.5) {
+          const own = getSampleAt(wx, wz)
+          const net = sampleChannelNetwork(wx, wz)
+          if (net && net.edge < (own.distance - own.halfWidth) - 1.2) return Math.min(off + 0.8, maxExt)
         }
+        // 地形相对本水带水面骤降（进入旁边的深槽）→ 停止外延，避免浅水带浮在深槽上方（穿水）
+        if (y - getGroundYAt(wx, wz) > 1.2) return Math.min(off + 0.2, maxExt)
+        if (getGroundYAt(wx, wz) >= y) return Math.min(off + 0.4, maxExt)
         ext = off
       }
       return Math.min(ext, maxExt)
@@ -4258,13 +5221,25 @@ function buildRiverStripGeometry(points, getSampleAt, {
       const offset = u <= 0.5
         ? THREE.MathUtils.lerp(-leftExt, 0, u / 0.5)
         : THREE.MathUtils.lerp(0, rightExt, (u - 0.5) / 0.5)
-      const crown = Math.sin(u * Math.PI) * Math.min(0.06, halfWidth * 0.004)
-      verts.push(
-        sample.x + rightX * offset,
-        y + crown,
-        sample.z + rightZ * offset,
-      )
+      const wx = sample.x + rightX * offset
+      const wz = sample.z + rightZ * offset
+      // 逐顶点统一水高：用世界坐标从河道场取水面 Y，重叠水带在同一点取同一 Y → 共面、无硬切面
+      const vy = getGroundYAt ? (channelNetworkWaterYAt(wx, wz, getGroundYAt) ?? y) : y
+      const gy = getGroundYAt ? getGroundYAt(wx, wz) : (vy - 0.5)
+      // 浅水度 aShore：水浅（贴陆地岸线）→1，深水/盖在另一片水之上→0。
+      // shader 用它门控边缘高光，使绿边/泡沫/水线只在真实岸线出现，消除交叉口内部亮线。
+      let shoreF = getGroundYAt ? (1 - THREE.MathUtils.smoothstep(vy - gy, 0.4, 1.6)) : 1
+      // 交汇抑制：第二近水道在 ~0.5–4m 内 → 判为两道交叠的交汇区，平滑压低 aShore，
+      // 让交汇内部接缝不起白色岸线泡沫/亮边；单条河（无第二近水道）不受影响、岸边泡沫照旧。
+      if (getGroundYAt) {
+        const secondEdge = nearbyChannelSecondEdge(wx, wz)
+        const confluence = 1 - THREE.MathUtils.smoothstep(secondEdge, 0.5, 4.0)
+        shoreF *= (1 - confluence)
+      }
+      verts.push(wx, vy, wz)
       uvs.push(u, flowV + whitewaterUv * 0.18)
+      shores.push(shoreF)
+      submerges.push(vy - gy)  // 水面高出地形的量；<0 表示地形穿出水面（着色器据此丢弃）
     }
     if (row < samples.length - 1) {
       const rowStride = crossSegments + 1
@@ -4280,6 +5255,8 @@ function buildRiverStripGeometry(points, getSampleAt, {
   const geometry = new THREE.BufferGeometry()
   geometry.setAttribute('position', new THREE.Float32BufferAttribute(verts, 3))
   geometry.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2))
+  geometry.setAttribute('aShore', new THREE.Float32BufferAttribute(shores, 1))
+  geometry.setAttribute('aSubmerge', new THREE.Float32BufferAttribute(submerges, 1))
   geometry.setIndex(idx)
   geometry.computeVertexNormals()
   geometry.computeBoundingBox()
@@ -4295,17 +5272,6 @@ function buildHeroRiverGeometry(getTerrainHeight) {
     getSurfaceYAt: sample => getWaterSurfaceY(sample, getTerrainHeight, MAIN_RIVER_WATER_DEPTH),
     getGroundYAt: getTerrainHeight,
     maxShoreExtend: 10,
-  })
-}
-
-function buildCenterWestStreamGeometry(getTerrainHeight) {
-  return buildRiverStripGeometry(CENTER_WEST_STREAM_POINTS, getCenterWestStreamSampleAt, {
-    widthPad: 0.12,
-    stepDistance: 8,
-    crossSegments: 5,
-    getSurfaceYAt: sample => getWaterSurfaceY(sample, getTerrainHeight, CENTER_WEST_STREAM_WATER_DEPTH),
-    getGroundYAt: getTerrainHeight,
-    maxShoreExtend: 6,
   })
 }
 
@@ -4331,13 +5297,60 @@ function buildGullyStreamGeometry(gully, getTerrainHeight) {
   })
 }
 
+// 交汇水潭水盘：以池心为心的放射状网格，与各河水带共面同材质，兜底填补水带间缝。
+// 逐顶点水高用 channelNetworkWaterYAt（池内即 poolSurfaceY）；aSubmerge=水面-地形，
+// 外圈地形高于水面处 <-0.12 被着色器自动裁掉 → 水盘自动贴合实际水域形状。
+function buildConfluencePoolGeometry(pool, getTerrainHeight) {
+  const cx = pool.x, cz = pool.z
+  const R = pool.rOuter + 2
+  const rings = 9, seg = 56
+  const poolY = confluencePoolSurfaceY(pool)
+  const verts = [], uvs = [], shores = [], submerges = [], idx = []
+  for (let r = 0; r <= rings; r++) {
+    const radius = R * r / rings
+    for (let s = 0; s < seg; s++) {
+      const ang = (s / seg) * Math.PI * 2
+      const x = cx + Math.cos(ang) * radius
+      const z = cz + Math.sin(ang) * radius
+      const y = channelNetworkWaterYAt(x, z, getTerrainHeight) ?? poolY
+      const gy = getTerrainHeight ? getTerrainHeight(x, z) : y - 0.5
+      verts.push(x, y, z)
+      // 径向 uv：side=|uv.x-0.5|*2 = r/rings（各方向一致），外缘各角度均匀淡出，
+      // 避免原圆盘贴图映射导致 ±z 方向 side≈0、潭盘 near 缘留下不淡出的硬直边。
+      // uv.y 取常数（潭水无流向），规避按角度取 uv.y 时在 0/2π 接缝处的径向裂缝。
+      uvs.push(0.5 + (r / rings) * 0.5, 0.5)
+      shores.push(0)          // 深水，不出岸线高光
+      submerges.push(y - gy)
+    }
+  }
+  for (let r = 0; r < rings; r++) {
+    for (let s = 0; s < seg; s++) {
+      const a = r * seg + s
+      const b = r * seg + (s + 1) % seg
+      const c = (r + 1) * seg + s
+      const d = (r + 1) * seg + (s + 1) % seg
+      idx.push(a, c, b, b, c, d)
+    }
+  }
+  const geometry = new THREE.BufferGeometry()
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(verts, 3))
+  geometry.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2))
+  geometry.setAttribute('aShore', new THREE.Float32BufferAttribute(shores, 1))
+  geometry.setAttribute('aSubmerge', new THREE.Float32BufferAttribute(submerges, 1))
+  geometry.setIndex(idx)
+  geometry.computeVertexNormals()
+  geometry.computeBoundingBox()
+  geometry.computeBoundingSphere()
+  return geometry
+}
+
 // 把所有水道（主河 + 支流 + wet 冲沟 + 中心西溪）的水带几何合并为单一网格 + 单一主河材质，
 // 渲染为一个对象。交汇处水面因共面同高同材质 → 消除原来多片重叠的硬斜缝/分片。
 function createUnifiedWaterRender(scene, getTerrainHeight) {
   const geos = [buildHeroRiverGeometry(getTerrainHeight)]
   for (const branch of RIVER_BRANCHES) geos.push(buildRiverBranchGeometry(branch, getTerrainHeight))
   for (const gully of EROSION_GULLIES) if (gully.wet) geos.push(buildGullyStreamGeometry(gully, getTerrainHeight))
-  geos.push(buildCenterWestStreamGeometry(getTerrainHeight))
+  for (const pool of CONFLUENCE_POOLS) geos.push(buildConfluencePoolGeometry(pool, getTerrainHeight))
   const merged = mergeGeometries(geos, false)
   geos.forEach(g => g.dispose())
   const material = createMainRiverMaterial()
@@ -4529,23 +5542,132 @@ function createGullyStreamSystems(scene, getTerrainHeight) {
   }
 }
 
-function createCenterWestStreamSystem(scene, getTerrainHeight) {
-  // 渲染由 createUnifiedWaterRender 统一负责；这里只保留采样
-  function sampleRiver(x, z) {
-    const sample = withWaterSurface(getCenterWestStreamSampleAt(x, z), getTerrainHeight, CENTER_WEST_STREAM_WATER_DEPTH)
-    const terrainY = getTerrainHeight(x, z)
-    const depth = Math.max(0, sample.waterY - terrainY)
-    const inWater = sample.distance <= sample.halfWidth && depth > 0.03
-    return {
-      ...sample,
-      inWater,
-      depth,
+// ── 仅开发期：河道诊断 ───────────────────────────────────────────────
+// 沿每条水道中线步进，用真实 getGroundHeight 与各水系采样器评估：
+//  · 堵/埋/没水：河床(碳刻后地形) 高于该处「设计水面」→ 水道没切开，水会被埋/断流
+//  · 岸坡过缓：两侧 [halfWidth, halfWidth+run] 实测坡角远低于设计(44~46°)→ 河岸糊平
+//  · 水面逆向抬升：沿源头→出水口方向渲染水面反而升高 → 视觉上的「堵/倒流」
+function runChannelDiagnostics(getGroundHeight) {
+  try {
+    const minRun = Math.max(0.35, channelBankRun(RIVER_CHANNEL_MIN_CUT, RIVER_CHANNEL_MIN_SLOPE_DEG))
+    const mainRun = Math.max(0.35, channelBankRun(MAIN_RIVER_CHANNEL_CUT, MAIN_RIVER_CHANNEL_SLOPE_DEG))
+    const channels = [
+      { id: 'MAIN 主河', points: HERO_RIVER_POINTS, depth: MAIN_RIVER_WATER_DEPTH, run: mainRun, sample: (x, z) => getRiverSampleAt(x, z) },
+      ...RIVER_BRANCHES.map(b => ({ id: `支流 ${b.id}`, points: b.points, depth: BRANCH_RIVER_WATER_DEPTH, run: minRun, sample: (x, z) => getBranchSampleAt(b, x, z) })),
+      ...EROSION_GULLIES.filter(g => g.wet).map(g => ({ id: `冲沟(wet) ${g.id}`, points: g.points, depth: GULLY_STREAM_WATER_DEPTH, run: minRun, sample: (x, z) => getGullyStreamSampleAt(g, x, z) })),
+    ]
+    const STEP = 5
+    const summary = []
+    for (const ch of channels) {
+      const rows = []
+      let prevRendered = null
+      let count = 0
+      let minAngle = 999
+      let nBlock = 0, nSlope = 0, nRise = 0
+      let maxBlock = -Infinity, maxBlockAt = null
+      for (let i = 0; i < ch.points.length - 1; i++) {
+        const a = ch.points[i], b = ch.points[i + 1]
+        const segLen = Math.hypot(b.x - a.x, b.z - a.z)
+        const n = Math.max(1, Math.round(segLen / STEP))
+        for (let j = (i > 0 ? 1 : 0); j <= n; j++) {
+          const tt = j / n
+          const wx = a.x + (b.x - a.x) * tt
+          const wz = a.z + (b.z - a.z) * tt
+          const s = ch.sample(wx, wz)
+          const cx = s.x, cz = s.z
+          const bedY = getGroundHeight(cx, cz)
+          const designWater = s.waterY
+          const rendered = bedY + ch.depth
+          const blocked = bedY - designWater
+          const hw = s.halfWidth
+          const pxx = -s.dirZ, pzz = s.dirX
+          const edgeL = getGroundHeight(cx + pxx * hw, cz + pzz * hw)
+          const topL = getGroundHeight(cx + pxx * (hw + ch.run), cz + pzz * (hw + ch.run))
+          const edgeR = getGroundHeight(cx - pxx * hw, cz - pzz * hw)
+          const topR = getGroundHeight(cx - pxx * (hw + ch.run), cz - pzz * (hw + ch.run))
+          const angL = Math.atan2(Math.max(0, topL - edgeL), ch.run) * 180 / Math.PI
+          const angR = Math.atan2(Math.max(0, topR - edgeR), ch.run) * 180 / Math.PI
+          const angle = Math.min(angL, angR)
+          const waterRise = prevRendered == null ? 0 : rendered - prevRendered
+          prevRendered = rendered
+          count++
+          minAngle = Math.min(minAngle, angle)
+          const flags = []
+          if (blocked > 0.3) { flags.push('堵/埋'); nBlock++; if (blocked > maxBlock) { maxBlock = blocked; maxBlockAt = { x: Math.round(cx), z: Math.round(cz), t: +s.t.toFixed(2) } } }
+          if (angle < 25) { flags.push('岸坡过缓'); nSlope++ }
+          if (waterRise > 0.4) { flags.push('水面逆向抬升'); nRise++ }
+          if (flags.length) {
+            rows.push({
+              t: +s.t.toFixed(2), x: Math.round(cx), z: Math.round(cz),
+              河床Y: +bedY.toFixed(2), 设计水面: +designWater.toFixed(2), 渲染水面: +rendered.toFixed(2),
+              岸坡角: Math.round(angle), 问题: flags.join(' / '),
+            })
+          }
+        }
+      }
+      summary.push({
+        水道: ch.id, 采样点: count,
+        堵埋: nBlock, 坡缓: nSlope, 逆升: nRise,
+        最缓角: Math.round(minAngle),
+        最大堵埋m: maxBlock > -Infinity ? +maxBlock.toFixed(2) : 0,
+        最堵处: maxBlockAt ? `(${maxBlockAt.x},${maxBlockAt.z}) t=${maxBlockAt.t}` : '-',
+      })
+      if (rows.length) {
+        console.groupCollapsed(`⚠ ${ch.id} — ${rows.length}/${count} 问题采样点`)
+        console.table(rows)
+        console.groupEnd()
+      }
     }
+    console.log('—— 河道诊断汇总（展开上方分组看明细）——')
+    console.table(summary)
+  } catch (e) {
+    console.warn('[channel-diagnostics] 失败：', e)
   }
+}
 
-  return {
-    update() {},
-    sampleRiver,
+// ── 仅开发期：定点探针（区分"水盖在地形上"vs"水被埋"）──────────────────
+// 逐格遍历所有水道，只统计真正盖住该格的水带(dist ≤ halfWidth+PAD)，取最高水面：
+//  · 水面 > 地形 → 「水盖在地形上方」= 穿水伪影（用户看到的"河流盖上去"）
+//  · 水面 < 地形 → 「水被埋在地形下」= 没水/堵
+function runChannelProbe(getGroundHeight) {
+  try {
+    const PROBE_POINTS = [{ x: -164, z: 50 }, { x: -167, z: -36 }]
+    const RADIUS = 8, STEP = 1, PAD = 0.6
+    const chans = [
+      { id: '主河', depth: MAIN_RIVER_WATER_DEPTH, sample: (x, z) => getRiverSampleAt(x, z) },
+      ...RIVER_BRANCHES.map(b => ({ id: '支流:' + b.id, depth: BRANCH_RIVER_WATER_DEPTH, sample: (x, z) => getBranchSampleAt(b, x, z) })),
+      ...EROSION_GULLIES.filter(g => g.wet).map(g => ({ id: '沟:' + g.id, depth: GULLY_STREAM_WATER_DEPTH, sample: (x, z) => getGullyStreamSampleAt(g, x, z) })),
+    ]
+    for (const P of PROBE_POINTS) {
+      const onTop = [], buried = []
+      for (let dz = -RADIUS; dz <= RADIUS; dz += STEP) {
+        for (let dx = -RADIUS; dx <= RADIUS; dx += STEP) {
+          const x = P.x + dx, z = P.z + dz
+          const terrain = getGroundHeight(x, z)
+          let top = null
+          for (const c of chans) {
+            const s = c.sample(x, z)
+            if (s.distance > s.halfWidth + PAD) continue   // 不在该水带覆盖足迹内
+            const w = getGroundHeight(s.x, s.z) + c.depth
+            if (!top || w > top.w) top = { w, id: c.id, dist: +s.distance.toFixed(1), hw: +s.halfWidth.toFixed(1) }
+          }
+          if (!top) continue
+          if (top.w > terrain + 0.1) {
+            onTop.push({ x, z, 地形: +terrain.toFixed(2), 水面: +top.w.toFixed(2), 高出: +(top.w - terrain).toFixed(2), 覆盖水道: top.id, hw: top.hw })
+          } else if (top.w < terrain - 0.3) {
+            buried.push({ x, z, 地形: +terrain.toFixed(2), 水面: +top.w.toFixed(2), 埋深: +(terrain - top.w).toFixed(2), 覆盖水道: top.id, hw: top.hw })
+          }
+        }
+      }
+      onTop.sort((a, b) => b.高出 - a.高出)
+      buried.sort((a, b) => b.埋深 - a.埋深)
+      console.groupCollapsed(`🔎 探针(${P.x},${P.z}) — 水盖地形上 ${onTop.length} 格 / 水被埋 ${buried.length} 格`)
+      console.log('① 水盖在地形上方(穿水伪影)：'); console.table(onTop.slice(0, 30))
+      console.log('② 水被埋在地形下(没水/堵)：'); console.table(buried.slice(0, 30))
+      console.groupEnd()
+    }
+  } catch (e) {
+    console.warn('[channel-probe] 失败：', e)
   }
 }
 
@@ -4808,7 +5930,6 @@ export function createMap(scene, { onStaticModelReady = null } = {}) {
   let riverSystem = null
   let riverBranchSystems = null
   let gullyStreamSystems = null
-  let centerWestStreamSystem = null
   let unifiedWaterRender = null
   const terrainController = createHeightmapTerrain(scene, {
     material: groundMat,
@@ -4848,8 +5969,9 @@ export function createMap(scene, { onStaticModelReady = null } = {}) {
       applyHeroRiverHeight,
       applyRiverBranchHeight,
       applyGullyNetworkHeight,
-      applyCenterWestStreamValleyHeight,
       applyChannelNetworkCarve,
+      applyConfluencePoolCarve,
+      applyChannelSmoothGrade,
       applyCastleApproachHeight,
       applyMountainEdgeHeight,
     ],
@@ -4881,9 +6003,18 @@ export function createMap(scene, { onStaticModelReady = null } = {}) {
       riverSystem = createRiverSystem(scene, getGroundHeight)
       riverBranchSystems = createRiverBranchSystems(scene, getGroundHeight)
       gullyStreamSystems = createGullyStreamSystems(scene, getGroundHeight)
-      centerWestStreamSystem = createCenterWestStreamSystem(scene, getGroundHeight)
       unifiedWaterRender = createUnifiedWaterRender(scene, getGroundHeight)
+      if (import.meta.env.DEV) runChannelDiagnostics(getGroundHeight)
+      if (import.meta.env.DEV) runChannelProbe(getGroundHeight)
+      if (import.meta.env.DEV) {
+        for (const [tx, tz] of [[-163, 55], [-164, 50], [-160, 40], [-160, -52], [-167, -36]]) {
+          terrainController.traceHeightAt?.(tx, tz)
+        }
+      }
       loadSpawnGrass(scene)
+      loadRiversideGrass(scene)
+      initMeadowGrass(scene)
+      initWorldTrees(scene)
       loadSpawnGrass60Ref(scene)
       buildIndividualLeafLayer(scene)
     },
@@ -4943,10 +6074,21 @@ export function createMap(scene, { onStaticModelReady = null } = {}) {
     riverSystem?.update(time, dt, playerPosition)
     riverBranchSystems?.update(time, dt, playerPosition)
     gullyStreamSystems?.update(time, dt, playerPosition)
-    centerWestStreamSystem?.update(time, dt, playerPosition)
+    if (_meadowBuild) stepMeadowGrassBuild()
+    if (_worldTreeBuild && !_worldTreeBuild.done) stepWorldTreeBuild()
     _spawnGrassWindUniforms.forEach((uniform) => {
       uniform.value = time
     })
+    _grassLodTimer += dt
+    if (_grassLodTimer >= GRASS_LOD_INTERVAL) {
+      _grassLodTimer = 0
+      updateGrassLod(playerPosition)
+    }
+    _worldTreeVisTimer += dt
+    if (_worldTreeVisTimer >= WORLD_TREE_VIS_INTERVAL) {
+      _worldTreeVisTimer = 0
+      updateWorldTreeVisibility(playerPosition)
+    }
 
     for (const { flames, light, glow, phase, group } of _campfireStates) {
       if (!group.parent) continue   // 已从场景移除，跳过
@@ -4991,12 +6133,10 @@ export function createMap(scene, { onStaticModelReady = null } = {}) {
       const main = riverSystem?.sampleRiver(x, z)
       const branch = riverBranchSystems?.sampleRiver(x, z)
       const gully = gullyStreamSystems?.sampleRiver(x, z)
-      const stream = centerWestStreamSystem?.sampleRiver(x, z)
-      if (gully?.inWater && (!main?.inWater || gully.depth >= main.depth) && (!branch?.inWater || gully.depth >= branch.depth) && (!stream?.inWater || gully.depth >= stream.depth)) return gully
-      if (branch?.inWater && (!main?.inWater || branch.depth >= main.depth) && (!stream?.inWater || branch.depth >= stream.depth)) return branch
-      if (stream?.inWater && (!main?.inWater || stream.depth >= main.depth)) return stream
+      if (gully?.inWater && (!main?.inWater || gully.depth >= main.depth) && (!branch?.inWater || gully.depth >= branch.depth)) return gully
+      if (branch?.inWater && (!main?.inWater || branch.depth >= main.depth)) return branch
       if (main?.inWater) return main
-      return gully ?? branch ?? stream ?? main ?? { inWater: false, depth: 0, flowSpeed: 0, dirX: 0, dirZ: 0 }
+      return gully ?? branch ?? main ?? { inWater: false, depth: 0, flowSpeed: 0, dirX: 0, dirZ: 0 }
     },
     getNearbyForestPackLabel,
   }

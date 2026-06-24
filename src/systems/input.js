@@ -16,7 +16,9 @@ export class InputSystem {
     ])
 
     const shouldIgnoreKeyCapture = (e) => {
-      if (e.metaKey || e.ctrlKey || e.altKey) return true
+      if (e.metaKey || e.altKey) return true
+      // 放行 Ctrl 键本身（用于"按住 Ctrl 下降"调试），但仍忽略 Ctrl+其他键的浏览器快捷键
+      if (e.ctrlKey && e.code !== 'ControlLeft' && e.code !== 'ControlRight') return true
       const el = e.target
       if (!el) return false
       const tag = el.tagName

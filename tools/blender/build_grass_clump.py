@@ -22,7 +22,7 @@ GRASS_VARIANTS = [
             "shadow": (0.000, 0.012, 0.004, 1.0),
         },
         "blade_count": 20,
-        "blade_segments": 2,
+        "blade_segments": 3,
         "height_base": 0.72,
         "height_step": 0.045,
         "height_cycle": 5,
@@ -49,7 +49,7 @@ GRASS_VARIANTS = [
             "shadow": (0.015, 0.035, 0.012, 1.0),
         },
         "blade_count": 22,
-        "blade_segments": 2,
+        "blade_segments": 3,
         "height_base": 0.54,
         "height_step": 0.034,
         "height_cycle": 5,
@@ -76,7 +76,7 @@ GRASS_VARIANTS = [
             "shadow": (0.040, 0.030, 0.012, 1.0),
         },
         "blade_count": 16,
-        "blade_segments": 2,
+        "blade_segments": 3,
         "height_base": 0.62,
         "height_step": 0.060,
         "height_cycle": 7,
@@ -103,7 +103,7 @@ GRASS_VARIANTS = [
             "shadow": (0.004, 0.014, 0.005, 1.0),
         },
         "blade_count": 9,
-        "blade_segments": 2,
+        "blade_segments": 3,
         "height_base": 0.70,
         "height_step": 0.050,
         "height_cycle": 5,
@@ -119,6 +119,38 @@ GRASS_VARIANTS = [
         "droop": 0.58,
     },
 ]
+
+
+# Distance-LOD low-poly variants: identical to the in-scene high models except the blade
+# uses 2 length segments instead of 3 (~40% fewer tris). Far-away grass chunks swap to these.
+# Derived from fresh/dry so the curve/colors/shape stay identical — only the segment count drops.
+def _derive_lod_variant(source):
+    lod = dict(source)
+    lod["name"] = f"{source['name']}_lod"
+    lod["out_path"] = OUT_DIR / f"{source['name']}_lod.glb"
+    lod["blade_segments"] = 2
+    return lod
+
+
+_LOD_SOURCE_NAMES = ("grass_clump_fresh", "grass_clump_dry")
+GRASS_VARIANTS += [
+    _derive_lod_variant(v) for v in GRASS_VARIANTS if v["name"] in _LOD_SOURCE_NAMES
+]
+
+
+# Tunables for the "自然杂乱" tuft look — adjust here to dial intensity up/down.
+LEAN_BASE_JITTER = 0.9   # root azimuth jitter (rad) so roots aren't perfectly even
+LEAN_MUL_MIN = 0.15      # min lean strength multiplier (near-upright blades)
+LEAN_MUL_RANGE = 1.6     # extra lean strength range (flopped-over blades)
+LEAN_MUL_BIAS = 1.6      # >1 skews most blades toward the upright end
+RADIUS_MIN = 0.02        # root disk inner radius (m)
+RADIUS_RANGE = 0.085     # root disk spread (m) — wider so blades don't pinch into one point at the root
+
+
+def hash01(n):
+    """Deterministic pseudo-random in [0,1) — keeps the GLB reproducible without `random`."""
+    x = math.sin(n * 127.1 + 311.7) * 43758.5453
+    return x - math.floor(x)
 
 
 def reset_scene():
@@ -142,14 +174,17 @@ def make_material(variant):
     return mat
 
 
-def add_blade(vertices, faces, angle, radius, height, width, bend, fan, droop_factor, segments=7):
-    base_x = math.cos(angle) * radius
-    base_y = math.sin(angle) * radius
-    side_x = math.cos(angle + math.pi * 0.5)
-    side_y = math.sin(angle + math.pi * 0.5)
-    outward_x = math.cos(angle)
-    outward_y = math.sin(angle)
-    twist = math.sin(angle * 2.7) * 0.014
+def add_blade(vertices, faces, base_angle, lean_angle, radius, height, width, bend, fan, droop_factor, segments=7):
+    # base_angle = where the root sits in the clump disk.
+    # lean_angle = the horizontal direction this blade bends/droops toward (decoupled from the root),
+    # so a blade rooted on one side can lean any direction — breaks the radial "starburst".
+    base_x = math.cos(base_angle) * radius
+    base_y = math.sin(base_angle) * radius
+    side_x = math.cos(lean_angle + math.pi * 0.5)
+    side_y = math.sin(lean_angle + math.pi * 0.5)
+    outward_x = math.cos(lean_angle)
+    outward_y = math.sin(lean_angle)
+    twist = math.sin(lean_angle * 2.7) * 0.014
 
     root = len(vertices)
     for i in range(segments + 1):
@@ -234,11 +269,16 @@ def build_grass_clump(variant):
     blade_count = variant["blade_count"]
     for i in range(blade_count):
         t = i / blade_count
-        angle = t * math.tau + math.sin(i * 1.83) * 0.14
-        radius = 0.006 + (i % 4) * 0.005
+        # Root azimuth still sweeps the disk but is jittered so roots aren't perfectly even.
+        base_angle = t * math.tau + (hash01(i * 1.7) - 0.5) * LEAN_BASE_JITTER
+        # Lean direction is fully decoupled and uniformly random — blades fall every which way.
+        lean_angle = hash01(i * 3.1) * math.tau
+        # Per-blade lean strength: most upright, some flopped right over (有立有倒).
+        lean_mul = LEAN_MUL_MIN + hash01(i * 5.7) ** LEAN_MUL_BIAS * LEAN_MUL_RANGE
+        radius = RADIUS_MIN + hash01(i * 2.3) * RADIUS_RANGE
         height = variant["height_base"] + (i % variant["height_cycle"]) * variant["height_step"]
         width = variant["width_base"] + (i % variant["width_cycle"]) * variant["width_step"]
-        bend = variant["bend_base"] + (i % variant["bend_cycle"]) * variant["bend_step"]
+        bend = (variant["bend_base"] + (i % variant["bend_cycle"]) * variant["bend_step"]) * lean_mul
         fan_side = -1 if i % 2 == 0 else 1
         fan = fan_side * (variant["fan_base"] + (i % variant["fan_cycle"]) * variant["fan_step"])
         if i % 7 == 0:
@@ -246,13 +286,14 @@ def build_grass_clump(variant):
         add_blade(
             vertices,
             faces,
-            angle,
+            base_angle,
+            lean_angle,
             radius,
             height,
             width,
             bend,
             fan,
-            variant["droop"],
+            variant["droop"] * lean_mul,
             variant.get("blade_segments", 7),
         )
 

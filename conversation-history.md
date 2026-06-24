@@ -4427,3 +4427,129 @@
 - 本次保存继续沿用项目根目录 `conversation-history.md`。
 - 已将近期敌人攻击窗口、主角 hurt 保护、attackWindow 音效、敌人交战状态机、法术命中后追击、NPC 对话转身过渡和玩家近战多目标命中等内容追加到本文件。
 - 详细章节标题为：`追加记录：敌人攻击、受击、NPC 对话与近战多目标`。
+
+## 追加记录：2026-06-24 远山氛围 + 河流交汇口 / 白边
+
+### 1. 远处高山氛围改造（参考图 mount.png）
+
+用户：
+
+> 游戏场景里远处的高山地形不够有游戏氛围，参考这张有氛围的图，看看怎么改
+
+处理摘要：
+
+- 根因：远山 proxy 用 `THREE.MeshBasicMaterial`（完全不受光），发平发闷；近处地形用受光的 `MeshStandardMaterial`。
+- 改 `createDistantTerrainProxyMaterial`（`src/scene/map.js`）：新增 `uSunDir/uNightFactor/uSkyColor/uGroundColor` uniforms，挂 `material.userData.uniforms`；fragment 加 half-lambert 太阳光照 + 半球环境光 + 夜晚转冷压暗 + 高度感知大气透视（去饱和+冷蓝偏移）；增强雪沟 streak / 陡坡裸岩对比 / 谷地 AO。cacheKey 升 v2。
+- `src/main.js` `updateDayNightLighting` 内每帧算 `_proxySunDir`+nightFactor，经新增的 `setDistantTerrainSun` 喂入 proxy uniforms（`map.js` 返回值导出该函数）。
+- `applySnowMountainHeight` 加大四座雪峰体量：h 230→300 等、基底 rx/rz 加大、core 指数 1.35→1.22 更饱满。
+- 需求文档：`docs/requirements/2026-06-23-distant-mountain-atmosphere.md`。
+- 该改动仍在工作区未提交。
+
+### 2. (-270,8) 三河汇流口：水位调和 + 交汇水潭
+
+用户先报 (-270,8) 河水泛滥、看不清河道；后报"仍不像一个整体（错台平面+沙楔）"。
+
+处理摘要：
+
+- 根因：(-270,8) 是 hero + southwest_creek + center_west_stream 三河汇流口；逐顶点水高是"最近河道胜出"分段函数，三河水位不一致 → 错台；河道间地脊未碳刻 → 沙楔。
+- 第一步：`getCenterWestStreamSampleAt` 让中西溪水位向最近主河收敛（heroBlend）。
+- 第二步（结构性修复）：新增**交汇水潭**机制（`src/scene/map.js`）：
+  - 单一水面：`channelNetworkWaterYAt` 池内 lerp 收敛到 `confluencePoolSurfaceY`；
+  - 碗状盆地碳刻 `applyConfluencePoolCarve`（加入 heightModifiers，在 `applyChannelNetworkCarve` 之后）；
+  - 水盘几何 `buildConfluencePoolGeometry`（`aShore=0`），push 进 `createUnifiedWaterRender` 合并渲染；着色器 `aSubmerge<-0.12 discard` 自动裁形。
+- 截图验证：汇流口变成一个连贯水潭。需求文档 `docs/requirements/2026-06-23-river-confluence-flood-channel-clarity.md`。
+
+### 3. center_west_stream 被删除 + 其余交叉口审计
+
+- 用户报 (-199,52) 又有十字台阶；排查发现根因是 center_west_stream 水位完全独立。随后用户/外部把 **center_west_stream 整条从 map.js 删除**（工作区在 21:57 被改），(-199,52) 的十字台阶随之消失。
+- 应要求对当前河网（hero + 5 支流 + 4 wet 冲沟）做实测审计（逐交叉口 headless 截图）：删 cws 后水系是一棵"树"，各支流/冲沟在汇口都向汇入水道收敛，**未发现其它交叉口有重叠/台阶/沙楔**，故未加新池。
+- 期间 `CONFLUENCE_POOLS` 已由单点改为数据驱动列表，并新增了 (-160,34) rill 路口池（含实测 surfaceY/bedY）。
+
+### 4. 去除所有交汇处"白色边缘"
+
+用户：
+
+> 所有的河流交汇处都要把白色边缘去掉，检查 (-160,-55)
+
+处理摘要：
+
+- 白边 = 水材质 `createMainRiverMaterial` 的岸线泡沫/亮边（`foam/lapFoam/greenFringe/shallow`），由 `shoreGate`(来自 `aShore`) 门控；浅交汇处两水带交叠双方 aShore 偏高 → 内部接缝起泡沫。
+- 改 `buildRiverStripGeometry`：新增 `nearbyChannelSecondEdge`（第二近水道边缘距离），交汇处（第二近水道 ~0.5–4m 内）平滑把 `aShore` 压到 0 → 抑制泡沫；单条河不受影响。
+- 用户指出 (-160,-55) 仍有白边、并提示"为什么不用水潭"。原因：该中央三河交汇口 (-160,-52) 不在 `CONFLUENCE_POOLS` 里。遂在列表新增 `{ x:-160, z:-52, rInner:9, rOuter:17, depth:0.9 }`（自动水面），自动获得单一水面+碗状盆地+aShore=0 水盘。
+- 构建均通过。headless 截图对该窄/沉河道取景不稳，最终请用户在本机确认效果与池半径/深度。
+
+### 调试方法备注
+
+- 验证用 `vite preview`(生产构建，会 strip console) + Playwright headless（SwiftShader）；诊断 `runChannelDiagnostics` 仅 DEV 输出。
+- 截图脚本在会话 scratchpad；临时用 `INITIAL_PLAYER_POSITION` 或 `?spawn=x,z` 调试参数，验证后均已还原。
+
+用户：
+
+> 把对话记录存在目录下
+
+处理摘要：
+
+- 继续沿用项目根目录 `conversation-history.md`，追加本章节（远山氛围、三河汇流口水潭、cws 删除后审计、交汇白边抑制 + 中央交汇口加池）。
+
+## 追加记录：(-150,80) X 形交叉口被堵 — 加水潭打通
+
+用户：
+
+> (-150,80) 附近河道应该交叉互通，这里堵上了
+
+处理摘要：
+
+- 诊断：(-150,80) 是 `central_north_rill`（支流）× `nw_terrace`（wet 冲沟）的真·X 形交叉（两者约在 (-145,82) 交叉，互不为对方汇口）→ 水位不同（错台）+ 交叉间地脊未挖通 → 干沙坝堵住、不互通。
+- 修复沿用 `CONFLUENCE_POOLS` 水潭机制（`src/scene/map.js`）：先用自动水面试 → 水面浮成"水丘"漂在沙上，因该 rill 源/沙丘区**地形与解析水位脱钩**。
+- 临时在 `createUnifiedWaterRender` 后暴露 `window.__probe` 实测该点（避开 console 被 strip）：自然地形 -3.6~-1.3、解析 waterY=2.72、主导水道 nw_terrace(depth0.35)。
+- 据实测改用**显式高度**：`{ x:-146, z:80, rInner:11, rOuter:19, depth:0.8, surfaceY:-3.3, bedY:-4.3 }`（surfaceY≈床-3.6+0.35；bedY 把 -1.5 沙坝碗状挖到水下打通）。浮空水丘消除、向两侧连通。
+- 临时 `window.__probe`、`?spawn=` 调试参数验证后**全部还原**；`npx vite build` 通过。
+- 现存 4 个交汇水潭：(-274,8)、(-160,34)、(-160,-52)、(-146,80)；headless 取景对窄/沉河道不稳，最终互通效果请在本机确认。
+
+用户：
+
+> 最新的对话记录存一下
+
+处理摘要：
+
+- 追加本章节（(-150,80) X 形交叉口加水潭打通）。
+
+---
+
+## 2026-06-23-24 河流边缘自然化 + 河网系统性重构（本会话）
+
+围绕参考图 `water2.png`，对河流做了从"边缘观感"到"河网架构"的多轮迭代。全部改动集中在 `src/scene/map.js`；用浏览器 Playwright MCP + `window.__MY_GAME_DEBUG__`（camera/teleport/sampleRiver/getTerrainHeight）做可视化验证。计划全程记录在 `~/.claude/plans/pure-prancing-babbage.md`（修订 1–11）。
+
+### 1. 河流边缘"太机械" → 自然化（修订 1–2）
+- 泡沫/水边：`createMainRiverMaterial` 用世界噪声扰动横向边缘坐标 `sideW`，泡沫蜿蜒破碎、网格硬边 alpha 渐隐溶入岸。
+- 河道拐弯：`resampleRiverPath`（centripetal Catmull-Rom）把折线控制点重采样为平滑曲线，单一数据源同时驱动碳刻/网格/碰撞，并由同一路径**生成**地形着色器 GLSL 采样器（消除 JS/GLSL 路径重复定义）。
+- 水面打磨贴参考图：网格状焦散（双层脊状 fbm）、青绿浅滩发光带、飞溅白点、加深饱和水色。
+- 性能：路径加密曾致掉帧 → 降密度（主河 GLSL@2 / JS@4，支流回退折线），`getPathSample` 预计算长度缓存。
+
+### 2. 河岸穿模 + 水面飘空（修订 5–6）
+- 根因：河岸碳刻成近垂直墙（2.4m/2m）超过地形网格顶点间距（2.29m）→ 网格抹平，而人物落地/水面都用解析 `getTerrainHeight` → 错位穿模。
+- 折中修复：`TERRAIN_CHUNK_SEGMENTS` 56→72（间距 1.78m）+ 河岸坡度放缓（62°→46°/60°→44°，run>间距）。
+- 水带"像纸飘空"：`buildRiverStripGeometry` 把水带逐侧步进延伸到真实岸线（地形升到水面处），填满碳刻河道、不再悬空。
+
+### 3. 河网系统性重构（修订 7，分 4 阶段）
+原架构是 24+ 条独立平面水带、各自碳刻带早退/bounds 裁剪 → 交叉口错台/漏挖/飘空/拓扑乱。
+- A 统一河道场 `sampleChannelNetwork(x,z)`（全网最近水道）。
+- B 统一碳刻 `applyChannelNetworkCarve`：保证每条水道+交叉口都挖到**绝对河床**（`waterY-depth-0.15`，非 height-cutDepth，否则整河下沉 2m），去掉盲区早退。
+- C 一体化水面：`mergeGeometries` 把所有水带合成单一网格 + 单一主河材质（`createUnifiedWaterRender`）；各 `create*System` 只留 sampleRiver。
+- D 理顺布局：`RIVER_BRANCHES` 10→5（删孪生端点/rill 汇 rill），干沟（`wet:false`）不再生成水面。
+
+### 4. 交叉口收尾（修订 8–9）
+- 硬切面：逐顶点 `channelNetworkWaterYAt` 让重叠水带在同点取同一 Y → 共面。
+- 亮线边界：烘焙逐顶点 `aShore`（浅水度 = `1-smoothstep(0.4,1.6, waterY-groundY)`），shader 用 `shoreGate` 门控所有边缘高光（绿边/泡沫/水线/浅水色）→ 边缘高光只在真实岸线出现，交叉口内部重叠边不发亮。
+- 裙边主导裁剪：`shoreExtent` 外侧遇另一水道主导即收（消叠加亮带），近核心 ±2.5m 保留薄重叠填楔形。
+
+### 5. center-west 浅溪删除（修订 10）
+- (-292,-7) 处 center-west 浅溪与 southwest_creek 支流并行重叠（"两条河+沙脊"）。用户选直接删 → 移除 center-west 全部符号/引用，走廊只剩 southwest_creek。
+
+### 6. 河岸土壤色丰富化（修订 11）
+- 河岸原为灰白平板沙。`createTerrainBlendMaterial` 纯 albedo 改：多色斑驳土壤（湿黑棕泥/暖棕腐殖/暖赭黏土/苔绿，按独立噪声交错，铺满近岸带，近水暗→外侧亮）+ 陡岸绿灰斑驳岩壁/地衣（`bankRockMask = 河近 ∩ 坡陡`）。
+- 仍比参考图浅：场景为泛白阴天光照（提亮暗土壤），属独立光照任务（范围外）；河岸草丛用户选不加。
+
+### 备注
+- 持久记忆已更新：`reference_game_debug_hook.md`（调试钩子）、`project_river_terrain_tuning.md`（参数与未决项）。
+- 未决/范围外：草丛、全局光照、`createDistantTerrainProxyMaterial` 一个与河流无关的既有着色器编译报错（MeshBasicMaterial 引用 `objectNormal`）。

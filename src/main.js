@@ -78,6 +78,9 @@ const { sun, moon, hemi, fill } = createLighting(scene)
 const thirdPerson = new ThirdPersonCameraController(renderer.domElement)
 const gameCamera = thirdPerson.camera
 const castleVistaCamera = gameCamera.clone()
+if (import.meta.env.DEV) window.__game = { scene, renderer, gameCamera, THREE, getTerrainHeight }
+// TEMP(verify): 暴露给 headless 验证脚本——传送玩家、查询解析高度。验证后还原。
+if (import.meta.env.DEV) window.__verify = { get player() { return player }, get thirdPerson() { return thirdPerson }, get getRawTerrainHeight() { return getRawTerrainHeight } }
 const castleViewDirection = new THREE.Vector3()
 const castleVistaOffset = new THREE.Vector3(
   CASTLE_EXTERIOR.origin.x,
@@ -128,6 +131,9 @@ function renderCastle(activeCamera, playerPosition) {
   castle.setExteriorVisible(true)
   castle.scene.background = castleBackground
 }
+
+// 固定晴朗白天（移除昼夜循环）：高而略偏的太阳，利于出影、贴近参考图蓝天白云
+const SUN_PHASE_FIXED = 0.95
 
 function updateDayNightLighting(sunPhase) {
   const sunH = Math.sin(sunPhase) * 30 + 15
@@ -1069,7 +1075,7 @@ function beginPlayerDeath(sourceScene = activeScene) {
   clearDeathRuntimeState()
   clearHealAura()
   ui.setTransitionUiVisible(false)
-  ui.update(player, clock.elapsedTime)
+  ui.update(player, clock.elapsedTime, gameCamera)
   setEditorButtonVisible(false)
   thirdPerson.setEnabled(false)
   player.playDeath?.()
@@ -1265,7 +1271,7 @@ function updatePlayerDeath(dt) {
   castle.updateOutdoor(dt)
   ui.setSceneFade(fade)
   thirdPerson.update(dt, player.getPosition())
-  ui.update(player, clock.elapsedTime)
+  ui.update(player, clock.elapsedTime, gameCamera)
   renderWithAO(gameCamera, 'outdoor')
 
   if (fadeInTime >= DEATH_FADE_IN_SECONDS) finishPlayerRespawn()
@@ -1803,11 +1809,11 @@ function gameLoop() {
 
     const climbPos = player.getPosition()
     setMineCaveEnemyOcclusion(isPlayerInMineCaveUnderground(climbPos))
-    const sunPhaseClimb = (clock.elapsedTime % 1800) / 1800 * Math.PI * 2
+    const sunPhaseClimb = SUN_PHASE_FIXED
     updateDayNightLighting(sunPhaseClimb)
     sky.update(sunPhaseClimb, rawDt, false)
     updateOutdoorAreaTitle(climbPos)
-    ui.update(player, sunPhaseClimb)
+    ui.update(player, sunPhaseClimb, gameCamera)
     ui.updateCombatOverlay?.(rawDt, gameCamera, renderer)
     renderWithAO(gameCamera, 'outdoor')
     return
@@ -1895,9 +1901,9 @@ function gameLoop() {
     }
     if (castle.consumeExitRequest()) exitCastle()
 
-    ui.update(player, 0)
+    ui.update(player, 0, gameCamera)
     ui.clearCombatOverlays?.()
-    const sunPhase = (clock.elapsedTime % 1800) / 1800 * Math.PI * 2
+    const sunPhase = SUN_PHASE_FIXED
     updateDayNightLighting(sunPhase)
     sky.update(sunPhase, dt, false)
     renderCastle(gameCamera, castlePos)
@@ -1921,7 +1927,7 @@ function gameLoop() {
     lockState.qWasPressed = input.isPressed('KeyQ')
     if (activeNpc) ui.updateDialoguePanelPosition(activeNpc.getHeadWorldPos(), gameCamera, renderer)
 
-    const sunPhaseNpc = (clock.elapsedTime % 1800) / 1800 * Math.PI * 2
+    const sunPhaseNpc = SUN_PHASE_FIXED
     updateDayNightLighting(sunPhaseNpc)
     sky.update(sunPhaseNpc, dt, false)
     updateOutdoorAreaTitle(player.getPosition())
@@ -1945,7 +1951,7 @@ function gameLoop() {
     const fpos = player.getPosition()
     thirdPerson.update(dt, fpos)
 
-    const sunPhase = (clock.elapsedTime % 1800) / 1800 * Math.PI * 2
+    const sunPhase = SUN_PHASE_FIXED
     updateDayNightLighting(sunPhase)
     const _fsx = Math.cos(sunPhase) * 40
     const _fsy = Math.sin(sunPhase) * 30 + 15
@@ -1981,7 +1987,7 @@ function gameLoop() {
 
     sky.update(sunPhase, dt, false)
     updateOutdoorAreaTitle(fpos)
-    ui.update(player, sunPhase)
+    ui.update(player, sunPhase, gameCamera)
     updateNpcCombatUi(gameCamera)
     ui.updateCombatOverlay?.(dt, gameCamera, renderer)
     renderWithAO(gameCamera, 'fishing')
@@ -2007,11 +2013,11 @@ function gameLoop() {
     updateOutdoorNpcs(dt)
     thirdPerson.update(dt, restPos)
 
-    const sunPhaseRest = (clock.elapsedTime % 1800) / 1800 * Math.PI * 2
+    const sunPhaseRest = SUN_PHASE_FIXED
     updateDayNightLighting(sunPhaseRest)
     sky.update(sunPhaseRest, dt, false)
     updateOutdoorAreaTitle(restPos)
-    ui.update(player, sunPhaseRest)
+    ui.update(player, sunPhaseRest, gameCamera)
     ui.updateCombatOverlay?.(dt, gameCamera, renderer)
 
     if (bonfireRestState) {
@@ -2106,7 +2112,7 @@ function gameLoop() {
   thirdPerson.update(dt, pos)
 
   // 太阳绕场景旋转，60 分钟一循环
-  const sunPhase = (clock.elapsedTime % 1800) / 1800 * Math.PI * 2
+  const sunPhase = SUN_PHASE_FIXED
   updateDayNightLighting(sunPhase)
   // 计算太阳方向（单位向量），保持光照方向不随玩家位置变化
   const _sx = Math.cos(sunPhase) * 40
@@ -2248,7 +2254,7 @@ function gameLoop() {
 
   // 更新 UI
   updateOutdoorAreaTitle(pos)
-  ui.update(player, sunPhase)
+  ui.update(player, sunPhase, gameCamera)
   updateNpcCombatUi(gameCamera)
   ui.updateCombatOverlay?.(dt, gameCamera, renderer)
 

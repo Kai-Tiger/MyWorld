@@ -422,9 +422,27 @@ export function createHeightmapTerrain(scene, {
   }
   img.src = heightmapUrl
 
+  function traceHeightAt(x, z) {
+    if (!hmData) return
+    let h = sampleBaseHeight(x, z)
+    const steps = [`base=${h.toFixed(2)}`]
+    for (const m of heightModifiers) {
+      h = m(x, z, h, sampleBaseHeight)
+      steps.push(`${m.name || 'mod'}=${h.toFixed(2)}`)
+    }
+    h = applyFlatAreas(x, z, h)
+    steps.push(`flatAreas=${h.toFixed(2)}`)
+    for (const m of postHeightModifiers) {
+      h = m(x, z, h, sampleBaseHeight)
+      steps.push(`${m.name || 'post'}=${h.toFixed(2)}`)
+    }
+    console.log(`[trace ${x},${z}] ` + steps.join('  →  '))
+  }
+
   return {
     mesh,
     getHeightAt,
+    traceHeightAt,
     update(playerPosition = null) {
       updateChunks(playerPosition)
     },

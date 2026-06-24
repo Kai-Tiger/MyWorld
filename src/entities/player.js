@@ -1047,10 +1047,12 @@ export function createPlayer(scene) {
   const JUMP_WINDUP_SECONDS = 0.12
   const AUTO_STEP   = 0.55
   const TERRAIN_DESCEND_SNAP = 24
+  const FLY_SPEED   = 10   // 调试：按住 Shift 上升 / Ctrl 下降的竖直速度 m/s
 
   let currentSpeed    = 0
   let vy              = 0
   let onGround        = true
+  let flying          = false   // 调试飞行：Shift 起飞悬停 / Ctrl 下降
   let spaceWasPressed = false
   let inWater         = false
   let _waterDepth     = 0
@@ -1207,7 +1209,7 @@ export function createPlayer(scene) {
       }
 
       const canControlMovement = !rolling && !attacking && !throwMagicPlaying && !hurting && !healing && !picking
-        && (onGround || jumping || jumpTakeoffPending)
+        && (onGround || jumping || jumpTakeoffPending || flying)
       const canLocomotion = !defending && canControlMovement
       if (defending) {
         moveHoldTime = 0
@@ -1435,8 +1437,14 @@ export function createPlayer(scene) {
         terrainH,
       )
 
-      // 走到岩石边缘时开始下落
-      if (onGround && group.position.y > surfaceH + 0.05) {
+      // 调试飞行：按住 Shift 起飞/上升；松开悬停（无重力，可水平移动）；按住 Ctrl 下降；降到地面退出飞行
+      const flyUp = input.isPressed('ShiftLeft') || input.isPressed('ShiftRight')
+      const flyDown = input.isPressed('ControlLeft') || input.isPressed('ControlRight')
+      if (flyUp) flying = true
+      if (flying) { onGround = false; vy = 0 }
+
+      // 走到岩石边缘时开始下落（飞行中不触发）
+      if (!flying && onGround && group.position.y > surfaceH + 0.05) {
         const terrainIsSurface = terrainH >= collisionSurfaceH - 0.001
         if (terrainIsSurface && group.position.y - terrainH <= TERRAIN_DESCEND_SNAP) {
           _smoothGroundY += (terrainH - _smoothGroundY) * Math.min(dt * 18, 1)
@@ -1449,7 +1457,18 @@ export function createPlayer(scene) {
         }
       }
 
-      if (!onGround) {
+      if (flying) {
+        const dy = ((flyUp ? 1 : 0) - (flyDown ? 1 : 0)) * FLY_SPEED * dt
+        group.position.y += dy
+        if (group.position.y <= surfaceH) {   // 下降到地面 → 落地并退出飞行
+          group.position.y = surfaceH
+          vy = 0
+          onGround = true
+          flying = false
+          resetJumpState()
+          chooseLocomotionAction(moving && canControlMovement, suppressRun, ONE_SHOT_EXIT_BLEND_SECONDS)
+        }
+      } else if (!onGround) {
         if (!jumping && !jumpTakeoffPending) {
           locomotionState = 'idle'
           currentSpeed = 0

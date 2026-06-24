@@ -6,7 +6,8 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "castle:build": "/Applications/Blender.app/Contents/MacOS/Blender --background --factory-startup --python tools/blender/build_castle.py"
+    "castle:build": "/Applications/Blender.app/Contents/MacOS/Blender --background --factory-startup --python tools/blender/build_castle.py",
+    "grass:build": "/Applications/Blender.app/Contents/MacOS/Blender --background --factory-startup --python tools/blender/build_grass_clump.py"
   },
   "dependencies": {
     "three": "^0.169.0"

@@ -73,9 +73,12 @@ export function createUI(container, handlers = {}) {
     <div><span style="color:#7ec87e">WASD</span> / 方向键 移动</div>
     <div><span style="color:#8bd3ff">Q</span> 锁定目标</div>
     <div id="hud-pos">位置: (0, 0)</div>
+    <div id="hud-facing">朝向: 0°</div>
+    <div id="hud-view">视角: 0° ↕0°</div>
     <div id="hud-spd">速度: 0.00</div>
     <div id="hud-combat">ATK: 20</div>
     <div id="hud-lock">LOCK: OFF</div>
+    <button id="hud-copy" style="pointer-events:auto;margin-top:4px;cursor:pointer;font:11px monospace;color:#e8f4e8;background:rgba(255,255,255,0.1);border:1px solid rgba(255,255,255,0.25);border-radius:6px;padding:3px 8px;">复制坐标</button>
   `
   container.appendChild(hud)
 
@@ -1893,9 +1896,24 @@ export function createUI(container, handlers = {}) {
 
   // ── 更新函数 ──────────────────────────────────────
   const posEl = hud.querySelector('#hud-pos')
+  const facingEl = hud.querySelector('#hud-facing')
+  const viewEl = hud.querySelector('#hud-view')
   const spdEl = hud.querySelector('#hud-spd')
   const combatEl = hud.querySelector('#hud-combat')
   const lockEl = hud.querySelector('#hud-lock')
+  const copyBtn = hud.querySelector('#hud-copy')
+  const _viewDir = new THREE.Vector3()
+  const norm360 = (deg) => ((deg % 360) + 360) % 360
+  let _copyText = ''
+  let _copyTimer = null
+  copyBtn.addEventListener('click', (e) => {
+    e.stopPropagation()
+    if (!_copyText) return
+    Promise.resolve(navigator.clipboard?.writeText(_copyText)).catch(() => {})
+    copyBtn.textContent = '已复制✓'
+    if (_copyTimer) clearTimeout(_copyTimer)
+    _copyTimer = setTimeout(() => { copyBtn.textContent = '复制坐标' }, 1000)
+  })
   const hpWrapEl = vitals.querySelector('#souls-hp-wrap')
   const hpFillEl = vitals.querySelector('#souls-hp-fill')
   const mpWrapEl = vitals.querySelector('#souls-mp-wrap')
@@ -1931,9 +1949,20 @@ export function createUI(container, handlers = {}) {
   }
 
   return {
-    update(player, sunPhase) {
+    update(player, sunPhase, camera) {
       const pos = player.getPosition()
-      posEl.textContent = `位置: (${pos.x.toFixed(1)}, ${pos.z.toFixed(1)})`
+      posEl.textContent = `位置: (${pos.x.toFixed(1)}, ${pos.z.toFixed(1)}) y=${(pos.y ?? 0).toFixed(1)}`
+      const facing = norm360((player.getGroup?.().rotation.y ?? 0) * 180 / Math.PI)
+      facingEl.textContent = `朝向: ${facing.toFixed(0)}°`
+      let view = ''
+      if (camera) {
+        camera.getWorldDirection(_viewDir)
+        const az = norm360(Math.atan2(_viewDir.x, _viewDir.z) * 180 / Math.PI)
+        const pitch = Math.asin(THREE.MathUtils.clamp(_viewDir.y, -1, 1)) * 180 / Math.PI
+        viewEl.textContent = `视角: ${az.toFixed(0)}° ↕${pitch.toFixed(0)}°`
+        view = ` 视角=${az.toFixed(0)}°/${pitch.toFixed(0)}°`
+      }
+      _copyText = `pos=(${pos.x.toFixed(1)}, ${pos.z.toFixed(1)}) y=${(pos.y ?? 0).toFixed(1)} 朝向=${facing.toFixed(0)}°${view}`
       spdEl.textContent = `速度: ${player.getSpeed().toFixed(2)}`
       updateVitals(player)
       updateBagPlayerStats(player)
