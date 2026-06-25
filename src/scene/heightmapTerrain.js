@@ -48,7 +48,9 @@ export function createHeightmapTerrain(scene, {
   holeMasks = [],
   heightmapUrl = '/heightmaps/main_height_1024.png',
   onReady = null,
+  perf = null,
 } = {}) {
+  const timePerf = (name, fn) => (perf?.time ? perf.time(name, fn) : fn())
   let hmW = 0
   let hmH = 0
   let hmData = null
@@ -65,14 +67,17 @@ export function createHeightmapTerrain(scene, {
   const chunkCountZ = baseCount + exNegZ
   const gridMinX = -baseCount * chunkSize * 0.5 - exNegX * chunkSize
   const gridMinZ = -baseCount * chunkSize * 0.5 - exNegZ * chunkSize
-  const chunkBuildBudgetPerUpdate = 1
-  const proxyBuildBudgetPerUpdate = 2
+  const terrainBuildBudgetMs = 3
+  const BUILD_STAGE_HEIGHT = 'height'
+  const BUILD_STAGE_NORMAL = 'normal'
+  const BUILD_STAGE_FINALIZE = 'finalize'
   let mesh = null
   let lastCenterKey = null
   let currentCenterIx = 0
   let currentCenterIz = 0
   const pendingChunks = new Map()
   const pendingProxyChunks = new Map()
+  const activeBuildTasks = []
   const desiredChunkKeys = new Set()
   const visibleChunkKeys = new Set()
 
@@ -237,64 +242,115 @@ export function createHeightmapTerrain(scene, {
     }
   }
 
-  function buildChunk(ix, iz) {
+  function createTerrainBuildTask(type, ix, iz, key) {
     const center = chunkCenter(ix, iz)
-    const geometry = new THREE.PlaneGeometry(chunkSize, chunkSize, chunkSegments, chunkSegments)
+    const segmentsForTask = type === 'chunk' ? chunkSegments : Math.max(1, distantProxySegments)
+    const geometry = new THREE.PlaneGeometry(chunkSize, chunkSize, segmentsForTask, segmentsForTask)
     geometry.setAttribute('uv2', geometry.attributes.uv.clone())
-    const step = chunkSize / Math.max(1, chunkSegments)
-    applyHeightsToGeometry(
+    const pos = geometry.attributes.position
+    return {
+      type,
+      ix,
+      iz,
+      key,
+      center,
       geometry,
-      (pos, i) => center.x + pos.getX(i),
-      (pos, i) => center.z - pos.getY(i),
-      step,
-    )
-    applyHoleMasks(
-      geometry,
-      (pos, i) => center.x + pos.getX(i),
-      (pos, i) => center.z - pos.getY(i),
-    )
-    geometry.computeBoundingBox()
-    geometry.computeBoundingSphere()
-    const chunk = new THREE.Mesh(geometry, material)
-    chunk.name = `terrain_chunk_${ix}_${iz}`
-    chunk.rotation.x = -Math.PI / 2
-    chunk.position.set(center.x, 0, center.z)
-    chunk.receiveShadow = true
-    chunk.frustumCulled = true
-    scene.add(chunk)
-    meshes.set(chunkKey(ix, iz), chunk)
-    return chunk
+      pos,
+      normal: geometry.attributes.normal,
+      segments: segmentsForTask,
+      rowStride: segmentsForTask + 1,
+      step: chunkSize / Math.max(1, segmentsForTask),
+      heightValues: new Float32Array(pos.count),
+      vertexCursor: 0,
+      normalCursor: 0,
+      stage: BUILD_STAGE_HEIGHT,
+    }
   }
 
-  function buildDistantProxyChunk(ix, iz) {
-    const center = chunkCenter(ix, iz)
-    const segments = Math.max(1, distantProxySegments)
-    const geometry = new THREE.PlaneGeometry(chunkSize, chunkSize, segments, segments)
-    geometry.setAttribute('uv2', geometry.attributes.uv.clone())
-    const step = chunkSize / segments
-    applyHeightsToGeometry(
-      geometry,
-      (pos, i) => center.x + pos.getX(i),
-      (pos, i) => center.z - pos.getY(i),
-      step,
-    )
-    applyHoleMasks(
-      geometry,
-      (pos, i) => center.x + pos.getX(i),
-      (pos, i) => center.z - pos.getY(i),
-    )
-    geometry.computeBoundingBox()
-    geometry.computeBoundingSphere()
+  function taskWorldX(task, i) {
+    return task.center.x + task.pos.getX(i)
+  }
 
-    const proxy = new THREE.Mesh(geometry, distantProxyMaterial)
-    proxy.name = `terrain_proxy_chunk_${ix}_${iz}`
-    proxy.rotation.x = -Math.PI / 2
-    proxy.position.set(center.x, distantProxyYOffset, center.z)
-    proxy.receiveShadow = false
-    proxy.frustumCulled = true
-    scene.add(proxy)
-    proxyMeshes.set(chunkKey(ix, iz), proxy)
-    return proxy
+  function taskWorldZ(task, i) {
+    return task.center.z - task.pos.getY(i)
+  }
+
+  function processHeightVertices(task, budgetEnd) {
+    const count = task.pos.count
+    while (task.vertexCursor < count) {
+      const i = task.vertexCursor
+      if (i > 0 && (i & 15) === 0 && performance.now() >= budgetEnd) return false
+      const h = getHeightAt(taskWorldX(task, i), taskWorldZ(task, i))
+      task.heightValues[i] = h
+      task.pos.setZ(i, h)
+      task.vertexCursor++
+    }
+    task.pos.needsUpdate = true
+    task.stage = BUILD_STAGE_NORMAL
+    return true
+  }
+
+  function getTaskHeightForNormal(task, i, x, z, offsetX, offsetZ) {
+    if (i >= 0 && i < task.heightValues.length) return task.heightValues[i]
+    return getHeightAt(x + offsetX, z + offsetZ)
+  }
+
+  function processNormalVertices(task, budgetEnd) {
+    const count = task.pos.count
+    const lastCol = task.segments
+    const lastRow = task.segments
+    const eps = Math.max(0.5, task.step)
+    while (task.normalCursor < count) {
+      const i = task.normalCursor
+      if (i > 0 && (i & 31) === 0 && performance.now() >= budgetEnd) return false
+      const col = i % task.rowStride
+      const row = Math.floor(i / task.rowStride)
+      const x = taskWorldX(task, i)
+      const z = taskWorldZ(task, i)
+      const leftIndex = col > 0 ? i - 1 : -1
+      const rightIndex = col < lastCol ? i + 1 : -1
+      const downIndex = row > 0 ? i - task.rowStride : -1
+      const upIndex = row < lastRow ? i + task.rowStride : -1
+      const hL = getTaskHeightForNormal(task, leftIndex, x, z, -eps, 0)
+      const hR = getTaskHeightForNormal(task, rightIndex, x, z, eps, 0)
+      const hD = getTaskHeightForNormal(task, downIndex, x, z, 0, -eps)
+      const hU = getTaskHeightForNormal(task, upIndex, x, z, 0, eps)
+      const dhdx = (hR - hL) / (eps * 2)
+      const dhdz = (hU - hD) / (eps * 2)
+      const nx = -dhdx
+      const ny = dhdz
+      const nz = 1
+      const invLen = 1 / Math.max(0.000001, Math.hypot(nx, ny, nz))
+      task.normal.setXYZ(i, nx * invLen, ny * invLen, nz * invLen)
+      task.normalCursor++
+    }
+    task.normal.needsUpdate = true
+    task.stage = BUILD_STAGE_FINALIZE
+    return true
+  }
+
+  function finalizeTerrainTask(task) {
+    applyHoleMasks(task.geometry, (pos, i) => task.center.x + pos.getX(i), (pos, i) => task.center.z - pos.getY(i))
+    task.geometry.computeBoundingBox()
+    task.geometry.computeBoundingSphere()
+
+    const isChunk = task.type === 'chunk'
+    const terrainMesh = new THREE.Mesh(task.geometry, isChunk ? material : distantProxyMaterial)
+    terrainMesh.name = isChunk ? `terrain_chunk_${task.ix}_${task.iz}` : `terrain_proxy_chunk_${task.ix}_${task.iz}`
+    terrainMesh.rotation.x = -Math.PI / 2
+    terrainMesh.position.set(task.center.x, isChunk ? 0 : distantProxyYOffset, task.center.z)
+    terrainMesh.receiveShadow = isChunk
+    terrainMesh.frustumCulled = true
+    scene.add(terrainMesh)
+
+    if (isChunk) {
+      meshes.set(task.key, terrainMesh)
+      terrainMesh.visible = visibleChunkKeys.has(task.key)
+    } else {
+      proxyMeshes.set(task.key, terrainMesh)
+      terrainMesh.visible = proxyShouldBeVisible(task.ix, task.iz)
+    }
+    return terrainMesh
   }
 
   function proxyShouldBeVisible(ix, iz) {
@@ -336,25 +392,82 @@ export function createHeightmapTerrain(scene, {
     }
   }
 
-  function processBuildQueues() {
-    for (let i = 0; i < chunkBuildBudgetPerUpdate; i++) {
+  function discardBuildTask(task) {
+    task?.geometry?.dispose?.()
+  }
+
+  function isBuildTaskStale(task) {
+    if (!task) return true
+    if (task.type === 'chunk') return meshes.has(task.key) || !desiredChunkKeys.has(task.key)
+    return proxyMeshes.has(task.key)
+  }
+
+  function enqueueActiveBuildTask(type, entry) {
+    const task = timePerf(`terrain.${type}.create`, () => createTerrainBuildTask(type, entry.ix, entry.iz, entry.key))
+    activeBuildTasks.push(task)
+    return task
+  }
+
+  function takeNextBuildTask() {
+    while (true) {
       const entry = takeNextQueued(pendingChunks)
       if (!entry) break
       if (!desiredChunkKeys.has(entry.key) || meshes.has(entry.key)) continue
-      const chunk = buildChunk(entry.ix, entry.iz)
-      chunk.visible = visibleChunkKeys.has(entry.key)
+      return enqueueActiveBuildTask('chunk', entry)
     }
 
-    for (let i = 0; i < proxyBuildBudgetPerUpdate; i++) {
+    while (true) {
       const entry = takeNextQueued(pendingProxyChunks)
       if (!entry) break
       if (proxyMeshes.has(entry.key)) continue
-      const proxy = buildDistantProxyChunk(entry.ix, entry.iz)
-      proxy.visible = proxyShouldBeVisible(entry.ix, entry.iz)
+      return enqueueActiveBuildTask('proxy', entry)
+    }
+    return null
+  }
+
+  function processTerrainBuildTask(task, budgetEnd) {
+    while (performance.now() < budgetEnd) {
+      if (task.stage === BUILD_STAGE_HEIGHT) {
+        const stageDone = timePerf(`terrain.${task.type}.height`, () => processHeightVertices(task, budgetEnd))
+        if (!stageDone) return false
+        continue
+      }
+      if (task.stage === BUILD_STAGE_NORMAL) {
+        const stageDone = timePerf(`terrain.${task.type}.normal`, () => processNormalVertices(task, budgetEnd))
+        if (!stageDone) return false
+        continue
+      }
+      if (task.stage === BUILD_STAGE_FINALIZE) {
+        timePerf(`terrain.${task.type}.finalize`, () => finalizeTerrainTask(task))
+        return true
+      }
+      return true
+    }
+    return false
+  }
+
+  function processBuildQueues() {
+    const budgetEnd = performance.now() + terrainBuildBudgetMs
+    while (performance.now() < budgetEnd) {
+      let task = activeBuildTasks[0]
+      if (!task) task = takeNextBuildTask()
+      if (!task) break
+
+      if (isBuildTaskStale(task)) {
+        discardBuildTask(task)
+        activeBuildTasks.shift()
+        continue
+      }
+
+      const done = processTerrainBuildTask(task, budgetEnd)
+      if (!done) break
+      activeBuildTasks.shift()
     }
 
-    updateBuiltChunkVisibility()
-    updateDistantProxyVisibility(currentCenterIx, currentCenterIz)
+    timePerf('terrain.visibility', () => {
+      updateBuiltChunkVisibility()
+      updateDistantProxyVisibility(currentCenterIx, currentCenterIz)
+    })
   }
 
   function updateChunks(playerPosition = null, force = false) {

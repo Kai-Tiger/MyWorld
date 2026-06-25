@@ -1,0 +1,16 @@
+Poly Haven CC0 PBR texture assets downloaded on 2026-06-25.
+
+Assets:
+- aerial_ground_rock
+  Source: https://polyhaven.com/a/aerial_ground_rock
+  Files: diff, nor_gl, rough, ao, 1k JPG
+- aerial_rocks_02
+  Source: https://polyhaven.com/a/aerial_rocks_02
+  Files: diff, nor_gl, rough, ao, 1k JPG
+- aerial_grass_rock
+  Source: https://polyhaven.com/a/aerial_grass_rock
+  Files: diff, nor_gl, rough, ao, 1k JPG
+
+License:
+Poly Haven assets are released under CC0.
+License page: https://polyhaven.com/license

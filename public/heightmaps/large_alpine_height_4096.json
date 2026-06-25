@@ -1,0 +1,11 @@
+{
+  "heightmap": "public/heightmaps/large_alpine_height_4096.png",
+  "resolution": 4096,
+  "format": "16-bit grayscale PNG",
+  "worldSizeMeters": 2048.0,
+  "heightMin": -34.0,
+  "heightMax": 238.0,
+  "metersPerPixel": 0.5,
+  "blend": "assets/blender/large_alpine_terrain.blend",
+  "preview": "previews/large_alpine_terrain.png"
+}

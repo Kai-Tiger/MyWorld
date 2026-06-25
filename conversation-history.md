@@ -4575,3 +4575,29 @@
 - **东南沿英雄河峡谷一侧仍为陡墙**：河流下切的峡谷壁，切底软化覆盖不到。软化它需重做已提交、精调的多层河流下切（耦合极深，本轮参数迭代未能可靠收敛）→ 建议作为可逐项插桩的独立任务，或改用降峰高（路径 B）一步到位。
 - 需求文档：`docs/requirements/2026-06-24-snow-mountain-gentle-foot.md`。回退：`git checkout src/scene/map.js`。
 - 验证用 `window.__MY_GAME_DEBUG__`（`getTerrainHeight` 峰心/南向剖面采样、`sampleRiver` 源头连续性）+ Playwright 同机位截图。
+
+## 2026-06-24 给 GLB 模型树加颜色/饱和度调节参数（已交付，未提交）
+
+需求：用户问"哪个参数可以调模型树的颜色和饱和度"，确认目标为**给 GLB 树（forest_pack 系列）加统一调色参数**（程序化苹果树 `appleTree.js` 的 `crownDefs` 不在本次范围）。
+
+### 关键背景（代码现状）
+- GLB 树颜色烘焙在贴图里，原先**无任何代码侧调色入口**。
+- 两个树材质入口：① 实例化散布树 `loadTreeInstanceParts()`（`map.js`，绝大多数树，直接复用 `c.material`）；② 手工林地树/灌木 `configureStaticGltfModel()`（也被教堂/岩石等非树 GLB 复用 → 必须按材质名过滤）。
+- 参考既有 `onBeforeCompile` + `customProgramCacheKey` 写法（雪山 cliff 材质）。
+
+### 已交付改动（工作树，未提交）
+- `src/config/world.js`：新增导出 `TREE_COLOR_GRADE = { saturation, brightness, hueShift }`（默认恒等 1/1/0；用户后续手动改为 saturation:1.5、brightness:1.4）。
+- `src/scene/map.js`：
+  - 模块级共享 uniform `_treeGradeUniforms`（uTreeSat/uTreeBright/uTreeHue），所有树材质共用 → 运行时改 `.value` 全量生效。
+  - `applyTreeColorGrade(material)`：注入片元钩子，`#include <map_fragment>` 后做 **YIQ 色相旋转 → 饱和度 mix(luma) → 明度乘子**；`userData.__treeGraded` 幂等；`customProgramCacheKey='tree-color-grade-v1'`；保留原 onBeforeCompile 链式调用。
+  - 导出 `setTreeColorGrade(partial)` 运行时 setter。
+  - 接入：散布树入口无条件 `applyTreeColorGrade(mat)`；静态模型入口用 `VEGETATION_NAME_RE = /(tree|branch|leaf|leaves|background)/i` 过滤后调用（同步替换了 `configureVegetationAlphaCutout` 里原内联正则）。
+- `src/main.js`：`__MY_GAME_DEBUG__` 挂 `setTreeColorGrade`。
+
+### 验证
+- `vite build` 通过。
+- Playwright 实测（teleport(0,120) 雪山机位，左右有树）：`saturation:0.1`→树变灰；`saturation:2.0 + hueShift:1.2`→树变鲜艳/紫红；雪壁/角色全程不变（确认只影响树、非树 GLB 不受影响）；重置 1/1/0 还原。
+
+### 用法
+- 改默认：编辑 `TREE_COLOR_GRADE`。运行时（DEV）：`__MY_GAME_DEBUG__.setTreeColorGrade({ saturation, brightness, hueShift })`，无需刷新；调满意后写回 config 固化。
+- 未做（范围外）：苹果树调色、草/地形/天空调色、UI 滑块、持久化。

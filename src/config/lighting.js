@@ -1,12 +1,12 @@
 export const OUTDOOR_LIGHTING = {
   exposure: {
-    initial: 1.485,
-    day: 1.485,
-    night: 1.474,
+    initial: 1.22,
+    day: 1.22,
+    night: 1.18,
   },
   sun: {
     color: 0xfff3d8,
-    dayIntensity: 3.3,
+    dayIntensity: 2.7,
     nightIntensity: 1.375,
   },
   moon: {
@@ -15,14 +15,14 @@ export const OUTDOOR_LIGHTING = {
     nightIntensity: 1.485,
   },
   hemisphere: {
-    skyColor: 0xb8ddff,
-    groundColor: 0x687a50,
-    dayIntensity: 1.321925,
+    skyColor: 0xb7c8d6,
+    groundColor: 0x5f684f,
+    dayIntensity: 0.88,
     nightIntensity: 1.19669,
   },
   fill: {
-    color: 0xc2d6ff,
-    dayIntensity: 0.94622,
+    color: 0xbdc9d8,
+    dayIntensity: 0.42,
     nightIntensity: 0.80707,
   },
 }

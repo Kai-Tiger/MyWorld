@@ -1,6 +1,6 @@
 import * as THREE from 'three'
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
-import { WORLD_SIZE, OUTDOOR_MOUNTAIN_BOUNDS, MOUNTAIN_FALL_FLOOR_Y, TREE_COLOR_GRADE } from '../config/world.js'
+import { WORLD_SIZE, OUTDOOR_MOUNTAIN_BOUNDS, MOUNTAIN_FALL_FLOOR_Y, TREE_COLOR_GRADE, MODEL_TREE_COLOR_MIX } from '../config/world.js'
 import { createHeightmapTerrain } from './heightmapTerrain.js'
 import { CASTLE_EXTERIOR } from '../config/castle.js'
 import oldChurchRuinsUrl from '../place/old_church_ruins_medium.glb?url'
@@ -8,53 +8,61 @@ import { cloneGLTFScene, loadGLTF } from '../systems/modelAssets.js'
 import oldChurchRuinsColliders from '../place/old_church_ruins_colliders.json'
 
 
-// ── 工具函数 ──────────────────────────────────────────
-const CURVE_UV_TILE_METERS = 3.6
-const ROCKERY_TEXTURE_VERSION = 'v=1'
-const ROCKERY_TEXTURE_BASE = '/models/rocks/namaqualand_boulder_03/textures'
-const OLD_CHURCH_RUINS_PLACEMENT = { x: -13, z: 35, rotY: 0 }
-const OLD_CHURCH_RUINS_Y_OFFSET = -1.38
-const FOREST_GROVE_ORIGIN = { x: 5, z: -49 }
-const FOREST_SECOND_GROVE_ORIGIN = { x: 47, z: -57 }
-const FOREST_THIRD_GROVE_ORIGIN = { x: 27, z: -34 }
-const FOREST_LINE_GROVE_ORIGIN = { x: 30, z: -70 }
-const FOREST_NORTH_GROVE_ORIGIN = { x: 35, z: 45 }
-const FOREST_LINE_GROVE_LENGTH = 8
-const FOREST_GROVE_CASTLE_TARGET = CASTLE_EXTERIOR.transitionTarget
-const FOREST_GROVE_ASSETS_BASE = '/models/forest_pack'
-const FOREST_GROVE_COLLIDER_MIN_Y = -0.5
-const FOREST_GROVE_COLLIDER_MAX_Y = 9
-const MINE_CAVE_MODEL_URL = '/models/mine_cave/mine_cave.glb'
-const MINE_CAVE_COLLIDER_MANIFEST_URL = '/models/mine_cave/mine_cave_colliders.json'
-const OUTDOOR_LANDMARK_MODEL_URL = '/models/outdoor_landmarks/outdoor_landmarks.glb'
-const OUTDOOR_LANDMARK_MANIFEST_URL = '/models/outdoor_landmarks/outdoor-landmarks-manifest.json'
+// ── 地图配置说明 ──────────────────────────────────────
+// 本文件的 top-level 大写常量多数是可调地图配置。注释里的“调大/调小”只描述直接效果；
+// 改密度、距离、预算类参数时还要同步看性能日志，尤其是草、树、水道和地形网格。
+const CURVE_UV_TILE_METERS = 3.6 // 曲线路面/岩带 UV 平铺米数；调小纹理更密，调大纹理更拉伸。
+const ROCKERY_TEXTURE_VERSION = 'v=1' // 岩石贴图缓存版本；改值会强制浏览器重新请求贴图。
+const ROCKERY_TEXTURE_BASE = '/models/rocks/namaqualand_boulder_03/textures' // 岩石贴图目录；换路径会整体替换岩石外观资源。
+const MOUNTAIN_ROCK_TEXTURE_URL = '/textures/generated/rock-texture-cool-gray-01.png'
+const OLD_CHURCH_RUINS_PLACEMENT = { x: -13, z: 35, rotY: 0 } // 旧教堂遗迹位置/朝向；改 x/z 会移动遗迹，改 rotY 会旋转。
+const OLD_CHURCH_RUINS_Y_OFFSET = -1.38 // 旧教堂遗迹贴地偏移；调大更浮，调小更埋进地面。
+const FOREST_GROVE_ORIGIN = { x: 5, z: -49 } // 第一片手工林地中心；移动会整体平移该林地树/草/岩。
+const FOREST_SECOND_GROVE_ORIGIN = { x: 47, z: -57 } // 第二片手工林地中心；移动会影响该片 curated 林地位置。
+const FOREST_THIRD_GROVE_ORIGIN = { x: 27, z: -34 } // 第三片手工林地中心；移动会影响该片 curated 林地位置。
+const FOREST_LINE_GROVE_ORIGIN = { x: 30, z: -70 } // 线性林带起点；移动会平移沿线树林。
+const FOREST_NORTH_GROVE_ORIGIN = { x: 35, z: 45 } // 北侧手工林地中心；移动会影响北侧林地和局部草堆。
+const FOREST_LINE_GROVE_LENGTH = 8 // 线性林带长度基准；调大林带更长，调小更短。
+const FOREST_GROVE_CASTLE_TARGET = CASTLE_EXTERIOR.transitionTarget // 手工林地朝城堡布局的参考点；改它会影响面向城堡的林地分布。
+const FOREST_GROVE_ASSETS_BASE = '/models/forest_pack' // forest_pack 资源目录；换路径会影响手工林和世界树模型加载。
+const FOREST_GROVE_COLLIDER_MIN_Y = -0.5 // 手工林碰撞体最低相对高度；调低更容易碰到根部/地面以下。
+const FOREST_GROVE_COLLIDER_MAX_Y = 9 // 手工林碰撞体最高相对高度；调高树冠也可能挡路，调低只挡树干。
+const MINE_CAVE_MODEL_URL = '/models/mine_cave/mine_cave.glb' // 矿洞模型资源；换路径会替换矿洞外观。
+const MINE_CAVE_COLLIDER_MANIFEST_URL = '/models/mine_cave/mine_cave_colliders.json' // 矿洞碰撞清单；换错会导致矿洞穿模或空气墙错误。
+const OUTDOOR_LANDMARK_MODEL_URL = '/models/outdoor_landmarks/outdoor_landmarks.glb' // 室外地标模型资源；换路径会替换地标组合。
+const OUTDOOR_LANDMARK_MANIFEST_URL = '/models/outdoor_landmarks/outdoor-landmarks-manifest.json' // 室外地标碰撞/元数据；换错会导致交互/碰撞不同步。
 const SPAWN_GRASS_MODEL_VARIANTS = [
   { name: 'fresh2', url: '/models/grass/grass_clump_fresh.glb', lodUrl: '/models/grass/grass_clump_fresh_lod.glb' },
   { name: 'fresh', url: '/models/grass/grass_clump_fresh.glb', lodUrl: '/models/grass/grass_clump_fresh_lod.glb' },
   { name: 'dry', url: '/models/grass/grass_clump_dry.glb', lodUrl: '/models/grass/grass_clump_dry_lod.glb' },
 ]
-// 模型草距离 LOD：块中心到玩家水平距离 < 此值用 3 段高模，否则换 2 段低模（仅切 geometry 指针）
-const GRASS_LOD_NEAR_DIST = 60
-const GRASS_LOD_INTERVAL = 0.2   // LOD 评估节流（秒）
-const SPAWN_GRASS_60_REF_MODEL_URL = '/models/grass/grass_clump_60_ref.glb'
-const SPAWN_GRASS_60_REF_PLACEMENT = { x: 2.5, z: 42, rotY: 0.35, scale: 1.15 }
-const GROUND_LEAF_TEXTURES = ['/textures/leaf1.png', '/textures/leaf2.png']
-const TERRAIN_CHUNK_SIZE = 128
+// 草模型变体：name 用于 mesh 命名，url 是近处高模，lodUrl 是远处低模；增加变体会增加加载和材质/mesh 数。
+// 模型草距离 LOD：越大的距离和保留比例会显示更多草，视觉更密但 CPU 矩阵写入和 GPU 实例渲染更重。
+const GRASS_LOD_NEAR_DIST = 35 // 高模草距离；调大高模范围更远、三角面更多，调小近处更早切低模。
+const GRASS_LOD_REDUCE_START_DIST = 20 // 草实例开始减量距离；调小更早稀疏省性能，调大近处保持更密。
+const GRASS_LOD_SPARSE_DIST = 70 // 草减量接近远端保留比例的距离；调小更快变稀，调大过渡更慢。
+const GRASS_LOD_HIDE_DIST = 90 // 模型草显示半径；调大可见草更远但候选更多，调小更省性能但边界更近。
+const GRASS_LOD_FAR_KEEP_RATIO = 0.04 // 远处草保留比例；调大远草更连续但实例更多，调小更离散更省。
+const GRASS_LOD_INTERVAL = 0.2 // LOD 评估节流秒数；调小响应更快但更耗 CPU，调大可能看到刷新滞后。
+const SPAWN_GRASS_60_REF_MODEL_URL = '/models/grass/grass_clump_60_ref.glb' // 草参考模型；只用于调试/对比显示。
+const SPAWN_GRASS_60_REF_PLACEMENT = { x: 2.5, z: 42, rotY: 0.35, scale: 1.15 } // 草参考模型位置/朝向/缩放；改了只影响参考模型。
+const GROUND_LEAF_TEXTURES = ['/textures/leaf1.png', '/textures/leaf2.png'] // 地面落叶贴图列表；增减会改变随机落叶外观多样性。
+const TERRAIN_CHUNK_SIZE = 128 // 地形近景块边长；调大块更少但单块更重，调小块更多但剔除更细。
 // 顶点间距 128/72≈1.78m（原 56≈2.29m），让网格能更好表现河岸坡度，减少人物/水面穿模
-const TERRAIN_CHUNK_SEGMENTS = 72
-const TERRAIN_ACTIVE_RADIUS = 2
-const TERRAIN_PRELOAD_RADIUS = 3
-const TERRAIN_DISTANT_PROXY_SEGMENTS = 24
-const TERRAIN_DISTANT_PROXY_Y_OFFSET = -0.08
-const GROUND_INDIVIDUAL_LEAF_Y_OFFSET = 0.075
-const GROUND_DEBRIS_MAX_GROUND_Y = 7.5
-const GROUND_DEBRIS_CLEAR_PADDING = 3.2
-const GROUND_LEAVES_PER_TREE = 30
-const GROUND_TREE_LEAF_RADIUS_MIN = 1.1
-const GROUND_TREE_LEAF_RADIUS_MAX = 3.8
-const LOCAL_MODEL_GRASS_PILE_AREA = 5
-const LOCAL_MODEL_GRASS_PER_PILE = 39
-const LOCAL_MODEL_GRASS_PILE_RADIUS = Math.sqrt(LOCAL_MODEL_GRASS_PILE_AREA / Math.PI)
+const TERRAIN_CHUNK_SEGMENTS = 72 // 近景地形细分；调大地形更细但顶点更多，调小更快但河岸/坡面更粗。
+const TERRAIN_ACTIVE_RADIUS = 2 // 玩家周围高精地形活动半径（块数）；调大近景更稳但构建和渲染更重。
+const TERRAIN_PRELOAD_RADIUS = 3 // 预加载地形半径（块数）；调大移动时更少露空但后台构建更多。
+const TERRAIN_DISTANT_PROXY_SEGMENTS = 24 // 远景代理地形细分；调大远景更细但更重，调小远山更粗。
+const TERRAIN_DISTANT_PROXY_Y_OFFSET = -0.08 // 远景代理下沉量；调低可避免缝隙闪烁，过低会有台阶感。
+const GROUND_INDIVIDUAL_LEAF_Y_OFFSET = 0.075 // 单片落叶离地高度；调大更少 z-fighting，过大会漂浮。
+const GROUND_DEBRIS_MAX_GROUND_Y = 7.5 // 地面杂物/落叶高度上限；调大高处也有杂物，调小只在低地。
+const GROUND_DEBRIS_CLEAR_PADDING = 3.2 // 杂物避让半径额外 padding；调大清空区更干净，调小杂物更贴近结构。
+const GROUND_LEAVES_PER_TREE = 30 // 每棵手工树周围落叶数；调大更丰富但实例更多，调小更干净。
+const GROUND_TREE_LEAF_RADIUS_MIN = 1.1 // 落叶离树干最近距离；调小更贴树根，调大树根周围更空。
+const GROUND_TREE_LEAF_RADIUS_MAX = 3.8 // 落叶扩散最大半径；调大叶片铺得更散，调小更集中。
+const LOCAL_MODEL_GRASS_PILE_AREA = 5 // 局部草堆面积（平方米）；调大草堆半径变大，调小更小簇。
+const LOCAL_MODEL_GRASS_PER_PILE = 78 // 每个局部草堆最多草簇；调大更密但实例更多，调小更稀。
+const LOCAL_MODEL_GRASS_PILE_RADIUS = Math.sqrt(LOCAL_MODEL_GRASS_PILE_AREA / Math.PI) // 由面积推导的草堆半径；通常改面积而不是改此值。
 const LOCAL_MODEL_GRASS_PILES = [
   { x: FOREST_GROVE_ORIGIN.x - 6.5, z: FOREST_GROVE_ORIGIN.z - 5.0, seed: 6100 },
   { x: FOREST_GROVE_ORIGIN.x + 3.0, z: FOREST_GROVE_ORIGIN.z - 8.0, seed: 6200 },
@@ -71,65 +79,65 @@ const LOCAL_MODEL_GRASS_PILES = [
   { x: OLD_CHURCH_RUINS_PLACEMENT.x + 9.0, z: OLD_CHURCH_RUINS_PLACEMENT.z - 5.5, seed: 11200 },
   { x: OLD_CHURCH_RUINS_PLACEMENT.x + 1.0, z: OLD_CHURCH_RUINS_PLACEMENT.z + 11.0, seed: 11300 },
 ]
-const LOCAL_MODEL_GRASS_Y_OFFSET = -0.10
+// 局部草堆位置：x/z 是草堆中心，seed 控制形状和随机分布；移动 x/z 会移动草堆，改 seed 会换一套随机外形。
+const LOCAL_MODEL_GRASS_Y_OFFSET = -0.10 // 模型草整体贴地偏移；调低更贴/埋入地面，调高更容易露根或漂浮。
 // 三层模型草统一的形状调整：竖向压扁 + 横向展开 → 叶片更平贴、叶尖间距更大，覆盖更好（不改 glb 几何）
 const MODEL_GRASS_FLATTEN_Y = 0.6   // 乘到 scaleY：变矮变平，减小叶片与地面夹角
 const MODEL_GRASS_SPREAD_XZ = 1.4   // 乘到 scaleX/scaleZ：叶片横向展开、间距变大
-const LOCAL_MODEL_GRASS_SPACING = 0.28
-const LOCAL_MODEL_GRASS_JITTER = 0.30
-const LOCAL_MODEL_GRASS_SHAPE_SEGMENTS = 10
+const LOCAL_MODEL_GRASS_SPACING = 0.198 // 局部草堆采样间距；调小更密但生成更多，调大更稀。
+const LOCAL_MODEL_GRASS_JITTER = 0.30 // 局部草堆位置抖动比例；调大更自然但边界更散，调小更网格化。
+const LOCAL_MODEL_GRASS_SHAPE_SEGMENTS = 10 // 草堆边界形状分段；调大边缘更细碎，调小更圆滑。
 // 河岸生态草：沿主河 + 全部支流两岸铺草。生态分区：坡顶平台密、河岸斜坡空、露出的干河床稀疏。
-const RIVERSIDE_GRASS_ALONG_SPACING = 0.44   // 沿河中心线行走步距（米），密度 +30%
-const RIVERSIDE_GRASS_LATERAL_SPACING = 0.42 // 坡顶带横向网格步距（米），密度 +30%
+const RIVERSIDE_GRASS_ALONG_SPACING = 0.311  // 沿河中心线行走步距（米），约 2x 面积密度
+const RIVERSIDE_GRASS_LATERAL_SPACING = 0.297 // 坡顶带横向网格步距（米），约 2x 面积密度
 const RIVERSIDE_GRASS_TERRACE_WIDTH = 14.0   // 坡顶平台铺草带宽（米），向外延伸覆盖更大地面
 const RIVERSIDE_GRASS_TERRACE_PLATEAU = 0.30 // 内侧满密度占带宽比例，其后向外自然渐稀淡出
 const RIVERSIDE_GRASS_SLOPE_MARGIN = 0.5     // 坡顶让出余量，避开下切斜坡肩（米）
 const RIVERSIDE_GRASS_BED_PROB = 0.05        // 干河床稀疏几丛的放置概率
 const RIVERSIDE_GRASS_BED_SAMPLES = 4        // 每 station 在干河床横向尝试的采样数
 const RIVERSIDE_GRASS_JITTER = 0.55          // 位置抖动比例（相对步距）
-const RIVERSIDE_GRASS_CHUNK_LEN = 40         // 空间分块边长（米），用于视锥剔除
-const RIVERSIDE_GRASS_MAX_INSTANCES = 500000 // 实例上限（效果优先，已大幅抬高）
 const RIVERSIDE_GRASS_MAX_GROUND_RISE = 0.85 // 局部坡度守卫：1m 内地面抬升超过此值则跳过（防爬谷壁）
-// 草甸草：把整片低谷地面（地面高度 ≤ 7.5m）铺满 3D 模型草，原裸沙地变草地。河岸密草层保留为近水细节层。
-const MEADOW_GRASS_SPACING = 0.745           // 全场网格步距（米），密度 +30%（高密铺满）
+// 全局模型草：除火堆、河岸/水面、山上外，把室外陆地铺满 3D 模型草。
+const MEADOW_GRASS_SPACING = 0.527           // 全场网格步距（米），约 2x 面积密度
 const MEADOW_GRASS_JITTER = 0.7              // 位置抖动比例（相对步距），打散网格感
-const MEADOW_GRASS_CHUNK_LEN = 64            // 空间分块边长（米），比河岸大以压低 draw call
-const MEADOW_GRASS_MAX_INSTANCES = 2500000   // 实例上限（效果优先，已大幅抬高）
-const MEADOW_GRASS_MAX_GROUND_Y = 26         // 草甸高度上限（米）：覆盖整个高度图丘陵（~24m），陡坡/雪峰靠坡度守卫排除
-const MEADOW_GRASS_MAX_GROUND_RISE = 0.85    // 局部坡度守卫：1m 内地面抬升超过此值则跳过（防爬陡坎/谷壁）
-const MEADOW_GRASS_RIVER_HANDOFF = 16.5      // 距河道边缘 < 此值跳过：排除水面/斜坡，并在河岸层密度淡出到 0 处接手
-const GRASS_FIELD_BOUNDS = OUTDOOR_MOUNTAIN_BOUNDS
-const DISTANT_GRASS_MAX_GROUND_Y = 7.5    // 地表高于此值不铺草（草甸/坡度守卫共用）
-const GRASS_CAMPFIRE_CLEAR_RADIUS = 4.5
-const MODEL_GRASS_FOOTPRINT_PADDING = 2.5
-const MINE_CAVE_MODEL_GRASS_PADDING = 4
-const MINE_CAVE_CARD_GRASS_PADDING = 4
+const GRASS_FIELD_BOUNDS = OUTDOOR_MOUNTAIN_BOUNDS // 全局模型草可生成边界；扩大边界会让更远区域可长草。
+const GRASS_HEIGHT_FADE_START_Y = 80 // 全局草开始随高度变稀；低于此高度仍按原密度生成。
+const GRASS_HEIGHT_FADE_END_Y = 160 // 全局草高度衰减末端；高于此高度只保留少量簇状草。
+const GRASS_HEIGHT_MIN_CLUSTER_COVERAGE = 0.02 // 高处最小草簇覆盖率；调大高处草簇更多，调小更稀。
+const GRASS_HEIGHT_CLUSTER_SCALE = 0.055 // 高度衰减草簇噪声尺度；调大簇更小更碎，调小簇更大。
+const GRASS_HEIGHT_CLUSTER_EDGE_SOFTNESS = 0.10 // 草簇边缘扰动强度；调大边缘更破碎，调小边界更平滑。
+const GRASS_CAMPFIRE_CLEAR_RADIUS = 4.5 // 火堆基础清草半径；调大火堆周围更空，调小草更靠近火堆。
+const MODEL_GRASS_FOOTPRINT_PADDING = 2.5 // 模型草额外避让 padding；调大结构/洞口周边更干净，调小草更贴边。
+const MINE_CAVE_MODEL_GRASS_PADDING = 4 // 矿洞模型草避让；调大矿洞入口更空，调小草可能贴到洞口模型。
+const MINE_CAVE_CARD_GRASS_PADDING = 4 // 卡片/杂物草对矿洞避让；调大清空更多，调小更容易穿插。
 const GRASS_CAMPFIRE_CLEARINGS = [
   { x: 0, z: 50 },
   { x: 19, z: -66 },
   { x: -18, z: -2 },
   { x: 22, z: 22 },
 ]
-const RANDOM_FOREST_TREE_COUNT = 120
-const RANDOM_FOREST_BOUNDS = { minX: -118, maxX: 112, minZ: -92, maxZ: 86 }
-const RANDOM_FOREST_TREE_MIN_SPACING = 7.5
-const RANDOM_FOREST_SPAWN_CLEAR_RADIUS = 16
-const RANDOM_FOREST_CAMPFIRE_CLEAR_RADIUS = 7.5
-const RANDOM_FOREST_OLD_CHURCH_CLEAR_RADIUS = 15
-const RANDOM_FOREST_CASTLE_APPROACH_CLEARING = { x: 64, z: -5, hx: 25, hz: 22 }
-const RANDOM_FOREST_CASTLE_ENTRANCE_CLEAR_RADIUS = 20
+// 火堆清草中心列表；增删点会改变哪些营地周围保持裸地。
+const RANDOM_FOREST_TREE_COUNT = 120 // 旧随机林树数量；调大更密但碰撞/渲染更多，调小更稀。
+const RANDOM_FOREST_BOUNDS = { minX: -118, maxX: 112, minZ: -92, maxZ: 86 } // 旧随机林范围；扩大可覆盖更多中心区域。
+const RANDOM_FOREST_TREE_MIN_SPACING = 7.5 // 随机树最小间距；调大更疏，调小更密且可能互相穿插。
+const RANDOM_FOREST_SPAWN_CLEAR_RADIUS = 16 // 出生点/中心清树半径；调大初始区更空，调小树更靠近玩家。
+const RANDOM_FOREST_CAMPFIRE_CLEAR_RADIUS = 7.5 // 随机树避开火堆半径；调大营地更空，调小树更贴近火堆。
+const RANDOM_FOREST_OLD_CHURCH_CLEAR_RADIUS = 15 // 随机树避开旧教堂半径；调大建筑周围更空。
+const RANDOM_FOREST_CASTLE_APPROACH_CLEARING = { x: 64, z: -5, hx: 25, hz: 22 } // 城堡引道矩形清树区；hx/hz 越大空地越大。
+const RANDOM_FOREST_CASTLE_ENTRANCE_CLEAR_RADIUS = 20 // 城堡入口圆形清树半径；调大入口更通畅。
 const FOREST_GROVE_TREE_TYPES = [
   { file: 'tree_01.glb', scale: 0.42, r: 1.35 },
   { file: 'tree_02.glb', scale: 0.50, r: 1.25 },
   { file: 'tree_03.glb', scale: 0.88, r: 1.05 },
   { file: 'tree_04.glb', scale: 0.84, r: 1.05 },
 ]
+// 手工林地可选树模型；file 换模型，scale 改视觉大小，r 改碰撞/间距估算半径。
 const FOREST_GROVE_SHRUB_TYPES = [
   { file: 'background_tree_10.glb', scale: 0.70 },
-  { file: 'background_tree_11.glb', scale: 0.90 },
   { file: 'background_tree_12.glb', scale: 0.85 },
   { file: 'background_tree_13.glb', scale: 0.68 },
 ]
+// 手工林地灌木/背景树模型；调大 scale 会让林下更满，也可能更挡视线。
 const FOREST_GROVE_ROCK_TYPES = [
   { file: 'rock_02.glb', scale: 1.15, r: 0.70 },
   { file: 'rock_03.glb', scale: 1.20, r: 0.62 },
@@ -137,29 +145,34 @@ const FOREST_GROVE_ROCK_TYPES = [
   { file: 'rock_07.glb', scale: 1.00, r: 0.55 },
   { file: 'rock_09.glb', scale: 1.45 },
 ]
-const FOREST_TREE_COLLIDER_SCALE = 0.6
-const FOREST_ROCK_COLLIDER_SCALE = 0.85
+// 手工林地岩石模型；scale/r 与树同理，r 缺省时使用模型包围盒估算。
+const FOREST_TREE_COLLIDER_SCALE = 0.6 // 手工树碰撞半径倍率；调大更难贴近树干，调小更容易穿进树冠/树干。
+const FOREST_ROCK_COLLIDER_SCALE = 0.85 // 手工岩石碰撞半径倍率；调大避让更保守，调小更贴边。
 
 // ── 世界级实例化树木散布（铺满全世界，复用草地分块/实例化框架）──
 const FOREST_GROVE_HEIGHT_BOOST = 1.8        // 手工林地树/灌木同步加高（岩石不受影响）
 const WORLD_TREE_CELL_LEN = 128              // 空间分块边长（米）：每 (cell×模型×子件) 一个 InstancedMesh
-const WORLD_TREE_SPACING = 6.5               // 撒点网格步距（米）
+const WORLD_TREE_SPACING = 5.8               // 撒点网格步距（米）
 const WORLD_TREE_JITTER = 0.75               // 位置抖动比例（相对步距）
 const WORLD_TREE_MAX_SLOPE = 1.3             // 每 1.5m 地面起伏上限（超出=崖/陡坡，不种）
 const WORLD_TREE_TREELINE_LO = 46            // 树线软带下沿（开始变稀）
 const WORLD_TREE_TREELINE_HI = 64            // 树线软带上沿（以上裸岩/雪，不种）
 const WORLD_TREE_RIVER_HANDOFF = 6           // 距水道边缘 <此值 不种（避水/河岸）
-const WORLD_TREE_HEIGHT_BOOST = 1.8          // 散布树高度倍数（与手工林地一致）
-const WORLD_TREE_MAX_INSTANCES = 38000       // 总实例上限（护栏）
+const WORLD_TREE_HEIGHT_BOOST = 2.05         // 散布树高度倍数（与手工林地一致）
 // 距离分级 LOD（按 cell 中心到玩家水平距离）：始终渲染到 COVERAGE，靠近逐级提质量
 const WORLD_TREE_LOD_NEAR = 130              // <=near：树冠+树干+树下草（全质量）
-const WORLD_TREE_LOD_MID = 520               // near..mid：树冠+树干，去树下草
-const WORLD_TREE_COVERAGE = 1800             // mid..coverage：仅树冠；超出全隐（雾已淡化，< 相机 far 3000）
+const WORLD_TREE_LOD_MID = 240               // near..mid：树冠+树干，去树下草
+const WORLD_TREE_COVERAGE = 480              // mid..coverage：仅树冠；超出全隐（雾已淡化，< 相机 far 3000）
 const WORLD_TREE_LOD_HYST = 24               // 分档滞后带（米），防边界来回抖动
-const WORLD_TREE_CLUSTER_THRESHOLD = 0.4     // 林斑噪声阈值（下方=林间空地）
+const WORLD_TREE_LEAF_FULL_DIST = 260        // <=此距离：forest_pack 树叶全量显示
+const WORLD_TREE_LEAF_SPARSE_DIST = 1400     // >=此距离：forest_pack 树叶仅轻微降密，保持远景树冠连续
+const WORLD_TREE_LEAF_MIN_KEEP = 0.90        // 远距离树冠稳定保留的叶片比例
+const WORLD_TREE_INSTANCE_FULL_DIST = 100    // >=此距离：世界树实例开始按确定性 rank 减量
+const WORLD_TREE_INSTANCE_FAR_KEEP = 0.34    // 远距离世界树实例保留比例（仅 world-tree InstancedMesh）
+const WORLD_TREE_CLUSTER_THRESHOLD = 0.43    // 林斑噪声阈值；低频林团，避免俯视均匀撒点
 const WORLD_TREE_BUILD_MS_PER_FRAME = 5      // 增量构建每帧预算（毫秒）
 const WORLD_TREE_VIS_INTERVAL = 0.25         // cell 可见性评估节流（秒）
-const WORLD_TREE_THIN = 0.10                 // 确定性概率剔除比例（减少 ~10% 树）
+const WORLD_TREE_THIN = 0.46                 // 确定性概率剔除比例；0=不额外减密
 const WORLD_TREE_GRASS_PER_TREE = 6          // 每棵树脚下补的草簇数
 const WORLD_TREE_GRASS_RADIUS = 2.6          // 树下补草散布半径（米）
 const WORLD_TREE_MODELS = [                  // 复用 forest_pack 模型 + 基准缩放
@@ -167,9 +180,14 @@ const WORLD_TREE_MODELS = [                  // 复用 forest_pack 模型 + 基�
   { file: 'tree_02.glb', scale: 0.50 },
   { file: 'tree_03.glb', scale: 0.88 },
   { file: 'tree_04.glb', scale: 0.84 },
-  { file: 'background_tree_11.glb', scale: 0.90 },
 ]
-const FOREST_CASTLE_GATE_CLEARING = { minX: 39, maxX: 52, minZ: -11, maxZ: 4 }
+const MODEL_TREE_GREEN_FILE_SET = new Set(MODEL_TREE_COLOR_MIX.greenFiles || [])
+const MODEL_TREE_YELLOW_FILE_SET = new Set(MODEL_TREE_COLOR_MIX.yellowFiles || [])
+const MODEL_TREE_YELLOW_RATIO = (() => {
+  const value = Number(MODEL_TREE_COLOR_MIX.yellowRatio)
+  return Number.isFinite(value) ? THREE.MathUtils.clamp(value, 0, 1) : 0
+})()
+const FOREST_CASTLE_GATE_CLEARING = { minX: 39, maxX: 52, minZ: -11, maxZ: 4 } // 城堡门口清树矩形；扩大可防树挡门，缩小会让树林更靠近入口。
 const CASTLE_APPROACH_MOUNDS = [
   { x: 8, z: -13, rx: 5.6, rz: 3.7, h: 4.8, rot: -0.32, r: 5.4 },
   { x: 11, z: 20, rx: 6.2, rz: 4.1, h: 5.4, rot: 0.18, r: 5.8 },
@@ -180,6 +198,7 @@ const CASTLE_APPROACH_MOUNDS = [
   { x: 47, z: 16, rx: 5.8, rz: 4.0, h: 5.9, rot: 0.34, r: 5.4 },
   { x: 49, z: -18, rx: 6.2, rz: 4.0, h: 6.3, rot: 0.26, r: 5.7 },
 ]
+// 城堡引道两侧土丘；x/z 为中心，rx/rz 为椭圆半径，h 为高度，rot 为旋转，r 为避让半径。
 const CASTLE_APPROACH_ROCKERY_RIDGES = [
   {
     name: 'north-wall',
@@ -196,6 +215,7 @@ const CASTLE_APPROACH_ROCKERY_RIDGES = [
     ],
   },
 ]
+// 城堡引道岩脊墙；points 里的 [x,z,width,height] 控制位置、山脊宽度和高度。
 const CASTLE_NORTH_HIGHLAND = {
   x: 58,
   z: 28,
@@ -208,11 +228,11 @@ const CASTLE_NORTH_HIGHLAND = {
   rampEnd: { x: 50, z: 20 },
   rampHalfWidth: 4.8,
 }
+// 城堡北侧高台；rx/rz/height 控制体量，top/edge 控制台顶平整与边缘过渡，ramp* 控制上坡通道。
 const CASTLE_NORTH_HIGHLAND_PLACEMENTS = [
   { file: 'tree_01.glb', dx: 51.0, dz: 38.0, rotY: 0.6, scale: 0.46, r: 0.86 },
   { file: 'tree_02.glb', dx: 52.0, dz: 34.0, rotY: 2.1, scale: 0.52, r: 0.78 },
   { file: 'tree_04.glb', dx: 63.0, dz: 27.5, rotY: 4.4, scale: 0.82, r: 0.86 },
-  { file: 'background_tree_11.glb', dx: 58.0, dz: 31.0, rotY: 3.8, scale: 0.92 },
   { file: 'background_tree_13.glb', dx: 61.0, dz: 21.0, rotY: 5.2, scale: 0.70 },
   { file: 'tree_01.glb', dx: 70.0, dz: 32.0, rotY: 2.9, scale: 0.44, r: 0.84 },
   { file: 'background_tree_10.glb', dx: 67.0, dz: 19.0, rotY: 0.9, scale: 0.72 },
@@ -225,6 +245,9 @@ const CASTLE_NORTH_HIGHLAND_PLACEMENTS = [
   { file: 'rock_05.glb', dx: 75.0, dz: 29.0, rotY: 0.8, scale: 1.20, r: 0.58 },
   { file: 'rock_07.glb', dx: 60.0, dz: 15.0, rotY: 2.4, scale: 1.00, r: 0.55 },
 ]
+// 北侧高台上的手工树/石；dx/dz 是世界坐标，rotY 旋转，scale 缩放，r 碰撞/避让半径。
+// 矿洞交互与地形配置；x/z 是地表入口，cavern* 是地下洞室，shaft* 是竖井/阻挡体，
+// ladder* 控制爬梯视觉和玩家落点，*Range 控制交互距离，*HalfWidth/*HalfDepth 控制地下碰撞空间。
 export const MINE_CAVE = {
   x: 36,
   z: 35,
@@ -273,6 +296,7 @@ function resampleRiverPath(points, segmentsPerSpan = 6) {
   return curve.getPoints(n).map(v => ({ x: v.x, z: v.z }))
 }
 
+// 主河控制点；移动点会同时改变地形碳刻、水面、碰撞采样和湿泥材质带。
 const HERO_RIVER_CONTROL = [
   { x: -575, z: 560 },
   { x: -470, z: 455 },
@@ -289,7 +313,8 @@ const HERO_RIVER_CONTROL = [
 ]
 // 采样密度 2：平滑曲线（消除折角）同时把每顶点的全路径扫描成本压到基线的 ~2 倍。
 // 此路径同时用于碳刻/碰撞/水面网格中心线，并与地形着色器 GLSL 湿泥带（同为密度 2）精确对齐。
-const HERO_RIVER_POINTS = resampleRiverPath(HERO_RIVER_CONTROL, 2)
+const HERO_RIVER_POINTS = resampleRiverPath(HERO_RIVER_CONTROL, 2) // 主河平滑后点列；密度越高弯道越顺，但地形/水面采样成本更高。
+// 支流配置：points 为控制点，halfWidthStart/End 控制上下游宽度，sourceLift 抬高源头解析水位，sideChannel 表示侧汊。
 const RIVER_BRANCHES = [
   {
     id: 'north_creek',
@@ -357,6 +382,405 @@ for (const branch of RIVER_BRANCHES) {
   branch.points = resampleRiverPath(branch.points, 3)
 }
 
+const NEWLAND_BRAIDED_SLOPE_DEG = 45 // 新大陆辫状河岸坡角；调小河岸更缓更宽，调大河道更陡更窄。
+const NEWLAND_BRAIDED_CHANNELS = [
+  {
+    id: 'braid_main',
+    points: [
+      { x: -450, z: -310 },
+      { x: -390, z: -360 },
+      { x: -300, z: -410 },
+      { x: -220, z: -455 },
+      { x: -150, z: -520 },
+      { x: -90, z: -590 },
+    ],
+    halfWidthStart: 7.2,
+    halfWidthEnd: 9.2,
+    cutDepth: 3.2,
+    waterDepth: 0.75,
+  },
+  {
+    id: 'braid_west_split',
+    points: [
+      { x: -390, z: -360 },
+      { x: -365, z: -445 },
+      { x: -300, z: -515 },
+      { x: -220, z: -455 },
+    ],
+    halfWidthStart: 4.8,
+    halfWidthEnd: 6.8,
+    cutDepth: 2.8,
+    waterDepth: 0.55,
+  },
+  {
+    id: 'braid_east_split',
+    points: [
+      { x: -300, z: -410 },
+      { x: -245, z: -355 },
+      { x: -170, z: -430 },
+      { x: -150, z: -520 },
+    ],
+    halfWidthStart: 4.4,
+    halfWidthEnd: 6.5,
+    cutDepth: 2.7,
+    waterDepth: 0.5,
+  },
+  {
+    id: 'braid_south_loop',
+    points: [
+      { x: -300, z: -515 },
+      { x: -260, z: -565 },
+      { x: -190, z: -610 },
+      { x: -90, z: -590 },
+    ],
+    halfWidthStart: 5.2,
+    halfWidthEnd: 7.0,
+    cutDepth: 2.9,
+    waterDepth: 0.6,
+  },
+  {
+    id: 'braid_north_rill',
+    points: [
+      { x: -430, z: -400 },
+      { x: -365, z: -445 },
+      { x: -300, z: -410 },
+    ],
+    halfWidthStart: 3.8,
+    halfWidthEnd: 5.4,
+    cutDepth: 2.5,
+    waterDepth: 0.45,
+  },
+  {
+    id: 'braid_side_cut',
+    points: [
+      { x: -250, z: -330 },
+      { x: -220, z: -395 },
+      { x: -170, z: -430 },
+    ],
+    halfWidthStart: 3.6,
+    halfWidthEnd: 5.0,
+    cutDepth: 2.4,
+    waterDepth: 0.42,
+  },
+  {
+    id: 'braid_west_source',
+    points: [
+      { x: -520, z: -275 },
+      { x: -485, z: -295 },
+      { x: -450, z: -310 },
+    ],
+    halfWidthStart: 3.2,
+    halfWidthEnd: 5.4,
+    cutDepth: 2.4,
+    waterDepth: 0.48,
+  },
+  {
+    id: 'braid_northwest_feeder',
+    points: [
+      { x: -520, z: -470 },
+      { x: -465, z: -450 },
+      { x: -365, z: -445 },
+    ],
+    halfWidthStart: 2.8,
+    halfWidthEnd: 5.2,
+    cutDepth: 2.2,
+    waterDepth: 0.42,
+  },
+  {
+    id: 'braid_north_fork',
+    points: [
+      { x: -485, z: -390 },
+      { x: -455, z: -404 },
+      { x: -430, z: -400 },
+    ],
+    halfWidthStart: 2.6,
+    halfWidthEnd: 4.4,
+    cutDepth: 2.0,
+    waterDepth: 0.38,
+  },
+  {
+    id: 'braid_northeast_feeder',
+    points: [
+      { x: -330, z: -260 },
+      { x: -292, z: -292 },
+      { x: -250, z: -330 },
+    ],
+    halfWidthStart: 2.8,
+    halfWidthEnd: 4.8,
+    cutDepth: 2.2,
+    waterDepth: 0.42,
+  },
+  {
+    id: 'braid_east_upper_leaf',
+    points: [
+      { x: -85, z: -345 },
+      { x: -125, z: -385 },
+      { x: -170, z: -430 },
+    ],
+    halfWidthStart: 2.6,
+    halfWidthEnd: 4.8,
+    cutDepth: 2.1,
+    waterDepth: 0.4,
+  },
+  {
+    id: 'braid_east_fan',
+    points: [
+      { x: -40, z: -500 },
+      { x: -66, z: -545 },
+      { x: -90, z: -590 },
+    ],
+    halfWidthStart: 2.9,
+    halfWidthEnd: 5.4,
+    cutDepth: 2.3,
+    waterDepth: 0.46,
+  },
+  {
+    id: 'braid_south_feeder',
+    points: [
+      { x: -260, z: -680 },
+      { x: -228, z: -642 },
+      { x: -190, z: -610 },
+    ],
+    halfWidthStart: 3.0,
+    halfWidthEnd: 5.4,
+    cutDepth: 2.3,
+    waterDepth: 0.46,
+  },
+  {
+    id: 'braid_southwest_feeder',
+    points: [
+      { x: -520, z: -620 },
+      { x: -430, z: -565 },
+      { x: -300, z: -515 },
+    ],
+    halfWidthStart: 3.1,
+    halfWidthEnd: 5.6,
+    cutDepth: 2.4,
+    waterDepth: 0.48,
+  },
+]
+// 新大陆辫状河配置；points 控制水道路径，halfWidthStart/End 控制宽度变化，cutDepth 控制切深，waterDepth 控制水面高于河床多少。
+
+for (const channel of NEWLAND_BRAIDED_CHANNELS) {
+  channel.controlPoints = channel.points
+  channel.points = resampleRiverPath(channel.points, 3)
+}
+
+const NEWLAND_ENDPOINT_LAKE_CONNECT_RADIUS = 18 // 端点多近算已连接；调大减少自动源头/末端湖，调小会生成更多小湖。
+const NEWLAND_ENDPOINT_LAKE_MERGE_RADIUS = 22 // 自动湖多近会合并；调大湖更少更大，调小保留更多独立湖。
+
+function createNewlandEndpointLakes() {
+  const allPoints = []
+  NEWLAND_BRAIDED_CHANNELS.forEach((channel) => {
+    channel.controlPoints.forEach((point, pointIndex) => {
+      allPoints.push({ channelId: channel.id, pointIndex, point })
+    })
+  })
+
+  const lakes = []
+  NEWLAND_BRAIDED_CHANNELS.forEach((channel, channelIndex) => {
+    const endpoints = [
+      { pointIndex: 0, nearIndex: 1, t: 0 },
+      { pointIndex: channel.controlPoints.length - 1, nearIndex: channel.controlPoints.length - 2, t: 1 },
+    ]
+
+    for (const endpoint of endpoints) {
+      const point = channel.controlPoints[endpoint.pointIndex]
+      const connected = allPoints.some((other) => {
+        if (other.channelId === channel.id && other.pointIndex === endpoint.pointIndex) return false
+        return Math.hypot(point.x - other.point.x, point.z - other.point.z) <= NEWLAND_ENDPOINT_LAKE_CONNECT_RADIUS
+      })
+      if (connected) continue
+
+      const near = channel.controlPoints[endpoint.nearIndex]
+      const dirX = near.x - point.x
+      const dirZ = near.z - point.z
+      const len = Math.max(0.001, Math.hypot(dirX, dirZ))
+      const seed = 9300 + channelIndex * 379 + endpoint.pointIndex * 17
+      const baseWidth = newlandBraidedHalfWidthAt(channel, endpoint.t)
+      const lake = {
+        id: `${channel.id}_${endpoint.t === 0 ? 'source' : 'end'}_lake`,
+        x: point.x,
+        z: point.z,
+        rx: THREE.MathUtils.clamp(baseWidth * 2.6 + 7 + (seed % 5), 12, 22),
+        rz: THREE.MathUtils.clamp(baseWidth * 1.85 + 5 + (seed % 3), 9, 16),
+        rot: Math.atan2(dirZ / len, dirX / len),
+        waterDepth: THREE.MathUtils.clamp(channel.waterDepth + 0.18, 0.55, 0.85),
+        shoreRun: 7,
+        treeClearance: 9,
+        seed,
+      }
+
+      const existing = lakes.find(existingLake => Math.hypot(existingLake.x - lake.x, existingLake.z - lake.z) < NEWLAND_ENDPOINT_LAKE_MERGE_RADIUS)
+      if (existing) {
+        existing.x = (existing.x + lake.x) * 0.5
+        existing.z = (existing.z + lake.z) * 0.5
+        existing.rx = Math.max(existing.rx, lake.rx)
+        existing.rz = Math.max(existing.rz, lake.rz)
+        existing.waterDepth = Math.max(existing.waterDepth, lake.waterDepth)
+        continue
+      }
+      lakes.push(lake)
+    }
+  })
+  return lakes
+}
+
+const NEWLAND_ENDPOINT_LAKES = createNewlandEndpointLakes()
+const NEWLAND_MOUNTAIN_LAKE = {
+  id: 'mountain_mid_lake',
+  x: -900,
+  z: -900,
+  rx: 150,
+  rz: 115,
+  rot: THREE.MathUtils.degToRad(12),
+  waterDepth: 1.05,
+  shoreRun: 18,
+  treeClearance: 18,
+  seed: 14920,
+}
+// 固定山中湖；x/z/rot 定位，rx/rz 定大小，waterDepth/shoreRun/treeClearance 控制水深、岸线过渡和树木避让。
+const NEWLAND_STATIC_LAKES = [...NEWLAND_ENDPOINT_LAKES, NEWLAND_MOUNTAIN_LAKE] // 所有静态湖集合；由自动端点湖 + 固定山中湖组成，供地形/水面/树木避让共用。
+
+const NEWLAND_MOUNTAIN_OUTLET = {
+  id: 'mountain_lake_outlet',
+  points: [
+    { x: -890, z: -790 },
+    { x: -850, z: -700 },
+    { x: -805, z: -610 },
+    { x: -760, z: -520 },
+  ],
+  halfWidthStart: 8.0,
+  halfWidthEnd: 6.0,
+  cutDepth: 2.6,
+  waterDepth: 0.75,
+}
+// 山中湖出水道；字段含义与辫状河相同，调宽/调深会同步影响地形、水面与树木避让。
+NEWLAND_MOUNTAIN_OUTLET.controlPoints = NEWLAND_MOUNTAIN_OUTLET.points
+NEWLAND_MOUNTAIN_OUTLET.points = resampleRiverPath(NEWLAND_MOUNTAIN_OUTLET.points, 3)
+
+const NEWLAND_DENDRITIC_GULLIES = [
+  { id: 'west_slope_trunk', group: 'west_slope', width: 8.0, influence: 58, treeClearance: 20, depth: 5.8, points: [{ x: -1510, z: -1180 }, { x: -1340, z: -1085 }, { x: -1190, z: -990 }, { x: -1065, z: -890 }] },
+  { id: 'west_slope_branch_north', group: 'west_slope', width: 5.4, influence: 42, treeClearance: 16, depth: 4.4, points: [{ x: -1560, z: -980 }, { x: -1430, z: -1015 }, { x: -1290, z: -1035 }] },
+  { id: 'west_slope_branch_south', group: 'west_slope', width: 5.1, influence: 40, treeClearance: 16, depth: 4.2, points: [{ x: -1440, z: -1320 }, { x: -1355, z: -1195 }, { x: -1240, z: -1030 }] },
+  { id: 'west_slope_branch_high', group: 'west_slope', width: 4.8, influence: 38, treeClearance: 15, depth: 4.0, points: [{ x: -1660, z: -1110 }, { x: -1500, z: -1100 }, { x: -1365, z: -1088 }] },
+  { id: 'west_slope_branch_low', group: 'west_slope', width: 4.6, influence: 36, treeClearance: 15, depth: 3.8, points: [{ x: -1290, z: -850 }, { x: -1185, z: -875 }, { x: -1085, z: -900 }] },
+
+  { id: 'south_slope_trunk', group: 'south_slope', width: 8.2, influence: 60, treeClearance: 20, depth: 6.0, points: [{ x: -900, z: -1540 }, { x: -910, z: -1360 }, { x: -920, z: -1195 }, { x: -940, z: -1035 }] },
+  { id: 'south_slope_branch_west', group: 'south_slope', width: 5.4, influence: 42, treeClearance: 16, depth: 4.4, points: [{ x: -1110, z: -1480 }, { x: -1025, z: -1340 }, { x: -950, z: -1210 }] },
+  { id: 'south_slope_branch_east', group: 'south_slope', width: 5.2, influence: 40, treeClearance: 16, depth: 4.2, points: [{ x: -720, z: -1450 }, { x: -805, z: -1320 }, { x: -895, z: -1180 }] },
+  { id: 'south_slope_branch_mid', group: 'south_slope', width: 4.8, influence: 38, treeClearance: 15, depth: 4.0, points: [{ x: -1030, z: -1600 }, { x: -970, z: -1460 }, { x: -925, z: -1320 }] },
+  { id: 'south_slope_branch_lower', group: 'south_slope', width: 4.7, influence: 36, treeClearance: 15, depth: 3.9, points: [{ x: -720, z: -1220 }, { x: -820, z: -1160 }, { x: -920, z: -1080 }] },
+
+  { id: 'southwest_corner_trunk', group: 'southwest_corner', width: 8.5, influence: 62, treeClearance: 20, depth: 6.0, points: [{ x: -1950, z: -1900 }, { x: -1740, z: -1700 }, { x: -1510, z: -1490 }, { x: -1270, z: -1260 }] },
+  { id: 'southwest_corner_branch_west', group: 'southwest_corner', width: 5.5, influence: 42, treeClearance: 16, depth: 4.5, points: [{ x: -2140, z: -1780 }, { x: -1940, z: -1735 }, { x: -1740, z: -1690 }] },
+  { id: 'southwest_corner_branch_south', group: 'southwest_corner', width: 5.2, influence: 40, treeClearance: 16, depth: 4.3, points: [{ x: -1780, z: -2140 }, { x: -1690, z: -1900 }, { x: -1590, z: -1600 }] },
+  { id: 'southwest_corner_branch_mid', group: 'southwest_corner', width: 5.0, influence: 39, treeClearance: 15, depth: 4.1, points: [{ x: -1990, z: -2040 }, { x: -1835, z: -1840 }, { x: -1660, z: -1625 }] },
+  { id: 'southwest_corner_branch_low', group: 'southwest_corner', width: 4.8, influence: 38, treeClearance: 15, depth: 4.0, points: [{ x: -1570, z: -1320 }, { x: -1440, z: -1285 }, { x: -1290, z: -1265 }] },
+
+  { id: 'northwest_slope_trunk', group: 'northwest_slope', width: 7.8, influence: 56, treeClearance: 19, depth: 5.5, points: [{ x: -1460, z: 630 }, { x: -1320, z: 430 }, { x: -1190, z: 230 }, { x: -1040, z: 20 }] },
+  { id: 'northwest_slope_branch_west', group: 'northwest_slope', width: 5.2, influence: 40, treeClearance: 16, depth: 4.2, points: [{ x: -1660, z: 520 }, { x: -1485, z: 475 }, { x: -1320, z: 430 }] },
+  { id: 'northwest_slope_branch_north', group: 'northwest_slope', width: 5.0, influence: 39, treeClearance: 15, depth: 4.1, points: [{ x: -1240, z: 720 }, { x: -1255, z: 560 }, { x: -1285, z: 390 }] },
+  { id: 'northwest_slope_branch_mid', group: 'northwest_slope', width: 4.8, influence: 38, treeClearance: 15, depth: 3.9, points: [{ x: -1510, z: 240 }, { x: -1350, z: 235 }, { x: -1200, z: 230 }] },
+  { id: 'northwest_slope_branch_low', group: 'northwest_slope', width: 4.6, influence: 36, treeClearance: 15, depth: 3.8, points: [{ x: -1230, z: -70 }, { x: -1140, z: -30 }, { x: -1055, z: 10 }] },
+
+  { id: 'midwest_to_wetland_trunk', group: 'midwest_to_wetland', width: 7.6, influence: 56, treeClearance: 19, depth: 5.4, points: [{ x: -1710, z: -260 }, { x: -1500, z: -340 }, { x: -1290, z: -430 }, { x: -1060, z: -520 }] },
+  { id: 'midwest_to_wetland_branch_west', group: 'midwest_to_wetland', width: 5.1, influence: 40, treeClearance: 16, depth: 4.2, points: [{ x: -1900, z: -420 }, { x: -1680, z: -390 }, { x: -1490, z: -340 }] },
+  { id: 'midwest_to_wetland_branch_north', group: 'midwest_to_wetland', width: 4.9, influence: 38, treeClearance: 15, depth: 4.0, points: [{ x: -1600, z: -80 }, { x: -1505, z: -210 }, { x: -1410, z: -375 }] },
+  { id: 'midwest_to_wetland_branch_south', group: 'midwest_to_wetland', width: 4.9, influence: 38, treeClearance: 15, depth: 4.0, points: [{ x: -1430, z: -650 }, { x: -1350, z: -555 }, { x: -1250, z: -450 }] },
+  { id: 'midwest_to_wetland_branch_low', group: 'midwest_to_wetland', width: 4.6, influence: 36, treeClearance: 15, depth: 3.8, points: [{ x: -1160, z: -650 }, { x: -1110, z: -585 }, { x: -1065, z: -525 }] },
+]
+// 山坡树枝状冲沟；width/influence/depth 控制沟宽、影响范围和切深，treeClearance 控制沟边清树距离。
+for (const gully of NEWLAND_DENDRITIC_GULLIES) {
+  gully.controlPoints = gully.points
+  gully.points = resampleRiverPath(gully.points, 3)
+}
+
+const EAST_RIM_MEGASLOPE = {
+  x: 654,
+  z: -844,
+  height: 240,
+  length: 930,
+  backRun: 150,
+  halfWidth: 470,
+  feather: 190,
+  downX: -0.6129,
+  downZ: 0.7902,
+  sideX: -0.7902,
+  sideZ: -0.6129,
+}
+// 东侧大坡面；height/length/backRun/halfWidth/feather 控制坡体高度、长度、背坡和边缘淡出，down*/side* 是坡向单位向量。
+const EAST_RIM_DRY_RIVERS = [
+  {
+    id: 'east_rim_main',
+    tier: 'main',
+    widthStart: 14,
+    widthEnd: 25,
+    influence: 112,
+    treeClearance: 34,
+    depthStart: 18,
+    depthEnd: 34,
+    points: [
+      { x: 654, z: -844 },
+      { x: 592, z: -788 },
+      { x: 505, z: -710 },
+      { x: 405, z: -620 },
+      { x: 285, z: -505 },
+      { x: 150, z: -385 },
+      { x: 12, z: -270 },
+    ],
+  },
+  { id: 'east_rim_branch_north', tier: 'branch', widthStart: 8.5, widthEnd: 12.5, influence: 70, treeClearance: 24, depthStart: 10.0, depthEnd: 16.5, points: [{ x: 548, z: -748 }, { x: 640, z: -665 }, { x: 735, z: -555 }] },
+  { id: 'east_rim_branch_upper', tier: 'branch', widthStart: 8.0, widthEnd: 12.0, influence: 68, treeClearance: 23, depthStart: 9.6, depthEnd: 15.6, points: [{ x: 445, z: -655 }, { x: 560, z: -560 }, { x: 720, z: -458 }] },
+  { id: 'east_rim_branch_east', tier: 'branch', widthStart: 8.2, widthEnd: 13.0, influence: 72, treeClearance: 24, depthStart: 10.0, depthEnd: 17.0, points: [{ x: 510, z: -712 }, { x: 682, z: -780 }, { x: 754, z: -862 }] },
+  { id: 'east_rim_branch_south', tier: 'branch', widthStart: 8.8, widthEnd: 13.5, influence: 76, treeClearance: 25, depthStart: 10.5, depthEnd: 18.0, points: [{ x: 405, z: -620 }, { x: 548, z: -860 }, { x: 650, z: -1080 }] },
+  { id: 'east_rim_branch_southwest', tier: 'branch', widthStart: 7.8, widthEnd: 12.0, influence: 68, treeClearance: 23, depthStart: 9.4, depthEnd: 15.8, points: [{ x: 285, z: -505 }, { x: 358, z: -740 }, { x: 438, z: -1005 }] },
+  { id: 'east_rim_north_rill_high', tier: 'rill', widthStart: 3.8, widthEnd: 5.8, influence: 36, treeClearance: 15, depthStart: 5.2, depthEnd: 8.4, points: [{ x: 740, z: -390 }, { x: 708, z: -472 }, { x: 640, z: -665 }] },
+  { id: 'east_rim_north_rill_side', tier: 'rill', widthStart: 3.6, widthEnd: 5.6, influence: 34, treeClearance: 14, depthStart: 5.0, depthEnd: 8.0, points: [{ x: 760, z: -640 }, { x: 705, z: -640 }, { x: 638, z: -666 }] },
+  { id: 'east_rim_upper_rill_high', tier: 'rill', widthStart: 3.8, widthEnd: 5.8, influence: 36, treeClearance: 15, depthStart: 5.2, depthEnd: 8.4, points: [{ x: 720, z: -320 }, { x: 690, z: -400 }, { x: 600, z: -530 }] },
+  { id: 'east_rim_upper_rill_low', tier: 'rill', widthStart: 3.4, widthEnd: 5.4, influence: 34, treeClearance: 14, depthStart: 4.8, depthEnd: 7.8, points: [{ x: 600, z: -430 }, { x: 585, z: -505 }, { x: 560, z: -560 }] },
+  { id: 'east_rim_east_rill_north', tier: 'rill', widthStart: 3.6, widthEnd: 5.8, influence: 35, treeClearance: 14, depthStart: 5.0, depthEnd: 8.2, points: [{ x: 760, z: -720 }, { x: 710, z: -750 }, { x: 682, z: -780 }] },
+  { id: 'east_rim_east_rill_south', tier: 'rill', widthStart: 3.6, widthEnd: 5.8, influence: 35, treeClearance: 14, depthStart: 5.0, depthEnd: 8.2, points: [{ x: 750, z: -1000 }, { x: 710, z: -930 }, { x: 754, z: -862 }] },
+  { id: 'east_rim_south_rill_high', tier: 'rill', widthStart: 4.0, widthEnd: 6.2, influence: 38, treeClearance: 16, depthStart: 5.4, depthEnd: 9.0, points: [{ x: 700, z: -1180 }, { x: 660, z: -1110 }, { x: 650, z: -1080 }] },
+  { id: 'east_rim_south_rill_west', tier: 'rill', widthStart: 3.8, widthEnd: 6.0, influence: 37, treeClearance: 15, depthStart: 5.3, depthEnd: 8.7, points: [{ x: 520, z: -1150 }, { x: 580, z: -1110 }, { x: 650, z: -1080 }] },
+  { id: 'east_rim_southwest_rill_low', tier: 'rill', widthStart: 3.8, widthEnd: 6.0, influence: 37, treeClearance: 15, depthStart: 5.2, depthEnd: 8.7, points: [{ x: 330, z: -1120 }, { x: 385, z: -1060 }, { x: 438, z: -1005 }] },
+  { id: 'east_rim_southwest_rill_mid', tier: 'rill', widthStart: 3.6, widthEnd: 5.8, influence: 35, treeClearance: 14, depthStart: 5.0, depthEnd: 8.4, points: [{ x: 250, z: -910 }, { x: 340, z: -920 }, { x: 438, z: -1005 }] },
+]
+// 东侧干河沟；tier 只是分层标签，widthStart/End、influence、depthStart/End 控制沟槽体量，treeClearance 控制清树。
+for (const river of EAST_RIM_DRY_RIVERS) {
+  river.controlPoints = river.points
+  river.points = resampleRiverPath(river.points, 3)
+}
+
+function newlandStaticLakeBoundaryScale(lake, angle) {
+  const phase = lake.seed * 0.013
+  const wobble = Math.sin(angle * 3 + 0.7 + phase) * 0.10
+    + Math.sin(angle * 5 - 1.2 + phase * 0.7) * 0.06
+    + Math.cos(angle * 7 + 2.4 + phase * 1.3) * 0.04
+  return THREE.MathUtils.clamp(1 + wobble, 0.82, 1.16)
+}
+
+function getNewlandStaticLakeShapeAt(lake, x, z) {
+  const cos = Math.cos(lake.rot)
+  const sin = Math.sin(lake.rot)
+  const dx = x - lake.x
+  const dz = z - lake.z
+  const lx = dx * cos + dz * sin
+  const lz = -dx * sin + dz * cos
+  const nx = lx / lake.rx
+  const nz = lz / lake.rz
+  const radial = Math.hypot(nx, nz)
+  const angle = Math.atan2(nz, nx)
+  const boundary = newlandStaticLakeBoundaryScale(lake, angle)
+  const avgRadius = (lake.rx + lake.rz) * 0.5
+  const edge = (radial - boundary) * avgRadius
+  return { lx, lz, radial, angle, boundary, edge }
+}
+
+function isInsideNewlandStaticLakeClearance(x, z) {
+  return NEWLAND_STATIC_LAKES.some(lake => getNewlandStaticLakeShapeAt(lake, x, z).edge < lake.treeClearance)
+}
+
 // 由同一份（密化后）路径生成地形着色器的 GLSL 距离采样器，消除 JS/GLSL 路径重复定义，
 // 保证湿泥带在弯道处始终贴合实际碳刻出的水道。GLSL 用较低密度以控制逐像素段数开销。
 function formatGlslFloat(n) {
@@ -388,6 +812,10 @@ function emitTerrainRiverGLSL(fnName, paths) {
 // 且用较低密度；支流/中心溪的泥带回退到原控制折线（细流，弯道回退不可见），把段数拉回接近基线。
 const TERRAIN_RIVER_SAMPLE_GLSL = emitTerrainRiverGLSL('terrainRiverSample', [resampleRiverPath(HERO_RIVER_CONTROL, 2)])
 const TERRAIN_BRANCH_SAMPLE_GLSL = emitTerrainRiverGLSL('terrainBranchSample', RIVER_BRANCHES.map(b => b.controlPoints))
+const TERRAIN_NEWLAND_BRAID_SAMPLE_GLSL = emitTerrainRiverGLSL('terrainNewlandBraidSample', NEWLAND_BRAIDED_CHANNELS.map(c => c.controlPoints))
+const TERRAIN_NEWLAND_MOUNTAIN_OUTLET_SAMPLE_GLSL = emitTerrainRiverGLSL('terrainNewlandMountainOutletSample', [NEWLAND_MOUNTAIN_OUTLET.controlPoints])
+const TERRAIN_NEWLAND_DENDRITIC_GULLY_SAMPLE_GLSL = emitTerrainRiverGLSL('terrainNewlandDendriticGullySample', NEWLAND_DENDRITIC_GULLIES.map(g => g.controlPoints))
+const TERRAIN_EAST_RIM_DRY_RIVER_SAMPLE_GLSL = emitTerrainRiverGLSL('terrainEastRimDryRiverSample', EAST_RIM_DRY_RIVERS.map(r => r.controlPoints))
 const EROSION_GULLIES = [
   { id: 'nw_terrace', wet: true, width: 4.2, influence: 34, depth: 2.8, points: [{ x: -250, z: 180 }, { x: -220, z: 138 }, { x: -171, z: 100 }, { x: -128, z: 70 }] },
   // 干沟末端从汇聚节点 (-160,40) 拉回上坡、扇开，避免紧贴 rill 水潭缘再切出尖角沙楔
@@ -404,7 +832,41 @@ const EROSION_GULLIES = [
   // old_center 源头从高沙丘 (-235,140)/(-171,100)(床≈+5~-2.5) 裁掉，起点挪进低地形 (-181,106)(床≈-2.5)，
   // 消除 61° 垂直跌水；sourceLift 显式压低，避免解析水位在源头架高。
   { id: 'old_center', wet: true, width: 3.6, influence: 30, depth: 2.2, sourceLift: 0.8, points: [{ x: -181, z: 106 }, { x: -168, z: 78 }, { x: -160, z: 40 }] },
+  { id: 'taishan_lake_furrow_west', wet: false, width: 6.0, influence: 48, depth: 4.0, points: [{ x: -720, z: -1100 }, { x: -790, z: -1010 }, { x: -850, z: -940 }, { x: -900, z: -875 }] },
+  { id: 'taishan_lake_furrow_east', wet: false, width: 5.6, influence: 44, depth: 3.6, points: [{ x: -570, z: -980 }, { x: -690, z: -940 }, { x: -805, z: -910 }, { x: -870, z: -860 }] },
+  { id: 'huangshan_outlet_furrow_west', wet: false, width: 5.4, influence: 42, depth: 3.4, points: [{ x: -1120, z: -650 }, { x: -1035, z: -700 }, { x: -950, z: -760 }, { x: -900, z: -825 }] },
+  { id: 'huangshan_outlet_furrow_east', wet: false, width: 5.2, influence: 40, depth: 3.2, points: [{ x: -1020, z: -520 }, { x: -940, z: -585 }, { x: -865, z: -670 }, { x: -825, z: -735 }] },
 ]
+// 旧区域侵蚀沟；wet=true 会作为有水细流参与水面/碳刻，wet=false 只作为干沟塑形。
+const LOWLAND_EROSION_GULLIES = [
+  { id: 'central_lowland_trunk', width: 5.8, influence: 46, treeClearance: 17, depth: 2.9, points: [{ x: -520, z: 40 }, { x: -410, z: -18 }, { x: -285, z: -86 }, { x: -155, z: -132 }] },
+  { id: 'central_lowland_branch_north', width: 3.9, influence: 32, treeClearance: 13, depth: 1.9, points: [{ x: -430, z: 128 }, { x: -385, z: 60 }, { x: -330, z: 15 }] },
+  { id: 'central_lowland_branch_south', width: 4.4, influence: 36, treeClearance: 14, depth: 2.2, points: [{ x: -370, z: -210 }, { x: -320, z: -150 }, { x: -260, z: -96 }] },
+  { id: 'central_lowland_branch_east', width: 3.8, influence: 30, treeClearance: 12, depth: 1.8, points: [{ x: 25, z: -185 }, { x: -48, z: -165 }, { x: -135, z: -136 }] },
+  { id: 'braid_basin_trunk', width: 6.4, influence: 54, treeClearance: 20, depth: 3.5, points: [{ x: -575, z: -230 }, { x: -485, z: -315 }, { x: -390, z: -405 }, { x: -300, z: -515 }, { x: -195, z: -635 }] },
+  { id: 'braid_basin_west_branch', width: 4.6, influence: 38, treeClearance: 15, depth: 2.5, points: [{ x: -650, z: -485 }, { x: -560, z: -455 }, { x: -455, z: -420 }] },
+  { id: 'braid_basin_north_branch', width: 4.1, influence: 34, treeClearance: 14, depth: 2.2, points: [{ x: -455, z: -188 }, { x: -415, z: -268 }, { x: -360, z: -365 }] },
+  { id: 'braid_basin_east_branch', width: 4.4, influence: 36, treeClearance: 14, depth: 2.4, points: [{ x: -38, z: -332 }, { x: -125, z: -415 }, { x: -230, z: -515 }] },
+  { id: 'braid_basin_south_branch', width: 4.8, influence: 40, treeClearance: 16, depth: 2.7, points: [{ x: -480, z: -720 }, { x: -365, z: -670 }, { x: -245, z: -620 }] },
+  { id: 'west_foothill_trunk', width: 6.0, influence: 52, treeClearance: 19, depth: 3.2, points: [{ x: -760, z: 230 }, { x: -650, z: 135 }, { x: -520, z: 45 }, { x: -410, z: -70 }] },
+  { id: 'west_foothill_high_branch', width: 4.2, influence: 34, treeClearance: 14, depth: 2.3, points: [{ x: -760, z: 30 }, { x: -650, z: 18 }, { x: -535, z: -8 }] },
+  { id: 'south_foothill_trunk', width: 6.2, influence: 54, treeClearance: 20, depth: 3.4, points: [{ x: -95, z: -760 }, { x: -180, z: -665 }, { x: -250, z: -560 }, { x: -320, z: -455 }] },
+  { id: 'south_foothill_east_branch', width: 4.5, influence: 38, treeClearance: 15, depth: 2.5, points: [{ x: 60, z: -610 }, { x: -60, z: -590 }, { x: -190, z: -610 }] },
+  { id: 'south_foothill_west_branch', width: 4.4, influence: 36, treeClearance: 14, depth: 2.4, points: [{ x: -430, z: -760 }, { x: -375, z: -675 }, { x: -315, z: -585 }] },
+  { id: 'east_lowland_trunk', width: 5.4, influence: 44, treeClearance: 17, depth: 2.8, points: [{ x: 315, z: 95 }, { x: 220, z: 25 }, { x: 120, z: -60 }, { x: 30, z: -145 }] },
+  { id: 'east_lowland_side_branch', width: 3.8, influence: 31, treeClearance: 12, depth: 1.9, points: [{ x: 305, z: -115 }, { x: 205, z: -98 }, { x: 95, z: -82 }] },
+  { id: 'overview_center_fan_west', width: 4.2, influence: 38, treeClearance: 14, depth: 2.3, points: [{ x: -235, z: 210 }, { x: -280, z: 120 }, { x: -340, z: 42 }, { x: -420, z: -35 }] },
+  { id: 'overview_center_fan_mid', width: 3.8, influence: 34, treeClearance: 13, depth: 2.0, points: [{ x: -85, z: 210 }, { x: -145, z: 125 }, { x: -220, z: 34 }, { x: -305, z: -55 }] },
+  { id: 'overview_center_fan_east', width: 3.6, influence: 32, treeClearance: 12, depth: 1.9, points: [{ x: 120, z: 160 }, { x: 55, z: 85 }, { x: -35, z: 5 }, { x: -145, z: -82 }] },
+  { id: 'overview_south_wash', width: 4.0, influence: 36, treeClearance: 13, depth: 2.1, points: [{ x: -35, z: -430 }, { x: -105, z: -360 }, { x: -185, z: -278 }, { x: -270, z: -185 }] },
+  { id: 'overview_south_wash_west', width: 3.5, influence: 31, treeClearance: 12, depth: 1.8, points: [{ x: -360, z: -345 }, { x: -295, z: -282 }, { x: -225, z: -220 }] },
+]
+// 低地侵蚀沟；用于俯视远景的大尺度沟谷，字段含义与普通侵蚀沟相同，treeClearance 会影响沟边铺树。
+for (const gully of LOWLAND_EROSION_GULLIES) {
+  gully.controlPoints = gully.points
+  gully.points = resampleRiverPath(gully.points, 3)
+}
+const TERRAIN_LOWLAND_EROSION_GULLY_SAMPLE_GLSL = emitTerrainRiverGLSL('terrainLowlandErosionGullySample', LOWLAND_EROSION_GULLIES.map(g => g.controlPoints))
 function makePathBounds(points, padding = 0) {
   let minX = Infinity
   let maxX = -Infinity
@@ -428,29 +890,54 @@ function isInsideBounds(bounds, x, z) {
   return x >= bounds.minX && x <= bounds.maxX && z >= bounds.minZ && z <= bounds.maxZ
 }
 
-const RIVER_BRANCH_QUERY_PADDING = 40
+const RIVER_BRANCH_QUERY_PADDING = 40 // 支流查询包围盒外扩；调大更不易漏采样但每次查找范围更宽。
 const RIVER_BRANCH_BOUNDS = RIVER_BRANCHES.map(branch => ({
   branch,
   bounds: makePathBounds(branch.points, RIVER_BRANCH_QUERY_PADDING),
 }))
-const RIVER_BRANCH_BOUNDS_BY_ID = new Map(RIVER_BRANCH_BOUNDS.map(({ branch, bounds }) => [branch.id, bounds]))
+const RIVER_BRANCH_BOUNDS_BY_ID = new Map(RIVER_BRANCH_BOUNDS.map(({ branch, bounds }) => [branch.id, bounds])) // 支流 id 到查询包围盒的索引；派生缓存，不直接调。
+const NEWLAND_BRAIDED_QUERY_PADDING = 30 // 辫状河查询包围盒外扩；太小会漏边缘，太大会增加局部查询成本。
+const NEWLAND_BRAIDED_BOUNDS = NEWLAND_BRAIDED_CHANNELS.map(channel => ({
+  channel,
+  bounds: makePathBounds(channel.points, NEWLAND_BRAIDED_QUERY_PADDING),
+}))
+const NEWLAND_BRAIDED_BOUNDS_BY_ID = new Map(NEWLAND_BRAIDED_BOUNDS.map(({ channel, bounds }) => [channel.id, bounds])) // 辫状河 id 到包围盒索引；派生缓存。
+const NEWLAND_MOUNTAIN_OUTLET_BOUNDS = makePathBounds(NEWLAND_MOUNTAIN_OUTLET.points, 42) // 山中湖出水道查询包围盒；42 是外扩范围。
+const NEWLAND_DENDRITIC_GULLY_BOUNDS = NEWLAND_DENDRITIC_GULLIES.map(gully => ({
+  gully,
+  bounds: makePathBounds(gully.points, gully.influence + 8),
+}))
+// 以下 *BOUNDS 表都是由路径和 influence 派生的查询加速数据；改源路径/影响范围即可，不建议手改这些结果。
+const EAST_RIM_DRY_RIVER_BOUNDS = EAST_RIM_DRY_RIVERS.map(river => ({
+  river,
+  bounds: makePathBounds(river.points, river.influence + 10),
+}))
 const EROSION_GULLY_BOUNDS = EROSION_GULLIES.map(gully => ({
   gully,
   bounds: makePathBounds(gully.points, gully.influence + 6),
 }))
 const EROSION_GULLY_BOUNDS_BY_ID = new Map(EROSION_GULLY_BOUNDS.map(({ gully, bounds }) => [gully.id, bounds]))
+const LOWLAND_EROSION_GULLY_BOUNDS = LOWLAND_EROSION_GULLIES.map(gully => ({
+  gully,
+  bounds: makePathBounds(gully.points, gully.influence + 8),
+}))
 let _mineCaveUndergroundZones = []
+// 路径长度元数据缓存（getPathMeta 用）。必须在 createForestGrovePlacements() 之前声明，
+// 否则模块初始化时经 braided river 采样链调用 getPathMeta 会触发 TDZ（const 未初始化）。
+const pathMetaCache = new WeakMap()
 const FOREST_GROVE_PLACEMENTS = createForestGrovePlacements()
 const CURVED_CLIFF_CONTROL_POINTS = [
   [82, 26],
   [59, 69],
   [-36, 75],
 ]
+// 北侧弯曲峭壁控制点；点越远曲线越长，后续 createCurvedCliffRidgePoints 会生成实际山脊宽高。
 const SOUTH_CURVED_CLIFF_CONTROL_POINTS = [
   [67, -79],
   [0, -100],
   [-42, -94],
 ]
+// 南侧弯曲峭壁控制点；移动点会改变峭壁走向和对应地形塑形。
 const _roadTextureLoader = new THREE.TextureLoader()
 
 function localGrassShapeRadiusAt(patch, angle) {
@@ -509,6 +996,29 @@ function grassClusterVariant(x, z, seed, freshWeight = 1) {
   const jitter = (forestPlacementNoise(seed + 10) - 0.5) * 0.10   // 簇边软化
   if (dry + jitter > thr) return 2                                // 成簇黄枯（少数）
   return forestPlacementNoise(seed + 11) < 0.62 ? 0 : 1           // 绿（两种 fresh 变体）
+}
+
+function grassDistantClusterRank(x, z, seed = 0) {
+  const broad = valueNoise2(x * 0.040 + 13.1, z * 0.040 + 29.7)
+  const pocket = valueNoise2(x * 0.155 + 4.6, z * 0.155 + 18.2)
+  const speckle = forestPlacementNoise(seed + Math.floor(x * 17.0) * 31 + Math.floor(z * 17.0) * 47)
+  return broad * 0.55 + pocket * 0.35 + speckle * 0.10
+}
+
+function grassHeightKeepRatio(groundY) {
+  const t = THREE.MathUtils.smoothstep(groundY, GRASS_HEIGHT_FADE_START_Y, GRASS_HEIGHT_FADE_END_Y)
+  return THREE.MathUtils.lerp(1, GRASS_HEIGHT_MIN_CLUSTER_COVERAGE, t)
+}
+
+function isInsideGrassHeightCluster(x, z, groundY) {
+  const keepRatio = grassHeightKeepRatio(groundY)
+  if (keepRatio >= 0.999) return true
+  const coarse = valueNoise2(x * GRASS_HEIGHT_CLUSTER_SCALE + 71.3, z * GRASS_HEIGHT_CLUSTER_SCALE + 19.7)
+  const secondary = valueNoise2(x * GRASS_HEIGHT_CLUSTER_SCALE * 2.15 + 9.4, z * GRASS_HEIGHT_CLUSTER_SCALE * 2.15 + 83.2)
+  const edge = (secondary - 0.5) * GRASS_HEIGHT_CLUSTER_EDGE_SOFTNESS
+  const cluster = THREE.MathUtils.clamp(coarse * 0.86 + secondary * 0.14 + edge, 0, 1)
+  const threshold = THREE.MathUtils.clamp(1 - Math.sqrt(keepRatio) * 0.55, 0, 0.94)
+  return cluster >= threshold
 }
 
 function createSpawnGrassPlacements() {
@@ -589,7 +1099,7 @@ function isInsideMineCaveClearing(x, z, padding = 0) {
 function shouldSkipModelGrassPlacement(x, z) {
   if (isNearGrassCampfire(x, z, GRASS_CAMPFIRE_CLEAR_RADIUS + MODEL_GRASS_FOOTPRINT_PADDING)) return true
   if (isInsideMineCaveClearing(x, z, MINE_CAVE_MODEL_GRASS_PADDING)) return true
-  return getGroundHeight(x, z) > DISTANT_GRASS_MAX_GROUND_Y
+  return !isInsideGrassHeightCluster(x, z, getGroundHeight(x, z))
 }
 
 function findFirstMesh(root) {
@@ -603,9 +1113,42 @@ function findFirstMesh(root) {
 let _spawnGrassWindUniforms = []
 let _spawnGrassInstancedMeshes = []
 const _spawnGrassDummy = new THREE.Object3D()
-// 距离 LOD 管理的分块草 mesh（河岸/草甸）；每项 userData.grassLod = { hi, lo, cur }
+// 距离 LOD 管理的全局草 mesh group；渲染层不再按空间方块分片。
 let _grassLodMeshes = []
 let _grassLodTimer = 0
+let _meadowGrassRuntime = null
+let _debugGrassDensity = 1
+let _debugModelGrassDisabled = false
+let _debugTreeDensity = 1
+let _debugTreeDensityVersion = 0
+const GRASS_LOD_QUERY_CELL_SIZE = GRASS_LOD_HIDE_DIST // 草 LOD 查询网格边长；通常跟隐藏半径一致，改小会查更多格，改大可能多扫无关记录。
+const GRASS_LOD_VISIBLE_CAPACITY = 18000 // 每个草 mesh 最大可写实例数；调大可显示更密但上传矩阵/GPU 实例更多，调小会提前截断草。
+const MEADOW_GRASS_SCAN_BUDGET_MS = 3.0 // 每帧扫描候选草点预算；调大草会更快进入队列，但移动时 CPU 峰值更高。
+const MEADOW_GRASS_QUEUE_BUDGET_MS = 5.5 // 每帧生成草记录预算；调大铺草更快，但 height/过滤/矩阵准备可能造成掉帧。
+const MEADOW_GRASS_PRELOAD_DIST = 120 // 玩家周围预生成草半径；调大高速移动更不易露空，调小更省内存/CPU。
+const MEADOW_GRASS_NEAR_PRIORITY_DIST = 25 // 脚下优先半径；调大更优先补近处草，远处补草会更慢。
+const MEADOW_GRASS_ENQUEUE_MOVE_DIST = 8 // 玩家移动超过此距离才重排草生成队列；调小更跟手但频繁重扫，调大更省但可能跟不上。
+const GRASS_LOD_PROFILE = false // 草 LOD 详细日志开关；true 会定期输出扫描/队列/矩阵统计，排查后应关掉。
+const GRASS_LOD_PROFILE_REPORT_MS = 3000 // 草 LOD 日志间隔；调小日志更密，调大更安静。
+let _grassLodProfileNextReport = 0
+
+function createMeadowGrassWorkProfile() {
+  return {
+    gridChecks: 0,
+    cacheHits: 0,
+    cacheMisses: 0,
+    xzRejected: 0,
+    enqueued: 0,
+    queuedSkipped: 0,
+    processed: 0,
+    heightSamples: 0,
+    recordsAdded: 0,
+    scanMs: 0,
+    queueMs: 0,
+  }
+}
+
+let _meadowGrassQueueProfile = createMeadowGrassWorkProfile()
 
 // 同一变体的高/低模 geometry 只解析一次；返回 { hi, lo }
 function loadGrassVariantGeometries(variant) {
@@ -619,30 +1162,560 @@ function loadGrassVariantGeometries(variant) {
   })
 }
 
-// 给分块草 mesh 登记 LOD 高/低模，纳入逐帧距离切换
-function registerGrassLodMesh(inst, geometries) {
-  if (!inst || !geometries || !geometries.lo || geometries.lo === geometries.hi) return
-  inst.userData.grassLod = { hi: geometries.hi, lo: geometries.lo, cur: 'hi' }
-  _grassLodMeshes.push(inst)
+function makeGrassLodMesh(name, geometry, material) {
+  const inst = new THREE.InstancedMesh(geometry, material, GRASS_LOD_VISIBLE_CAPACITY)
+  inst.name = name
+  inst.castShadow = false
+  inst.receiveShadow = false
+  inst.frustumCulled = false
+  inst.count = 0
+  inst.visible = false
+  return inst
 }
 
-// 按块中心到玩家水平距离切换 geometry（仅在档位变化时赋值，避免每帧 churn）
-function updateGrassLod(playerPosition) {
-  if (!playerPosition || !_grassLodMeshes.length) return
+function createGrassLodGroup(scene, name, geometries, material) {
+  if (!scene || !geometries?.hi || !material) return null
+  const hiMesh = makeGrassLodMesh(`${name}_hi`, geometries.hi, material)
+  const loMesh = makeGrassLodMesh(`${name}_lo`, geometries.lo ?? geometries.hi, material)
+  const group = {
+    hiMesh,
+    loMesh,
+    records: [],
+    grid: new Map(),
+  }
+  scene.add(hiMesh)
+  scene.add(loMesh)
+  _spawnGrassInstancedMeshes.push(hiMesh, loMesh)
+  _grassLodMeshes.push(group)
+  return group
+}
+
+function grassLodGridKey(cx, cz) {
+  return `${cx}|${cz}`
+}
+
+function addGrassLodRecord(group, record) {
+  if (!group || !record) return
+  group.records.push(record)
+  const cx = Math.floor(record.x / GRASS_LOD_QUERY_CELL_SIZE)
+  const cz = Math.floor(record.z / GRASS_LOD_QUERY_CELL_SIZE)
+  const key = grassLodGridKey(cx, cz)
+  let cell = group.grid.get(key)
+  if (!cell) { cell = []; group.grid.set(key, cell) }
+  cell.push(record)
+}
+
+function appendGrassLodRecords(group, records) {
+  for (let i = 0; i < records.length; i++) addGrassLodRecord(group, records[i])
+}
+
+function grassLodKeepRatio(dist) {
+  if (dist < GRASS_LOD_REDUCE_START_DIST) return 1
+  if (dist >= GRASS_LOD_HIDE_DIST) return 0
+  const sparseT = THREE.MathUtils.smoothstep(dist, GRASS_LOD_REDUCE_START_DIST, GRASS_LOD_SPARSE_DIST)
+  const hideT = THREE.MathUtils.smoothstep(dist, GRASS_LOD_SPARSE_DIST, GRASS_LOD_HIDE_DIST)
+  return THREE.MathUtils.lerp(1, GRASS_LOD_FAR_KEEP_RATIO, sparseT) * (1 - hideT)
+}
+
+function meadowGrassGridKey(gx, gz) {
+  return `${gx}|${gz}`
+}
+
+function readPerfNumber(name, fallback) {
+  if (typeof window === 'undefined') return fallback
+  const params = new URLSearchParams(window.location.search)
+  const raw = params.get(name) ?? window.localStorage?.getItem(name)
+  if (raw == null || raw === '') return fallback
+  const value = Number(raw)
+  return Number.isFinite(value) ? value : fallback
+}
+
+function getDebugGrassGenerationDensity() {
+  return THREE.MathUtils.clamp(readPerfNumber('perfDebugGrassDensity', 1), 0, 2)
+}
+
+function getMeadowGrassSpacing() {
+  const density = getDebugGrassGenerationDensity()
+  return density > 1 ? MEADOW_GRASS_SPACING / Math.sqrt(density) : MEADOW_GRASS_SPACING
+}
+
+function getMeadowGrassCandidate(gx, gz) {
+  const seed = 90000 + gx * 100003 + gz * 4099
+  const spacing = getMeadowGrassSpacing()
+  const jitter = spacing * MEADOW_GRASS_JITTER
+  return {
+    seed,
+    x: (gx + 0.5) * spacing + (forestPlacementNoise(seed + 1) - 0.5) * jitter,
+    z: (gz + 0.5) * spacing + (forestPlacementNoise(seed + 2) - 0.5) * jitter,
+  }
+}
+
+function resetMeadowGrassPendingQueue(runtime) {
+  if (!runtime || runtime.queueIndex >= runtime.queue.length) {
+    if (runtime) {
+      runtime.queue = []
+      runtime.queueIndex = 0
+      runtime.queued.clear()
+    }
+    return
+  }
+  for (let i = runtime.queueIndex; i < runtime.queue.length; i++) {
+    runtime.queued.delete(runtime.queue[i].key)
+  }
+  runtime.queue = []
+  runtime.queueIndex = 0
+}
+
+function updateMeadowGrassMotion(playerPosition, dt = 0, context = null) {
+  const runtime = _meadowGrassRuntime
+  if (!runtime || !playerPosition) return
   const px = playerPosition.x
   const pz = playerPosition.z
+  let fx = Number(context?.grassForward?.x ?? context?.grassForwardX)
+  let fz = Number(context?.grassForward?.z ?? context?.grassForwardZ)
+  let forwardLenSq = Number.isFinite(fx) && Number.isFinite(fz) ? fx * fx + fz * fz : 0
+
+  if (runtime.lastPlayerPos) {
+    const dx = px - runtime.lastPlayerPos.x
+    const dz = pz - runtime.lastPlayerPos.z
+    const moveDistSq = dx * dx + dz * dz
+    if (moveDistSq > 0.01) {
+      fx = dx
+      fz = dz
+      forwardLenSq = moveDistSq
+      runtime.playerSpeed = dt > 0 ? Math.sqrt(moveDistSq) / dt : 0
+    } else {
+      runtime.playerSpeed = 0
+    }
+  }
+
+  if (forwardLenSq > 0.0001) {
+    const invLen = 1 / Math.sqrt(forwardLenSq)
+    runtime.forwardX = fx * invLen
+    runtime.forwardZ = fz * invLen
+  } else if (!Number.isFinite(runtime.forwardX) || !Number.isFinite(runtime.forwardZ)) {
+    runtime.forwardX = 0
+    runtime.forwardZ = -1
+    runtime.playerSpeed = 0
+  }
+  runtime.lastPlayerPos = { x: px, z: pz }
+}
+
+function createMeadowGrassScanJob(px, pz, spacing, radius, forwardX, forwardZ) {
+  return {
+    px,
+    pz,
+    centerGX: Math.floor(px / spacing),
+    centerGZ: Math.floor(pz / spacing),
+    radiusSq: radius * radius,
+    maxRing: Math.ceil(radius / spacing) + 2,
+    ring: 0,
+    ringPoints: null,
+    ringIndex: 0,
+    forwardX: Number.isFinite(forwardX) ? forwardX : 0,
+    forwardZ: Number.isFinite(forwardZ) ? forwardZ : -1,
+  }
+}
+
+function meadowGrassScanPriority(job, gx, gz) {
+  const candidate = getMeadowGrassCandidate(gx, gz)
+  const dx = candidate.x - job.px
+  const dz = candidate.z - job.pz
+  const distSq = dx * dx + dz * dz
+  if (distSq >= job.radiusSq) return null
+  if (distSq <= MEADOW_GRASS_NEAR_PRIORITY_DIST * MEADOW_GRASS_NEAR_PRIORITY_DIST) return distSq
+  const forward = dx * job.forwardX + dz * job.forwardZ
+  const side = Math.abs(dx * job.forwardZ - dz * job.forwardX)
+  return -forward + side * 0.05
+}
+
+function buildMeadowGrassRingPoints(job, ring) {
+  const points = []
+  const push = (dx, dz) => {
+    const gx = job.centerGX + dx
+    const gz = job.centerGZ + dz
+    const score = meadowGrassScanPriority(job, gx, gz)
+    if (score === null) return
+    points.push({ gx, gz, score })
+  }
+
+  if (ring === 0) {
+    push(0, 0)
+  } else {
+    for (let dx = -ring; dx <= ring; dx++) {
+      push(dx, -ring)
+      push(dx, ring)
+    }
+    for (let dz = -ring + 1; dz <= ring - 1; dz++) {
+      push(-ring, dz)
+      push(ring, dz)
+    }
+  }
+  points.sort((a, b) => a.score - b.score)
+  return points
+}
+
+function makeGrassRenderRecord({
+  x, y, z, seed = 0,
+  rotY = forestPlacementNoise(seed + 3) * Math.PI * 2,
+  tiltX = THREE.MathUtils.lerp(-0.16, 0.16, forestPlacementNoise(seed + 7)),
+  tiltZ = THREE.MathUtils.lerp(-0.16, 0.16, forestPlacementNoise(seed + 8)),
+  scaleX = THREE.MathUtils.lerp(1.0, 1.7, forestPlacementNoise(seed + 4)),
+  scaleY = THREE.MathUtils.lerp(0.9, 1.45, forestPlacementNoise(seed + 5)),
+  scaleZ = THREE.MathUtils.lerp(1.0, 1.7, forestPlacementNoise(seed + 6)),
+}) {
+  return {
+    x, y, z, seed, rotY, tiltX, tiltZ,
+    scaleX: scaleX * MODEL_GRASS_SPREAD_XZ,
+    scaleY: scaleY * MODEL_GRASS_FLATTEN_Y,
+    scaleZ: scaleZ * MODEL_GRASS_SPREAD_XZ,
+    clusterRank: grassDistantClusterRank(x, z, seed),
+  }
+}
+
+function createGrassLodProfile() {
+  return {
+    gridChecks: 0,
+    cacheHits: 0,
+    cacheMisses: 0,
+    xzRejected: 0,
+    heightSamples: 0,
+    distanceRejected: 0,
+    keepRejected: 0,
+    clusterRejected: 0,
+    recordsAdded: 0,
+    enqueued: 0,
+    queuedSkipped: 0,
+    queueProcessed: 0,
+    queuePending: 0,
+    scanPending: 0,
+    recordsVisited: 0,
+    recordsDistanceRejected: 0,
+    recordsKeepRejected: 0,
+    recordsClusterRejected: 0,
+    hiCandidates: 0,
+    loCandidates: 0,
+    matrixWrites: 0,
+    generateMs: 0,
+    queueMs: 0,
+    matrixMs: 0,
+    totalMs: 0,
+  }
+}
+
+function logGrassLodProfile(profile) {
+  if (!GRASS_LOD_PROFILE || !profile) return
+  const now = performance.now()
+  if (now < _grassLodProfileNextReport && profile.totalMs < 16) return
+  _grassLodProfileNextReport = now + GRASS_LOD_PROFILE_REPORT_MS
+  console.info(
+    `[grass-profile] total=${profile.totalMs.toFixed(1)}ms `
+    + `generate=${profile.generateMs.toFixed(1)}ms matrix=${profile.matrixMs.toFixed(1)}ms `
+    + `grid=${profile.gridChecks} miss=${profile.cacheMisses} hit=${profile.cacheHits} `
+    + `enq=${profile.enqueued} queuedSkip=${profile.queuedSkipped} queueProcessed=${profile.queueProcessed} queueMs=${profile.queueMs.toFixed(1)}ms pending=${profile.queuePending} scanPending=${profile.scanPending} `
+    + `height=${profile.heightSamples} added=${profile.recordsAdded} `
+    + `records=${profile.recordsVisited} hi=${profile.hiCandidates} lo=${profile.loCandidates} `
+    + `writes=${profile.matrixWrites} reject={xz:${profile.xzRejected},dist:${profile.distanceRejected},keep:${profile.keepRejected},cluster:${profile.clusterRejected},`
+    + `recordDist:${profile.recordsDistanceRejected},recordKeep:${profile.recordsKeepRejected},recordCluster:${profile.recordsClusterRejected}}`
+  )
+}
+
+function enqueueLocalMeadowGrassRecords(playerPosition, profile = null) {
+  const runtime = _meadowGrassRuntime
+  if (!runtime || !playerPosition) return
+  const t0 = profile ? performance.now() : 0
+  const px = playerPosition.x
+  const pz = playerPosition.z
+  if (runtime.lastEnqueue) {
+    const dx = px - runtime.lastEnqueue.x
+    const dz = pz - runtime.lastEnqueue.z
+    if (dx * dx + dz * dz < MEADOW_GRASS_ENQUEUE_MOVE_DIST * MEADOW_GRASS_ENQUEUE_MOVE_DIST) {
+      if (profile) {
+        profile.queuePending = Math.max(0, runtime.queue.length - runtime.queueIndex)
+        profile.scanPending = runtime.scanJob ? 1 : 0
+        profile.generateMs = performance.now() - t0
+      }
+      return
+    }
+  }
+  runtime.lastEnqueue = { x: px, z: pz }
+  const spacing = getMeadowGrassSpacing()
+  resetMeadowGrassPendingQueue(runtime)
+  runtime.scanJob = createMeadowGrassScanJob(
+    px,
+    pz,
+    spacing,
+    MEADOW_GRASS_PRELOAD_DIST,
+    runtime.forwardX,
+    runtime.forwardZ,
+  )
+  if (profile) {
+    profile.queuePending = Math.max(0, runtime.queue.length - runtime.queueIndex)
+    profile.scanPending = 1
+    profile.generateMs = performance.now() - t0
+  }
+}
+
+function processMeadowGrassScanQueue(budgetMs = MEADOW_GRASS_SCAN_BUDGET_MS, profile = null) {
+  const runtime = _meadowGrassRuntime
+  const job = runtime?.scanJob
+  if (!runtime || !job) return
+  const t0 = performance.now()
+  let gridChecks = 0
+  let cacheHits = 0
+  let cacheMisses = 0
+  let xzRejected = 0
+  let enqueued = 0
+  let queuedSkipped = 0
+
+  while (job.ring <= job.maxRing) {
+    if (gridChecks > 0 && performance.now() - t0 >= budgetMs) break
+    if (!job.ringPoints || job.ringIndex >= job.ringPoints.length) {
+      job.ringPoints = buildMeadowGrassRingPoints(job, job.ring)
+      job.ringIndex = 0
+      job.ring++
+      if (!job.ringPoints.length) continue
+    }
+    const item = job.ringPoints[job.ringIndex++]
+    const gx = item.gx
+    const gz = item.gz
+
+    gridChecks++
+    const key = meadowGrassGridKey(gx, gz)
+    if (runtime.cache.has(key)) {
+      cacheHits++
+      continue
+    }
+    if (runtime.queued.has(key)) {
+      queuedSkipped++
+      continue
+    }
+    cacheMisses++
+    const candidate = getMeadowGrassCandidate(gx, gz)
+    const dx = candidate.x - job.px
+    const dz = candidate.z - job.pz
+    const distXZSq = dx * dx + dz * dz
+    if (distXZSq >= job.radiusSq) {
+      xzRejected++
+      continue
+    }
+    runtime.queued.add(key)
+    runtime.queue.push({ key, gx, gz })
+    enqueued++
+  }
+
+  if (job.ring > job.maxRing && (!job.ringPoints || job.ringIndex >= job.ringPoints.length)) runtime.scanJob = null
+
+  const elapsed = performance.now() - t0
+  if (GRASS_LOD_PROFILE) {
+    _meadowGrassQueueProfile.gridChecks += gridChecks
+    _meadowGrassQueueProfile.cacheHits += cacheHits
+    _meadowGrassQueueProfile.cacheMisses += cacheMisses
+    _meadowGrassQueueProfile.xzRejected += xzRejected
+    _meadowGrassQueueProfile.enqueued += enqueued
+    _meadowGrassQueueProfile.queuedSkipped += queuedSkipped
+    _meadowGrassQueueProfile.scanMs += elapsed
+  }
+  if (profile) {
+    profile.gridChecks += gridChecks
+    profile.cacheHits += cacheHits
+    profile.cacheMisses += cacheMisses
+    profile.xzRejected += xzRejected
+    profile.enqueued += enqueued
+    profile.queuedSkipped += queuedSkipped
+    profile.generateMs += elapsed
+    profile.queuePending = Math.max(0, runtime.queue.length - runtime.queueIndex)
+    profile.scanPending = runtime.scanJob ? 1 : 0
+  }
+}
+
+function processMeadowGrassQueue(budgetMs = MEADOW_GRASS_QUEUE_BUDGET_MS, profile = null) {
+  const runtime = _meadowGrassRuntime
+  processMeadowGrassScanQueue(MEADOW_GRASS_SCAN_BUDGET_MS, profile)
+  if (!runtime || !runtime.queue.length) return
+  const t0 = performance.now()
+  let processed = 0
+  let heightSamples = 0
+  let recordsAdded = 0
+
+  while (runtime.queueIndex < runtime.queue.length) {
+    if (processed > 0 && performance.now() - t0 >= budgetMs) break
+    const item = runtime.queue[runtime.queueIndex++]
+    runtime.queued.delete(item.key)
+    if (runtime.cache.has(item.key)) continue
+
+    let record = null
+    const candidate = getMeadowGrassCandidate(item.gx, item.gz)
+    if (!(candidate.x < GRASS_FIELD_BOUNDS.minX || candidate.x > GRASS_FIELD_BOUNDS.maxX || candidate.z < GRASS_FIELD_BOUNDS.minZ || candidate.z > GRASS_FIELD_BOUNDS.maxZ)) {
+      heightSamples++
+      const groundY = getGroundHeight(candidate.x, candidate.z)
+      if (isGlobalModelGrassLand(candidate.x, candidate.z, groundY)) {
+        const freshWeight = THREE.MathUtils.lerp(0.85, 0.4, THREE.MathUtils.smoothstep(groundY, 1, 7.5))
+        const variantIndex = grassClusterVariant(candidate.x, candidate.z, candidate.seed, freshWeight)
+        record = makeGrassRenderRecord({
+          ...candidate,
+          y: groundY + LOCAL_MODEL_GRASS_Y_OFFSET,
+        })
+        addGrassLodRecord(runtime.groups[variantIndex], record)
+        runtime.total++
+        recordsAdded++
+      }
+    }
+    runtime.cache.set(item.key, record)
+    processed++
+  }
+
+  if (runtime.queueIndex > 8192 && runtime.queueIndex * 2 > runtime.queue.length) {
+    runtime.queue = runtime.queue.slice(runtime.queueIndex)
+    runtime.queueIndex = 0
+  }
+
+  const elapsed = performance.now() - t0
+  if (GRASS_LOD_PROFILE) {
+    _meadowGrassQueueProfile.processed += processed
+    _meadowGrassQueueProfile.heightSamples += heightSamples
+    _meadowGrassQueueProfile.recordsAdded += recordsAdded
+    _meadowGrassQueueProfile.queueMs += elapsed
+  }
+  if (profile) {
+    profile.queueProcessed += processed
+    profile.heightSamples += heightSamples
+    profile.recordsAdded += recordsAdded
+    profile.queueMs += elapsed
+    profile.queuePending = Math.max(0, runtime.queue.length - runtime.queueIndex)
+  }
+}
+
+function writeGrassRecordMatrix(inst, index, record) {
+  _spawnGrassDummy.position.set(record.x, record.y, record.z)
+  _spawnGrassDummy.rotation.set(record.tiltX, record.rotY, record.tiltZ)
+  _spawnGrassDummy.scale.set(record.scaleX, record.scaleY, record.scaleZ)
+  _spawnGrassDummy.updateMatrix()
+  inst.setMatrixAt(index, _spawnGrassDummy.matrix)
+}
+
+function applyGrassCandidates(inst, candidates, profile = null) {
+  const t0 = profile ? performance.now() : 0
+  const count = _debugModelGrassDisabled ? 0 : Math.min(candidates.length, GRASS_LOD_VISIBLE_CAPACITY)
+  if (candidates.length > GRASS_LOD_VISIBLE_CAPACITY) {
+    candidates.sort((a, b) => a._lodDistSq - b._lodDistSq)
+  }
+  for (let i = 0; i < count; i++) writeGrassRecordMatrix(inst, i, candidates[i])
+  if (profile) {
+    profile.matrixWrites += count
+    profile.matrixMs += performance.now() - t0
+  }
+  inst.count = count
+  inst.visible = count > 0
+  if (count > 0) inst.instanceMatrix.needsUpdate = true
+}
+
+// 按实例到玩家距离刷新全局草 mesh，避免整块方形区域同步显隐。
+function updateGrassLod(playerPosition) {
+  if (!playerPosition) return
+  if (_debugModelGrassDisabled) {
+    hideAllModelGrass()
+    return
+  }
+  const profile = GRASS_LOD_PROFILE ? createGrassLodProfile() : null
+  const t0 = profile ? performance.now() : 0
+  enqueueLocalMeadowGrassRecords(playerPosition, profile)
+  if (profile) {
+    profile.gridChecks += _meadowGrassQueueProfile.gridChecks
+    profile.cacheHits += _meadowGrassQueueProfile.cacheHits
+    profile.cacheMisses += _meadowGrassQueueProfile.cacheMisses
+    profile.xzRejected += _meadowGrassQueueProfile.xzRejected
+    profile.enqueued += _meadowGrassQueueProfile.enqueued
+    profile.queuedSkipped += _meadowGrassQueueProfile.queuedSkipped
+    profile.queueProcessed += _meadowGrassQueueProfile.processed
+    profile.heightSamples += _meadowGrassQueueProfile.heightSamples
+    profile.recordsAdded += _meadowGrassQueueProfile.recordsAdded
+    profile.generateMs += _meadowGrassQueueProfile.scanMs
+    profile.queueMs += _meadowGrassQueueProfile.queueMs
+    profile.queuePending = Math.max(profile.queuePending, _meadowGrassRuntime ? _meadowGrassRuntime.queue.length - _meadowGrassRuntime.queueIndex : 0)
+    profile.scanPending = _meadowGrassRuntime?.scanJob ? 1 : 0
+    _meadowGrassQueueProfile = createMeadowGrassWorkProfile()
+  }
+  if (!_grassLodMeshes.length) return
+  const px = playerPosition.x
+  const py = playerPosition.y ?? getGroundHeight(px, playerPosition.z)
+  const pz = playerPosition.z
   const nearSq = GRASS_LOD_NEAR_DIST * GRASS_LOD_NEAR_DIST
+  const minCX = Math.floor((px - GRASS_LOD_HIDE_DIST) / GRASS_LOD_QUERY_CELL_SIZE)
+  const maxCX = Math.floor((px + GRASS_LOD_HIDE_DIST) / GRASS_LOD_QUERY_CELL_SIZE)
+  const minCZ = Math.floor((pz - GRASS_LOD_HIDE_DIST) / GRASS_LOD_QUERY_CELL_SIZE)
+  const maxCZ = Math.floor((pz + GRASS_LOD_HIDE_DIST) / GRASS_LOD_QUERY_CELL_SIZE)
+
   for (let i = 0; i < _grassLodMeshes.length; i++) {
-    const inst = _grassLodMeshes[i]
-    const lod = inst.userData.grassLod
-    const c = inst.boundingSphere?.center
-    if (!lod || !c) continue
-    const dx = c.x - px
-    const dz = c.z - pz
-    const want = (dx * dx + dz * dz) < nearSq ? 'hi' : 'lo'
-    if (want !== lod.cur) {
-      inst.geometry = want === 'hi' ? lod.hi : lod.lo
-      lod.cur = want
+    const group = _grassLodMeshes[i]
+    const hiCandidates = []
+    const loCandidates = []
+
+    for (let cx = minCX; cx <= maxCX; cx++) {
+      for (let cz = minCZ; cz <= maxCZ; cz++) {
+        const cell = group.grid.get(grassLodGridKey(cx, cz))
+        if (!cell) continue
+        for (let j = 0; j < cell.length; j++) {
+          const record = cell[j]
+          if (profile) profile.recordsVisited++
+          const dx = record.x - px
+          const dy = record.y - py
+          const dz = record.z - pz
+          const distSq = dx * dx + dy * dy + dz * dz
+          if (distSq >= GRASS_LOD_HIDE_DIST * GRASS_LOD_HIDE_DIST) {
+            if (profile) profile.recordsDistanceRejected++
+            continue
+          }
+          const dist = Math.sqrt(distSq)
+          const keepRatio = grassLodKeepRatio(dist)
+          if (keepRatio <= 0) {
+            if (profile) profile.recordsKeepRejected++
+            continue
+          }
+          if (_debugGrassDensity <= 0 || record.clusterRank < 1 - _debugGrassDensity) {
+            if (profile) profile.recordsClusterRejected++
+            continue
+          }
+          if (keepRatio < 1 && record.clusterRank < 1 - keepRatio) {
+            if (profile) profile.recordsClusterRejected++
+            continue
+          }
+          record._lodDistSq = distSq
+          if (distSq < nearSq) {
+            hiCandidates.push(record)
+            if (profile) profile.hiCandidates++
+          } else {
+            loCandidates.push(record)
+            if (profile) profile.loCandidates++
+          }
+        }
+      }
+    }
+
+    applyGrassCandidates(group.hiMesh, hiCandidates, profile)
+    applyGrassCandidates(group.loMesh, loCandidates, profile)
+  }
+  if (profile) {
+    profile.totalMs = performance.now() - t0
+    logGrassLodProfile(profile)
+  }
+}
+
+function hideAllModelGrass() {
+  for (let i = 0; i < _grassLodMeshes.length; i++) {
+    const group = _grassLodMeshes[i]
+    group.hiMesh.count = 0
+    group.hiMesh.visible = false
+    group.loMesh.count = 0
+    group.loMesh.visible = false
+  }
+  const b = _worldTreeBuild
+  if (!b) return
+  for (const c of b.cellMeshes) {
+    for (const m of c.meshes) {
+      if (m.userData.treeLodRole !== 'grass') continue
+      m.count = 0
+      m.visible = false
     }
   }
 }
@@ -651,27 +1724,31 @@ function configureSpawnGrassMaterial(material) {
   material.side = THREE.DoubleSide
   material.onBeforeCompile = (shader) => {
     shader.uniforms.uTime = { value: 0 }
+    shader.uniforms.uGrassWindEnabled = { value: isPerfFlagEnabled('perfNoGrassWind') ? 0 : 1 }
     _spawnGrassWindUniforms.push(shader.uniforms.uTime)
     shader.vertexShader = shader.vertexShader
       .replace(
         '#include <common>',
         `#include <common>
-uniform float uTime;`
+uniform float uTime;
+uniform float uGrassWindEnabled;`
       )
       .replace(
         '#include <begin_vertex>',
         `#include <begin_vertex>
 #ifdef USE_INSTANCING
-float grassHeightMask = smoothstep(0.08, 0.82, position.y);
-float grassPhase = instanceMatrix[3].x * 1.37 + instanceMatrix[3].z * 2.11;
-float grassWave = sin(uTime * 1.25 + grassPhase + position.y * 3.4) * 0.028;
-grassWave += sin(uTime * 2.05 + grassPhase * 1.7 + position.y * 5.1) * 0.012;
-transformed.x += grassWave * grassHeightMask;
-transformed.z += cos(uTime * 1.1 + grassPhase * 1.3 + position.y * 2.8) * 0.018 * grassHeightMask;
+if (uGrassWindEnabled > 0.5) {
+  float grassHeightMask = smoothstep(0.08, 0.82, position.y);
+  float grassPhase = instanceMatrix[3].x * 1.37 + instanceMatrix[3].z * 2.11;
+  float grassWave = sin(uTime * 1.25 + grassPhase + position.y * 3.4) * 0.028;
+  grassWave += sin(uTime * 2.05 + grassPhase * 1.7 + position.y * 5.1) * 0.012;
+  transformed.x += grassWave * grassHeightMask;
+  transformed.z += cos(uTime * 1.1 + grassPhase * 1.3 + position.y * 2.8) * 0.018 * grassHeightMask;
+}
 #endif`
       )
   }
-  material.customProgramCacheKey = () => 'spawn-grass-wind-v1'
+  material.customProgramCacheKey = () => 'spawn-grass-wind-toggle-v1'
   material.needsUpdate = true
   return material
 }
@@ -712,13 +1789,54 @@ function shouldSkipGroundDebrisPlacement(x, z) {
   return false
 }
 
-// 草甸专用排除：复用碎屑层的清场项，但不含 7.5m 高度门（高度由 MEADOW_GRASS_MAX_GROUND_Y 单独管，以铺满丘陵山坡）
-function shouldSkipMeadowGrassPlacement(x, z) {
+function shouldSkipGlobalModelGrassPlacement(x, z, groundY = getGroundHeight(x, z)) {
   if (!isInsideOutdoorMountainBounds(x, z, 0)) return true
   if (isNearGrassCampfire(x, z, GRASS_CAMPFIRE_CLEAR_RADIUS + GROUND_DEBRIS_CLEAR_PADDING)) return true
-  if (isInsideMineCaveClearing(x, z, MINE_CAVE_CARD_GRASS_PADDING + GROUND_DEBRIS_CLEAR_PADDING)) return true
-  if (isInsideCastleApproachClearing(x, z)) return true
+  if (!isInsideGrassHeightCluster(x, z, groundY)) return true
   return false
+}
+
+function isGlobalModelGrassWaterSurface(x, z, groundY) {
+  const channel = sampleChannelNetwork(x, z)
+  if (channel && channel.distance <= channel.halfWidth) {
+    const waterY = channelNetworkWaterYAt(x, z, getGroundHeight)
+    if (waterY !== null && waterY > groundY + 0.025) return true
+  }
+
+  const { weight: poolW, pool } = confluencePoolWeightAt(x, z)
+  if (poolW > 0 && confluencePoolSurfaceY(pool) > groundY + 0.025) return true
+
+  const lake = sampleNewlandStaticLake(x, z, getGroundHeight)
+  return Boolean(lake?.inWater)
+}
+
+function isInsideRiverSteepBank(sample, run) {
+  if (!sample) return false
+  return sample.distance > sample.halfWidth
+    && sample.distance <= sample.halfWidth + run + RIVERSIDE_GRASS_SLOPE_MARGIN
+}
+
+function isGlobalModelGrassRiverBank(x, z) {
+  const main = getRiverSampleAt(x, z)
+  if (isInsideRiverSteepBank(main, Math.max(0.35, channelBankRun(MAIN_RIVER_CHANNEL_CUT, MAIN_RIVER_CHANNEL_SLOPE_DEG)))) return true
+
+  const branch = getBestBranchSampleAt(x, z)
+  if (isInsideRiverSteepBank(branch, Math.max(0.35, channelBankRun(RIVER_CHANNEL_MIN_CUT, RIVER_CHANNEL_MIN_SLOPE_DEG)))) return true
+
+  const gully = getBestWetGullyStreamSampleAt(x, z)
+  if (isInsideRiverSteepBank(gully, Math.max(0.35, channelBankRun(RIVER_CHANNEL_MIN_CUT, RIVER_CHANNEL_MIN_SLOPE_DEG)))) return true
+
+  const braided = getBestNewlandBraidedSampleAt(x, z)
+  const braidedRun = braided
+    ? Math.max(0.35, channelBankRun(braided.channel.cutDepth, NEWLAND_BRAIDED_SLOPE_DEG))
+    : 0
+  return isInsideRiverSteepBank(braided, braidedRun)
+}
+
+function isGlobalModelGrassLand(x, z, groundY = getGroundHeight(x, z)) {
+  if (shouldSkipGlobalModelGrassPlacement(x, z, groundY)) return false
+  if (isGlobalModelGrassRiverBank(x, z)) return false
+  return !isGlobalModelGrassWaterSurface(x, z, groundY)
 }
 
 function createIndividualLeafMaterial(textureUrl) {
@@ -827,6 +1945,7 @@ const CURVED_CLIFF_RIDGES = [
     points: createCurvedCliffRidgePoints(SOUTH_CURVED_CLIFF_CONTROL_POINTS, 1.7),
   },
 ]
+// 弯曲峭壁山脊；name 只用于识别，points 由控制点生成，[x,z,width,height] 控制峭壁体量。
 
 function isInsideOutdoorMountainBounds(x, z, padding = 0) {
   return x >= OUTDOOR_MOUNTAIN_BOUNDS.minX - padding
@@ -877,6 +1996,25 @@ function attachForestOrigin(placements, origin) {
   return placements.map((placement) => ({ ...placement, origin }))
 }
 
+function pickModelTreeType(types, seed, fallbackIndex) {
+  if (!types.length) return null
+  const fallback = types[((fallbackIndex % types.length) + types.length) % types.length]
+  const green = types.filter((type) => MODEL_TREE_GREEN_FILE_SET.has(type.file))
+  const yellow = types.filter((type) => MODEL_TREE_YELLOW_FILE_SET.has(type.file))
+  if (!green.length && !yellow.length) return fallback
+
+  const useYellow = yellow.length && (!green.length || forestPlacementNoise(seed) < MODEL_TREE_YELLOW_RATIO)
+  const pool = useYellow ? yellow : (green.length ? green : yellow)
+  const index = Math.floor(forestPlacementNoise(seed + 1) * pool.length) % pool.length
+  return pool[index] || fallback
+}
+
+function pickModelTreeIndex(types, seed, fallbackIndex) {
+  const type = pickModelTreeType(types, seed, fallbackIndex)
+  const index = types.indexOf(type)
+  return index >= 0 ? index : 0
+}
+
 function isInForestCastleGateClearing(placement) {
   const isTallPlant = placement.file.startsWith('tree_') || placement.file.startsWith('background_tree_')
   if (!isTallPlant) return false
@@ -901,7 +2039,7 @@ function createForestPlacementsForTypes(types, count, {
   const placements = []
   const goldenAngle = Math.PI * (3 - Math.sqrt(5))
   for (let i = 0; i < count; i++) {
-    const type = types[i % types.length]
+    const type = pickModelTreeType(types, seedOffset + i * 3 + 20, i)
     const ringT = (i + 0.5) / count
     const radius = THREE.MathUtils.lerp(radiusMin, radiusMax, Math.sqrt(ringT))
       + (forestPlacementNoise(seedOffset + i * 3 + 1) - 0.5) * 1.4
@@ -943,7 +2081,7 @@ function createForestLanePlacementsForTypes(types, count, {
   const placements = []
   const goldenT = 0.61803398875
   for (let i = 0; i < count; i++) {
-    const type = types[i % types.length]
+    const type = pickModelTreeType(types, seedOffset + i * 5 + 20, i)
     const tNoise = forestPlacementNoise(seedOffset + i * 5 + 1)
     const alongT = minAlong + ((i * goldenT + tNoise * 0.18) % 1) * (maxAlong - minAlong)
     const side = sideBias || (forestPlacementNoise(seedOffset + i * 5 + 2) > 0.5 ? 1 : -1)
@@ -985,7 +2123,7 @@ function createForestSegmentPlacementsForTypes(types, count, {
 } = {}) {
   const placements = []
   for (let i = 0; i < count; i++) {
-    const type = types[i % types.length]
+    const type = pickModelTreeType(types, seedOffset + i * 5 + 20, i)
     const lineT = count === 1 ? 0.5 : i / (count - 1)
     const stagger = i % 2 === 0 ? 1 : -1
     const along = lineT * length + (forestPlacementNoise(seedOffset + i * 5 + 1) - 0.5) * forwardJitter
@@ -1073,7 +2211,7 @@ function createRandomForestTreePlacements(existingPlacements) {
     if (isTooCloseToForestPlacement(existingPlacements, x, z, RANDOM_FOREST_TREE_MIN_SPACING)) continue
     if (isTooCloseToForestPlacement(placements, x, z, RANDOM_FOREST_TREE_MIN_SPACING)) continue
 
-    const type = FOREST_GROVE_TREE_TYPES[attempt % FOREST_GROVE_TREE_TYPES.length]
+    const type = pickModelTreeType(FOREST_GROVE_TREE_TYPES, seed + 12, attempt)
     const scaleNoise = 1 + (forestPlacementNoise(seed + 3) - 0.5) * 0.28
     placements.push({
       file: type.file,
@@ -1134,7 +2272,7 @@ function createRiverForestPlacementsForTypes(types, count, {
   const placements = []
   const goldenT = 0.61803398875
   for (let i = 0; i < count; i++) {
-    const type = types[i % types.length]
+    const type = pickModelTreeType(types, seedOffset + i * 7 + 20, i)
     const t = minT + ((i * goldenT + forestPlacementNoise(seedOffset + i * 7 + 1) * 0.16) % 1) * (maxT - minT)
     const sample = getHeroRiverPointAtT(t)
     const side = forestPlacementNoise(seedOffset + i * 7 + 2) > 0.5 ? 1 : -1
@@ -1186,6 +2324,89 @@ function createRiverForestPlacements() {
       seedOffset: 5700,
     }),
   ]
+}
+
+function createNewlandBraidedRiverForestPlacements() {
+  const placements = []
+
+  const pushPlacement = (placement, minSpacing) => {
+    if (isInsideNewlandStaticLakeClearance(placement.dx, placement.dz)) return
+    const best = getBestNewlandBraidedSampleAt(placement.dx, placement.dz)
+    if (best && best.edge < 7) return
+    if (isTooCloseToForestPlacement(placements, placement.dx, placement.dz, minSpacing)) return
+    placements.push(placement)
+  }
+
+  NEWLAND_BRAIDED_CHANNELS.forEach((channel, channelIndex) => {
+    const total = riverPathTotalLength(channel.points)
+    const stationCount = Math.max(3, Math.round(total / 30))
+    const run = Math.max(0.35, channelBankRun(channel.cutDepth, NEWLAND_BRAIDED_SLOPE_DEG))
+
+    for (let i = 0; i <= stationCount; i++) {
+      const t = stationCount === 0 ? 0.5 : i / stationCount
+      const sample = pointAlongPathAtT(channel.points, t)
+      const halfWidth = newlandBraidedHalfWidthAt(channel, t)
+      const rightX = -sample.dirZ
+      const rightZ = sample.dirX
+
+      for (const side of [-1, 1]) {
+        const seed = 82000 + channelIndex * 3007 + i * 97 + (side > 0 ? 41 : 0)
+        const sideDistance = halfWidth + run + THREE.MathUtils.lerp(10, 34, forestPlacementNoise(seed + 1))
+        const along = (forestPlacementNoise(seed + 2) - 0.5) * 12
+        const x = sample.x + sample.dirX * along + rightX * side * sideDistance
+        const z = sample.z + sample.dirZ * along + rightZ * side * sideDistance
+        const rotY = forestPlacementNoise(seed + 3) * Math.PI * 2
+
+        if (forestPlacementNoise(seed + 4) < 0.72) {
+          const type = pickModelTreeType(FOREST_GROVE_TREE_TYPES, seed + 14, channelIndex + i + (side > 0 ? 1 : 0))
+          const scaleNoise = THREE.MathUtils.lerp(0.82, 1.18, forestPlacementNoise(seed + 5))
+          pushPlacement({
+            file: type.file,
+            origin: { x: 0, z: 0 },
+            dx: Number(x.toFixed(2)),
+            dz: Number(z.toFixed(2)),
+            rotY: Number(rotY.toFixed(3)),
+            scale: Number((type.scale * scaleNoise).toFixed(3)),
+            r: Number((type.r * scaleNoise * FOREST_TREE_COLLIDER_SCALE).toFixed(2)),
+          }, 11)
+        }
+
+        if (forestPlacementNoise(seed + 6) < 0.62) {
+          const type = FOREST_GROVE_SHRUB_TYPES[(channelIndex + i + 2) % FOREST_GROVE_SHRUB_TYPES.length]
+          const shrubSide = sideDistance - THREE.MathUtils.lerp(3, 10, forestPlacementNoise(seed + 7))
+          const sx = sample.x + sample.dirX * (along * 0.65) + rightX * side * shrubSide
+          const sz = sample.z + sample.dirZ * (along * 0.65) + rightZ * side * shrubSide
+          pushPlacement({
+            file: type.file,
+            origin: { x: 0, z: 0 },
+            dx: Number(sx.toFixed(2)),
+            dz: Number(sz.toFixed(2)),
+            rotY: Number((forestPlacementNoise(seed + 8) * Math.PI * 2).toFixed(3)),
+            scale: Number((type.scale * THREE.MathUtils.lerp(0.78, 1.14, forestPlacementNoise(seed + 9))).toFixed(3)),
+          }, 8)
+        }
+
+        if (forestPlacementNoise(seed + 10) < 0.16) {
+          const type = FOREST_GROVE_ROCK_TYPES[(channelIndex + i) % FOREST_GROVE_ROCK_TYPES.length]
+          const rockSide = halfWidth + run + THREE.MathUtils.lerp(4, 13, forestPlacementNoise(seed + 11))
+          const rx = sample.x + sample.dirX * (along * 0.45) + rightX * side * rockSide
+          const rz = sample.z + sample.dirZ * (along * 0.45) + rightZ * side * rockSide
+          const scaleNoise = THREE.MathUtils.lerp(0.78, 1.2, forestPlacementNoise(seed + 12))
+          pushPlacement({
+            file: type.file,
+            origin: { x: 0, z: 0 },
+            dx: Number(rx.toFixed(2)),
+            dz: Number(rz.toFixed(2)),
+            rotY: Number((forestPlacementNoise(seed + 13) * Math.PI * 2).toFixed(3)),
+            scale: Number((type.scale * scaleNoise).toFixed(3)),
+            r: Number((type.r * scaleNoise * FOREST_ROCK_COLLIDER_SCALE).toFixed(2)),
+          }, 7)
+        }
+      }
+    }
+  })
+
+  return placements
 }
 
 function createForestGrovePlacements() {
@@ -1360,6 +2581,7 @@ function createForestGrovePlacements() {
     { x: 0, z: 0 },
   )
   const riverForestPlacements = createRiverForestPlacements()
+  const newlandBraidedRiverForestPlacements = createNewlandBraidedRiverForestPlacements()
 
   const existingPlacements = [
     ...castleLanePlacements,
@@ -1369,6 +2591,7 @@ function createForestGrovePlacements() {
     ...northGrovePlacements,
     ...castleNorthHighlandPlacements,
     ...riverForestPlacements,
+    ...newlandBraidedRiverForestPlacements,
   ]
   const randomTreePlacements = createRandomForestTreePlacements(existingPlacements)
 
@@ -1410,8 +2633,13 @@ function createRockeryMaterial({ dark = false } = {}) {
 }
 
 function createSnowMountainCliffMaterial() {
+  const rockMap = _roadTextureLoader.load(MOUNTAIN_ROCK_TEXTURE_URL)
+  rockMap.wrapS = rockMap.wrapT = THREE.RepeatWrapping
+  rockMap.anisotropy = 8
+  rockMap.colorSpace = THREE.SRGBColorSpace
   const material = new THREE.MeshStandardMaterial({
     color: 0x9ca2a2,
+    map: rockMap,
     roughness: 1,
     metalness: 0,
     flatShading: true,
@@ -1451,21 +2679,26 @@ function createSnowMountainCliffMaterial() {
       float slope = 1.0 - clamp(dot(normalize(vSnowWorldNormal), vec3(0.0, 1.0, 0.0)), 0.0, 1.0);
       float broad = snowCliffNoise(vSnowWorldPos.xz * 0.018 + vec2(4.1, 8.7));
       float fine = snowCliffNoise(vSnowWorldPos.xz * 0.17 + vec2(2.9, 13.4));
-      vec3 coldRock = mix(vec3(0.42, 0.45, 0.47), vec3(0.62, 0.65, 0.66), broad);
+      vec3 cliffTex = texture2D(map, vSnowWorldPos.xy * vec2(0.030, 0.018)).rgb;
+      vec3 cliffTexSide = texture2D(map, vSnowWorldPos.zy * vec2(0.030, 0.018) + vec2(0.23, 0.11)).rgb;
+      float xFacing = abs(normalize(vSnowWorldNormal).x);
+      cliffTex = mix(cliffTex, cliffTexSide, xFacing);
+      vec3 coldRock = mix(vec3(0.42, 0.45, 0.47), cliffTex * vec3(0.88, 0.93, 0.98), 0.78);
+      coldRock = mix(coldRock, vec3(0.62, 0.65, 0.66), broad * 0.20);
       coldRock = mix(coldRock, vec3(0.30, 0.35, 0.39), smoothstep(0.40, 0.92, slope) * 0.45);
       coldRock *= vec3(0.84, 0.92, 1.0) * (0.92 + fine * 0.10);
-      float settledSnow = smoothstep(42.0, 116.0, vSnowWorldPos.y) * (1.0 - smoothstep(0.18, 0.66, slope));
+      float settledSnow = smoothstep(42.0, 116.0, vSnowWorldPos.y) * (1.0 - smoothstep(0.14, 0.56, slope));
       float streakSnow = smoothstep(64.0, 148.0, vSnowWorldPos.y)
         * smoothstep(0.48, 0.82, broad + fine * 0.20)
-        * (1.0 - smoothstep(0.78, 1.0, slope));
-      float summitSnow = smoothstep(118.0, 174.0, vSnowWorldPos.y) * 0.90;
+        * (1.0 - smoothstep(0.54, 0.86, slope));
+      float summitSnow = smoothstep(128.0, 184.0, vSnowWorldPos.y) * 0.86;
       float snow = clamp(max(settledSnow, streakSnow) + summitSnow, 0.0, 1.0);
       vec3 snowColor = vec3(0.92, 0.96, 0.98) * (0.96 + fine * 0.06);
       diffuseColor *= vec4(mix(coldRock, snowColor, snow), 1.0);
       `
     )
   }
-  material.customProgramCacheKey = () => 'snow-mountain-cliff-v1'
+  material.customProgramCacheKey = () => 'snow-mountain-cliff-v2'
   return material
 }
 
@@ -1595,25 +2828,94 @@ const _treeGradeUniforms = {
 }
 
 const VEGETATION_NAME_RE = /(tree|branch|leaf|leaves|background)/i
+const FOREST_PACK_TREE_RE = /^(tree_|background_tree_)/i
+const FOREST_PACK_LEAF_RE = /(leaf|leaves|crown|background)/i
+// 以上命名规则用于识别植被/树包/树叶 mesh；放宽会影响更多材质，收紧可能漏掉树叶 LOD。
+const _forestPackLeafFadeTargets = []
+
+function getForestPackTreeLeafKeep(dist) {
+  const t = THREE.MathUtils.smoothstep(dist, WORLD_TREE_LEAF_FULL_DIST, WORLD_TREE_LEAF_SPARSE_DIST)
+  return THREE.MathUtils.lerp(1, WORLD_TREE_LEAF_MIN_KEEP, t)
+}
+
+function setForestPackLeafKeep(material, keep) {
+  const uniform = material?.userData?.__treeLeafKeepUniform
+  if (uniform) uniform.value = keep
+}
+
+function getWorldTreeInstanceCount(fullCount, dist) {
+  if (dist < WORLD_TREE_INSTANCE_FULL_DIST) return fullCount
+  return Math.max(1, Math.ceil(fullCount * WORLD_TREE_INSTANCE_FAR_KEEP))
+}
+
+function worldTreeInstanceRank(seed) {
+  return forestPlacementNoise(seed + 97)
+}
+
+function resetTreeMaterialRuntimeData(material) {
+  if (!material?.userData) return
+  delete material.userData.__treeGraded
+  delete material.userData.__treeLeafKeepUniform
+  delete material.userData.__treeLeafFadeEnabledUniform
+}
 
 // 给单个树材质注入调色片元钩子（贴图采样后做 色相旋转→饱和度→明度）。幂等。
-function applyTreeColorGrade(material) {
-  if (!material || material.userData?.__treeGraded) return
+function applyTreeColorGrade(material, { leafFade = false } = {}) {
+  if (!material) return
   material.userData = material.userData || {}
+  if (material.userData.__treeGraded) {
+    const enabled = material.userData.__treeLeafFadeEnabledUniform
+    if (leafFade && enabled) enabled.value = 1
+    return
+  }
   material.userData.__treeGraded = true
+  material.userData.__treeLeafKeepUniform = { value: 1 }
+  material.userData.__treeLeafFadeEnabledUniform = { value: leafFade ? 1 : 0 }
   const prevOnBeforeCompile = material.onBeforeCompile
   material.onBeforeCompile = (shader, renderer) => {
     if (typeof prevOnBeforeCompile === 'function') prevOnBeforeCompile(shader, renderer)
     shader.uniforms.uTreeSat = _treeGradeUniforms.uTreeSat
     shader.uniforms.uTreeBright = _treeGradeUniforms.uTreeBright
     shader.uniforms.uTreeHue = _treeGradeUniforms.uTreeHue
+    shader.uniforms.uTreeLeafKeep = material.userData.__treeLeafKeepUniform
+    shader.uniforms.uTreeLeafFadeEnabled = material.userData.__treeLeafFadeEnabledUniform
+    shader.vertexShader = `
+      varying vec3 vTreeWorldPosition;
+    ` + shader.vertexShader.replace(
+      '#include <project_vertex>',
+      `#include <project_vertex>
+      {
+        vec4 treeWorldPosition = vec4(transformed, 1.0);
+        #ifdef USE_BATCHING
+          treeWorldPosition = batchingMatrix * treeWorldPosition;
+        #endif
+        #ifdef USE_INSTANCING
+          treeWorldPosition = instanceMatrix * treeWorldPosition;
+        #endif
+        treeWorldPosition = modelMatrix * treeWorldPosition;
+        vTreeWorldPosition = treeWorldPosition.xyz;
+      }
+      `
+    )
     shader.fragmentShader = `
       uniform float uTreeSat;
       uniform float uTreeBright;
       uniform float uTreeHue;
+      uniform float uTreeLeafKeep;
+      uniform float uTreeLeafFadeEnabled;
+      varying vec3 vTreeWorldPosition;
+      float treeLeafHash(vec3 p) {
+        p = fract(p * 0.3183099 + vec3(0.13, 0.37, 0.61));
+        p *= 17.0;
+        return fract(p.x * p.y * p.z * (p.x + p.y + p.z));
+      }
     ` + shader.fragmentShader.replace(
       '#include <map_fragment>',
       `#include <map_fragment>
+      if (uTreeLeafFadeEnabled > 0.5 && uTreeLeafKeep < 0.995) {
+        vec3 leafCell = floor(vTreeWorldPosition * vec3(2.7, 1.9, 2.7));
+        if (treeLeafHash(leafCell) > max(uTreeLeafKeep, 0.9)) discard;
+      }
       {
         // 色相旋转（YIQ 空间，便宜）
         float ch = cos(uTreeHue);
@@ -1640,7 +2942,7 @@ function applyTreeColorGrade(material) {
       `
     )
   }
-  material.customProgramCacheKey = () => 'tree-color-grade-v1'
+  material.customProgramCacheKey = () => 'tree-color-grade-leaf-fade-v1'
   material.needsUpdate = true
 }
 
@@ -1653,6 +2955,67 @@ export function setTreeColorGrade({ saturation, brightness, hueShift } = {}) {
     saturation: _treeGradeUniforms.uTreeSat.value,
     brightness: _treeGradeUniforms.uTreeBright.value,
     hueShift: _treeGradeUniforms.uTreeHue.value,
+  }
+}
+
+function materialNameList(material) {
+  if (Array.isArray(material)) return material.map((mat) => mat?.name ?? '').join(' ')
+  return material?.name ?? ''
+}
+
+function cloneForestPackLeafFadeMaterials(mesh) {
+  const sourceMaterials = Array.isArray(mesh.material) ? mesh.material : [mesh.material]
+  const nextMaterials = sourceMaterials.map((mat) => {
+    if (!mat) return mat
+    const next = mat.clone()
+    resetTreeMaterialRuntimeData(next)
+    configureVegetationAlphaCutout(next)
+    applyTreeColorGrade(next, { leafFade: true })
+    return next
+  })
+  mesh.material = Array.isArray(mesh.material) ? nextMaterials : nextMaterials[0]
+  return nextMaterials.filter(Boolean)
+}
+
+function enableForestPackTreeLeafFade(root) {
+  root.updateMatrixWorld(true)
+  const entries = []
+  root.traverse((child) => {
+    if (!child.isMesh || !child.geometry) return
+    const box = new THREE.Box3().setFromObject(child)
+    if (box.isEmpty()) return
+    entries.push({
+      mesh: child,
+      top: box.max.y,
+      name: `${child.name ?? ''} ${materialNameList(child.material)}`,
+    })
+  })
+  if (!entries.length) return []
+  const maxTop = Math.max(...entries.map((entry) => entry.top))
+  const targets = []
+  for (const entry of entries) {
+    if (!FOREST_PACK_LEAF_RE.test(entry.name) && entry.top < maxTop - 0.05) continue
+    targets.push(...cloneForestPackLeafFadeMaterials(entry.mesh))
+  }
+  return targets
+}
+
+function updateForestPackLeafFadeTargets(playerPosition) {
+  if (!playerPosition) return
+  const px = playerPosition.x
+  const pz = playerPosition.z
+  for (let i = _forestPackLeafFadeTargets.length - 1; i >= 0; i--) {
+    const target = _forestPackLeafFadeTargets[i]
+    if (!target.group.parent) {
+      _forestPackLeafFadeTargets.splice(i, 1)
+      continue
+    }
+    const dx = target.group.position.x - px
+    const dz = target.group.position.z - pz
+    const keep = getForestPackTreeLeafKeep(Math.sqrt(dx * dx + dz * dz))
+    if (Math.abs(keep - target.keep) < 0.015) continue
+    target.keep = keep
+    target.materials.forEach((mat) => setForestPackLeafKeep(mat, keep))
   }
 }
 
@@ -1749,12 +3112,15 @@ function loadForestGrove(scene, collidables) {
       group.position.set(x, 0, z)
       group.rotation.y = placement.rotY ?? 0
       // 树/灌木加高（岩石 rock_* 保持原尺寸）
-      const heightBoost = /^(tree_|background_tree_)/i.test(placement.file) ? FOREST_GROVE_HEIGHT_BOOST : 1
+      const isForestPackTree = FOREST_PACK_TREE_RE.test(placement.file)
+      const heightBoost = isForestPackTree ? FOREST_GROVE_HEIGHT_BOOST : 1
       group.scale.setScalar((placement.scale ?? 1) * heightBoost)
+      const leafFadeMaterials = isForestPackTree ? enableForestPackTreeLeafFade(root) : []
       configureStaticGltfModel(root, { castShadows: false, receiveShadows: true, cheapMaterials: false })
       group.add(root)
       scene.add(group)
       snapObjectToGround(group)
+      if (leafFadeMaterials.length) _forestPackLeafFadeTargets.push({ group, materials: leafFadeMaterials, keep: 1 })
       registerForestPackLabelTarget(group, placement.file)
     }).catch((error) => {
       console.warn(`Forest grove asset failed: ${placement.file}`, error)
@@ -2088,6 +3454,8 @@ function loadSpawnGrass(scene) {
   _spawnGrassWindUniforms = []
   _spawnGrassInstancedMeshes = []
   _grassLodMeshes = []
+  _meadowGrassRuntime = null
+  _meadowGrassQueueProfile = createMeadowGrassWorkProfile()
   Promise.all(SPAWN_GRASS_MODEL_VARIANTS.map((variant, variantIndex) => (
     loadGLTF(variant.url).then((gltf) => ({ variant, variantIndex, gltf }))
   ))).then((loadedVariants) => {
@@ -2175,7 +3543,6 @@ function chooseRiparianVariant(seed, freshWeight) {
 
 // 通过排除区/淹没/陡坡检查后，生成一条草的 placement（与 spawn grass 同格式）
 function emitRiparianGrass(placements, counters, x, z, waterY, seed, freshWeight) {
-  if (placements.length >= RIVERSIDE_GRASS_MAX_INSTANCES) { counters.dropped++; return }
   if (shouldSkipModelGrassPlacement(x, z)) return
   const groundY = getGroundHeight(x, z)
   if (groundY <= waterY + 0.04) return  // 在水面或水下 → 不种
@@ -2193,6 +3560,7 @@ function emitRiparianGrass(placements, counters, x, z, waterY, seed, freshWeight
     tiltX: Number(THREE.MathUtils.lerp(-0.16, 0.16, forestPlacementNoise(seed + 7)).toFixed(3)),
     tiltZ: Number(THREE.MathUtils.lerp(-0.16, 0.16, forestPlacementNoise(seed + 8)).toFixed(3)),
     variantIndex: grassClusterVariant(x, z, seed, freshWeight),
+    seed,
   })
   counters.kept++
 }
@@ -2273,26 +3641,23 @@ function buildRiparianChannelSpecs() {
 
 function createRiversideGrassPlacements() {
   const placements = []
-  const counters = { kept: 0, dropped: 0 }
+  const counters = { kept: 0 }
   for (const spec of buildRiparianChannelSpecs()) {
     appendRiparianGrassForChannel(spec, placements, counters)
   }
-  return { placements, dropped: counters.dropped }
+  return { placements }
 }
 
 function loadRiversideGrass(scene) {
-  const { placements, dropped } = createRiversideGrassPlacements()
+  const { placements } = createRiversideGrassPlacements()
   if (!placements.length) return
 
-  // 按空间网格 + 变体分块，使离屏河段可被视锥剔除
-  const groups = new Map()
+  const byVariant = SPAWN_GRASS_MODEL_VARIANTS.map(() => [])
   for (const p of placements) {
-    const cx = Math.floor(p.x / RIVERSIDE_GRASS_CHUNK_LEN)
-    const cz = Math.floor(p.z / RIVERSIDE_GRASS_CHUNK_LEN)
-    const key = `${cx}|${cz}|${p.variantIndex}`
-    let arr = groups.get(key)
-    if (!arr) { arr = []; groups.set(key, arr) }
-    arr.push(p)
+    byVariant[p.variantIndex]?.push(makeGrassRenderRecord({
+      ...p,
+      y: getGroundHeight(p.x, p.z) + LOCAL_MODEL_GRASS_Y_OFFSET,
+    }))
   }
 
   Promise.all(SPAWN_GRASS_MODEL_VARIANTS.map((variant, variantIndex) => (
@@ -2308,41 +3673,19 @@ function loadRiversideGrass(scene) {
       return { variant, variantIndex, geom, material }
     })
 
-    groups.forEach((arr, key) => {
-      const variantIndex = Number(key.split('|')[2])
+    byVariant.forEach((arr, variantIndex) => {
       const v = perVariant[variantIndex]
       if (!v || !v.geom.hi || !v.material) return
-      const inst = new THREE.InstancedMesh(v.geom.hi, v.material, arr.length)
-      inst.name = `riverside_grass_${v.variant.name}_${key}`
-      inst.castShadow = false
-      inst.receiveShadow = false
-      inst.frustumCulled = true
-      arr.forEach((p, index) => {
-        _spawnGrassDummy.position.set(p.x, getGroundHeight(p.x, p.z) + LOCAL_MODEL_GRASS_Y_OFFSET, p.z)
-        _spawnGrassDummy.rotation.set(p.tiltX, p.rotY, p.tiltZ)
-        _spawnGrassDummy.scale.set(p.scaleX * MODEL_GRASS_SPREAD_XZ, p.scaleY * MODEL_GRASS_FLATTEN_Y, p.scaleZ * MODEL_GRASS_SPREAD_XZ)
-        _spawnGrassDummy.updateMatrix()
-        inst.setMatrixAt(index, _spawnGrassDummy.matrix)
-      })
-      inst.instanceMatrix.needsUpdate = true
-      inst.computeBoundingBox()
-      inst.computeBoundingSphere()
-      _spawnGrassInstancedMeshes.push(inst)
-      registerGrassLodMesh(inst, v.geom)
-      scene.add(inst)
+      const group = createGrassLodGroup(scene, `riverside_grass_${v.variant.name}`, v.geom, v.material)
+      appendGrassLodRecords(group, arr)
     })
-    console.log(`[riverside-grass] placed ${placements.length} clumps across ${groups.size} chunks` + (dropped ? `, dropped ${dropped} over cap` : ''))
+    console.log(`[riverside-grass] placed ${placements.length} clumps in global LOD meshes`)
   }).catch((error) => {
     console.warn('Riverside grass asset failed', error)
   })
 }
 
-// ---- 全场草甸草（Meadow grass）：铺满低谷地面（≤7.5m），河岸层在 ~16m 处接手 ----
-// 为避免一次性同步生成造成启动卡顿（全场 getGroundHeight 全管线极贵），改为跨帧增量构建：
-// 地图即时加载，草甸按 64m 块由出生区向外逐帧填充（每帧 ~5ms 预算），整块高地廉价跳过。
-let _meadowBuild = null
-const MEADOW_BUILD_MS_PER_FRAME = 6
-
+// ---- 玩家周围全局模型草：只为近距离 3D 草建立缓存，远处由地表材质承接 ----
 function initMeadowGrass(scene) {
   Promise.all(SPAWN_GRASS_MODEL_VARIANTS.map((variant, variantIndex) => (
     loadGrassVariantGeometries(variant).then((geom) => ({ variant, variantIndex, geom }))
@@ -2355,124 +3698,26 @@ function initMeadowGrass(scene) {
       })) : null
       return { variant, variantIndex, geom, material }
     })
-    const cellStep = MEADOW_GRASS_CHUNK_LEN
-    const cells = []
-    for (let cz = Math.floor(GRASS_FIELD_BOUNDS.minZ / cellStep); cz < Math.ceil(GRASS_FIELD_BOUNDS.maxZ / cellStep); cz++) {
-      for (let cx = Math.floor(GRASS_FIELD_BOUNDS.minX / cellStep); cx < Math.ceil(GRASS_FIELD_BOUNDS.maxX / cellStep); cx++) {
-        const minX = cx * cellStep
-        const minZ = cz * cellStep
-        const ccx = minX + cellStep / 2
-        const ccz = minZ + cellStep / 2
-        cells.push({ minX, minZ, d2: ccx * ccx + ccz * ccz })
-      }
+    const groups = perVariant.map((v) => (
+      v?.geom.hi && v.material
+        ? createGrassLodGroup(scene, `meadow_grass_${v.variant.name}`, v.geom, v.material)
+        : null
+    ))
+    _meadowGrassRuntime = {
+      groups,
+      cache: new Map(),
+      queued: new Set(),
+      queue: [],
+      queueIndex: 0,
+      scanJob: null,
+      total: 0,
+      lastEnqueue: null,
+      lastPlayerPos: null,
+      forwardX: 0,
+      forwardZ: -1,
+      playerSpeed: 0,
     }
-    cells.sort((a, b) => a.d2 - b.d2) // 由中心（出生区）向外逐块填充
-    _meadowBuild = { scene, perVariant, cells, ci: 0, cur: null, total: 0, dropped: 0, t0: performance.now() }
-  }).catch((error) => console.warn('Meadow grass asset failed', error))
-}
-
-function buildMeadowCellMeshes(b, cell, byVariant) {
-  for (let vi = 0; vi < byVariant.length; vi++) {
-    const arr = byVariant[vi]
-    if (!arr.length) continue
-    const v = b.perVariant[vi]
-    if (!v || !v.geom.hi || !v.material) continue
-    const inst = new THREE.InstancedMesh(v.geom.hi, v.material, arr.length)
-    inst.name = `meadow_grass_${v.variant.name}_${cell.minX}_${cell.minZ}`
-    inst.castShadow = false
-    inst.receiveShadow = false
-    inst.frustumCulled = true
-    for (let i = 0; i < arr.length; i++) {
-      const p = arr[i]
-      const seed = p.seed
-      _spawnGrassDummy.position.set(p.x, p.y, p.z)
-      _spawnGrassDummy.rotation.set(
-        THREE.MathUtils.lerp(-0.16, 0.16, forestPlacementNoise(seed + 7)),
-        forestPlacementNoise(seed + 3) * Math.PI * 2,
-        THREE.MathUtils.lerp(-0.16, 0.16, forestPlacementNoise(seed + 8)),
-      )
-      _spawnGrassDummy.scale.set(
-        THREE.MathUtils.lerp(1.0, 1.7, forestPlacementNoise(seed + 4)) * MODEL_GRASS_SPREAD_XZ,
-        THREE.MathUtils.lerp(0.9, 1.45, forestPlacementNoise(seed + 5)) * MODEL_GRASS_FLATTEN_Y,
-        THREE.MathUtils.lerp(1.0, 1.7, forestPlacementNoise(seed + 6)) * MODEL_GRASS_SPREAD_XZ,
-      )
-      _spawnGrassDummy.updateMatrix()
-      inst.setMatrixAt(i, _spawnGrassDummy.matrix)
-    }
-    inst.instanceMatrix.needsUpdate = true
-    inst.computeBoundingBox()
-    inst.computeBoundingSphere()
-    _spawnGrassInstancedMeshes.push(inst)
-    registerGrassLodMesh(inst, v.geom)
-    b.scene.add(inst)
-  }
-}
-
-function stepMeadowGrassBuild() {
-  const b = _meadowBuild
-  if (!b) return
-  const spacing = MEADOW_GRASS_SPACING
-  const jitter = spacing * MEADOW_GRASS_JITTER
-  const cellStep = MEADOW_GRASS_CHUNK_LEN
-  const tStart = performance.now()
-  let processed = 0
-
-  while (b.ci < b.cells.length) {
-    const cell = b.cells[b.ci]
-    const baseGX = Math.floor(cell.minX / spacing)
-    const endGX = Math.ceil((cell.minX + cellStep) / spacing) - 1
-    const endGZ = Math.ceil((cell.minZ + cellStep) / spacing) - 1
-    if (!b.cur) {
-      // 廉价整块剔除：四角+中心地面都高于上限 → 整块高地，跳过（省下全块 getGroundHeight）
-      const cs = cellStep
-      let minH = Infinity
-      for (const [cxw, czw] of [
-        [cell.minX + 1, cell.minZ + 1], [cell.minX + cs - 1, cell.minZ + 1],
-        [cell.minX + 1, cell.minZ + cs - 1], [cell.minX + cs - 1, cell.minZ + cs - 1],
-        [cell.minX + cs / 2, cell.minZ + cs / 2],
-      ]) minH = Math.min(minH, getGroundHeight(cxw, czw))
-      if (minH > MEADOW_GRASS_MAX_GROUND_Y + 1.5) { b.ci++; continue }
-      b.cur = { gx: baseGX, gz: Math.floor(cell.minZ / spacing), byVariant: [[], [], []] }
-    }
-    let { gx, gz, byVariant } = b.cur
-
-    while (gz <= endGZ) {
-      const seed = 90000 + gx * 100003 + gz * 4099
-      const x = (gx + 0.5) * spacing + (forestPlacementNoise(seed + 1) - 0.5) * jitter
-      const z = (gz + 0.5) * spacing + (forestPlacementNoise(seed + 2) - 0.5) * jitter
-      processed++
-      if (!(x < GRASS_FIELD_BOUNDS.minX || x > GRASS_FIELD_BOUNDS.maxX || z < GRASS_FIELD_BOUNDS.minZ || z > GRASS_FIELD_BOUNDS.maxZ)) {
-        const groundY = getGroundHeight(x, z)
-        if (groundY <= MEADOW_GRASS_MAX_GROUND_Y && !shouldSkipMeadowGrassPlacement(x, z)) {
-          const channel = sampleChannelNetwork(x, z)
-          if (!(channel && channel.edge < MEADOW_GRASS_RIVER_HANDOFF)) {
-            const riseX = Math.abs(getGroundHeight(x + 1, z) - groundY)
-            const riseZ = Math.abs(getGroundHeight(x, z + 1) - groundY)
-            if (riseX <= MEADOW_GRASS_MAX_GROUND_RISE && riseZ <= MEADOW_GRASS_MAX_GROUND_RISE) {
-              if (b.total < MEADOW_GRASS_MAX_INSTANCES) {
-                const freshWeight = THREE.MathUtils.lerp(0.85, 0.4, THREE.MathUtils.smoothstep(groundY, 1, 7.5))
-                byVariant[grassClusterVariant(x, z, seed, freshWeight)].push({ x, y: groundY + LOCAL_MODEL_GRASS_Y_OFFSET, z, seed })
-                b.total++
-              } else { b.dropped++ }
-            }
-          }
-        }
-      }
-      gx++
-      if (gx > endGX) { gx = baseGX; gz++ }
-      if ((processed & 63) === 0 && performance.now() - tStart > MEADOW_BUILD_MS_PER_FRAME) {
-        b.cur = { gx, gz, byVariant }
-        return
-      }
-    }
-    // 本块完成 → 建该块各变体 InstancedMesh
-    buildMeadowCellMeshes(b, cell, byVariant)
-    b.ci++
-    b.cur = null
-    if (performance.now() - tStart > MEADOW_BUILD_MS_PER_FRAME) return
-  }
-  console.log(`[meadow-grass] built ${b.total} clumps over ${(performance.now() - b.t0).toFixed(0)}ms wall` + (b.dropped ? `, dropped ${b.dropped} over cap` : ''))
-  _meadowBuild = null
+  }).catch((error) => console.warn('Global model grass asset failed', error))
 }
 
 // ════════════════════════════════════════════════════
@@ -2494,7 +3739,6 @@ function loadTreeInstanceParts(file, baseScale) {
       const geom = c.geometry.clone()
       geom.applyMatrix4(c.matrixWorld)          // 烘入节点变换 → 各子件落在同一根坐标系
       const mat = c.material                      // 复用材质（保留树叶 alpha 等设置）
-      applyTreeColorGrade(mat)                     // 散布树全是树 → 无条件接入调色
       parts.push({ geometry: geom, material: mat })
     })
     let minY = Infinity
@@ -2513,10 +3757,10 @@ function loadTreeInstanceParts(file, baseScale) {
 function initWorldTrees(scene) {
   Promise.all([
     Promise.all(WORLD_TREE_MODELS.map((m) => loadTreeInstanceParts(m.file, m.scale))),
-    loadGrassVariantGeometries(SPAWN_GRASS_MODEL_VARIANTS[0]), // 树下补草复用草甸几何
+    loadGrassVariantGeometries(SPAWN_GRASS_MODEL_VARIANTS[0]), // 树下补草复用全局草几何
   ])
     .then(([models, grassGeom]) => {
-      // 树下草材质：与草甸同款（configureSpawnGrassMaterial 会注册风 uniform → 自动随风动）
+      // 树下草材质：与全局草同款（configureSpawnGrassMaterial 会注册风 uniform → 自动随风动）
       const grassMat = grassGeom?.hi
         ? configureSpawnGrassMaterial(new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.DoubleSide, depthWrite: true }))
         : null
@@ -2533,7 +3777,7 @@ function initWorldTrees(scene) {
         }
       }
       cells.sort((a, b2) => a.d2 - b2.d2) // 由中心（出生区）向外逐块成型
-      _worldTreeBuild = { scene, models, grassHi: grassGeom?.hi ?? null, grassMat, cells, ci: 0, cur: null, total: 0, grassTotal: 0, dropped: 0, cellMeshes: [], done: false, t0: performance.now() }
+      _worldTreeBuild = { scene, models, grassHi: grassGeom?.hi ?? null, grassMat, cells, ci: 0, cur: null, total: 0, grassTotal: 0, cellMeshes: [], done: false, t0: performance.now() }
     })
     .catch((error) => console.warn('World trees asset failed', error))
 }
@@ -2551,14 +3795,23 @@ function buildWorldTreeCellMeshes(b, cell, byModel, grassArr) {
   for (let mi = 0; mi < b.models.length; mi++) {
     const arr = byModel[mi]
     if (!arr.length) continue
+    arr.sort((a, b2) => worldTreeInstanceRank(a.seed) - worldTreeInstanceRank(b2.seed))
+    const farCount = getWorldTreeInstanceCount(arr.length, WORLD_TREE_INSTANCE_FULL_DIST)
     const model = b.models[mi]
     for (const part of model.parts) {
-      const inst = new THREE.InstancedMesh(part.geometry, part.material, arr.length)
+      const isCrown = (part.lodRole || 'crown') === 'crown'
+      const material = isCrown ? part.material.clone() : part.material
+      if (isCrown) resetTreeMaterialRuntimeData(material)
+      configureVegetationAlphaCutout(material)
+      applyTreeColorGrade(material, { leafFade: isCrown })
+      const inst = new THREE.InstancedMesh(part.geometry, material, arr.length)
       inst.name = `world_tree_${model.file.replace(/\.glb$/i, '')}_${cell.minX}_${cell.minZ}`
       inst.castShadow = false
       inst.receiveShadow = true
       inst.frustumCulled = true
       inst.userData.treeLodRole = part.lodRole || 'crown'  // 距离分级：crown 始终渲染，trunk 远处剔除
+      inst.userData.treeFullCount = arr.length
+      inst.userData.treeFarCount = farCount
       inst.visible = false                                 // 由首次 LOD pass 点亮，避免远处刚建好闪一帧全质量
       for (let i = 0; i < arr.length; i++) {
         const p = arr[i]
@@ -2575,7 +3828,7 @@ function buildWorldTreeCellMeshes(b, cell, byModel, grassArr) {
       meshes.push(inst)
     }
   }
-  // 树下草：单个 InstancedMesh（复刻 buildMeadowCellMeshes 的缩放/旋转），随树一起剔除
+  // 树下草：单个 InstancedMesh（复刻全局草的缩放/旋转），随树一起剔除
   if (grassArr && grassArr.length && b.grassHi && b.grassMat) {
     const ginst = new THREE.InstancedMesh(b.grassHi, b.grassMat, grassArr.length)
     ginst.name = `world_tree_grass_${cell.minX}_${cell.minZ}`
@@ -2647,10 +3900,12 @@ function stepWorldTreeBuild() {
       processed++
       placeOne: {
         if (x < bounds.minX || x > bounds.maxX || z < bounds.minZ || z > bounds.maxZ) break placeOne
-        // 林斑/空地：聚集噪声低于（带抖动的）阈值 → 留空
-        if (worldTreeClusterNoise(x, z) < WORLD_TREE_CLUSTER_THRESHOLD + (forestPlacementNoise(seed + 9) - 0.5) * 0.12) break placeOne
-        // 整体减密 ~10%（确定性，按坐标稳定，不破坏林斑形态）
-        if (forestPlacementNoise(seed + 11) < WORLD_TREE_THIN) break placeOne
+        const cluster = worldTreeClusterNoise(x, z)
+        // 林斑/空地：先用低频阈值塑造森林轮廓，再在林团中心提高保留率，避免俯视均匀撒点。
+        if (WORLD_TREE_CLUSTER_THRESHOLD > 0 && cluster < WORLD_TREE_CLUSTER_THRESHOLD + (forestPlacementNoise(seed + 9) - 0.5) * 0.10) break placeOne
+        const clusterKeep = THREE.MathUtils.clamp((cluster - WORLD_TREE_CLUSTER_THRESHOLD) / Math.max(0.001, 1 - WORLD_TREE_CLUSTER_THRESHOLD), 0, 1)
+        const thin = WORLD_TREE_THIN * THREE.MathUtils.lerp(1.15, 0.32, Math.pow(clusterKeep, 0.7))
+        if (thin > 0 && forestPlacementNoise(seed + 11) < thin) break placeOne
         // 避开手工林地中心区（防与 curated 堆叠）+ 结构空地
         if (x >= RANDOM_FOREST_BOUNDS.minX && x <= RANDOM_FOREST_BOUNDS.maxX && z >= RANDOM_FOREST_BOUNDS.minZ && z <= RANDOM_FOREST_BOUNDS.maxZ) break placeOne
         if (isInsideRandomForestClearing(x, z)) break placeOne
@@ -2661,12 +3916,16 @@ function stepWorldTreeBuild() {
         // 水体避让
         const channel = sampleChannelNetwork(x, z)
         if (channel && channel.edge < WORLD_TREE_RIVER_HANDOFF) break placeOne
+        if (isInsideNewlandStaticLakeClearance(x, z)) break placeOne
+        if (isInsideDendriticGullyTreeClearance(x, z)) break placeOne
+        if (isInsideEastRimDryRiverTreeClearance(x, z)) break placeOne
+        if (isInsideLowlandErosionGullyTreeClearance(x, z)) break placeOne
         // 坡度守卫（不上崖面）
         const riseX = Math.abs(getGroundHeight(x + 1.5, z) - groundY)
         const riseZ = Math.abs(getGroundHeight(x, z + 1.5) - groundY)
         if (riseX > WORLD_TREE_MAX_SLOPE || riseZ > WORLD_TREE_MAX_SLOPE) break placeOne
-        if (b.total >= WORLD_TREE_MAX_INSTANCES) { b.dropped++; break placeOne }
-        const mi = Math.floor(forestPlacementNoise(seed + 4) * b.models.length) % b.models.length
+        const fallbackMi = Math.floor(forestPlacementNoise(seed + 4) * b.models.length) % b.models.length
+        const mi = pickModelTreeIndex(b.models, seed + 40, fallbackMi)
         byModel[mi].push({ x, y: groundY, z, seed })
         b.total++
         // 树下补草：脚下散布一小簇（逐簇采样地面高度，贴坡）
@@ -2691,7 +3950,7 @@ function stepWorldTreeBuild() {
     if (performance.now() - tStart > WORLD_TREE_BUILD_MS_PER_FRAME) return
   }
   b.done = true
-  console.log(`[world-trees] built ${b.total} trees + ${b.grassTotal} under-tree grass over ${(performance.now() - b.t0).toFixed(0)}ms wall` + (b.dropped ? `, dropped ${b.dropped} over cap` : ''))
+  console.log(`[world-trees] built ${b.total} trees + ${b.grassTotal} under-tree grass over ${(performance.now() - b.t0).toFixed(0)}ms wall`)
 }
 
 // 按 cell 中心到玩家水平距离分级 LOD：始终渲染到 COVERAGE，靠近逐级提质量。
@@ -2716,17 +3975,56 @@ function updateWorldTreeVisibility(playerPosition) {
   for (const c of b.cellMeshes) {
     const dx = c.cx - px
     const dz = c.cz - pz
-    const tier = worldTreeLodTier(Math.sqrt(dx * dx + dz * dz), c.tier)
-    if (tier === c.tier) continue            // 档位不变 → 跳过冗余写入
+    const dist = Math.sqrt(dx * dx + dz * dz)
+    const tier = worldTreeLodTier(dist, c.tier)
+    const leafKeep = getForestPackTreeLeafKeep(dist)
+    const instanceTier = dist < WORLD_TREE_INSTANCE_FULL_DIST ? 0 : 1
+    const leafKeepChanged = Math.abs(leafKeep - (c.leafKeep ?? -1)) >= 0.015
+    const densityChanged = c.treeDensityVersion !== _debugTreeDensityVersion
+    if (tier === c.tier && instanceTier === c.instanceTier && !leafKeepChanged && !densityChanged) continue // 档位/叶片密度/调试密度不变 → 跳过冗余写入
     c.tier = tier
+    c.leafKeep = leafKeep
+    c.instanceTier = instanceTier
+    c.treeDensityVersion = _debugTreeDensityVersion
     const crownOn = tier <= 2
     const trunkOn = tier <= 1
-    const grassOn = tier === 0
+    const grassOn = tier === 0 && !_debugModelGrassDisabled
     for (const m of c.meshes) {
       const role = m.userData.treeLodRole
-      m.visible = role === 'grass' ? grassOn : role === 'trunk' ? trunkOn : crownOn
+      if (role === 'grass') {
+        m.visible = grassOn
+        if (!grassOn) m.count = 0
+        continue
+      }
+      const baseCount = Math.max(0, instanceTier === 0 ? m.userData.treeFullCount : m.userData.treeFarCount)
+      const nextCount = _debugTreeDensity <= 0 || baseCount <= 0 ? 0 : Math.max(1, Math.floor(baseCount * _debugTreeDensity))
+      m.count = nextCount
+      m.visible = (role === 'trunk' ? trunkOn : crownOn) && nextCount > 0
+      if (role === 'crown') setForestPackLeafKeep(m.material, leafKeep)
     }
   }
+}
+
+function setDebugGrassDensity(value) {
+  _debugGrassDensity = THREE.MathUtils.clamp(Number(value) || 0, 0, 2)
+  _grassLodTimer = GRASS_LOD_INTERVAL
+  return _debugGrassDensity
+}
+
+function setDebugModelGrassDisabled(value) {
+  _debugModelGrassDisabled = Boolean(value)
+  _grassLodTimer = GRASS_LOD_INTERVAL
+  _worldTreeVisTimer = WORLD_TREE_VIS_INTERVAL
+  if (_debugModelGrassDisabled) hideAllModelGrass()
+  return _debugModelGrassDisabled
+}
+
+function setDebugTreeDensity(value) {
+  const next = THREE.MathUtils.clamp(Number(value) || 0, 0, 1)
+  if (Math.abs(next - _debugTreeDensity) >= 0.001) _debugTreeDensityVersion++
+  _debugTreeDensity = next
+  _worldTreeVisTimer = WORLD_TREE_VIS_INTERVAL
+  return _debugTreeDensity
 }
 
 function loadSpawnGrass60Ref(scene) {
@@ -2949,7 +4247,6 @@ function distanceToRiverSegment(x, z, a, b) {
   }
 }
 
-const pathMetaCache = new WeakMap()
 function getPathMeta(points) {
   let meta = pathMetaCache.get(points)
   if (!meta) {
@@ -3031,15 +4328,15 @@ function getRiverSampleAt(x, z) {
   }
 }
 
-const RIVER_CHANNEL_MIN_CUT = 2
+const RIVER_CHANNEL_MIN_CUT = 2 // 小河/细流最小切深；调大会更深更陡，调小更浅但可能露出水面边。
 // 河岸坡度放缓：斜坡水平宽度 run > 地形顶点间距(1.78m)，使网格能忠实表现河岸、解析高度≈渲染网格，
 // 消除人物陷入河岸与水面插进抹平网格的穿模。min: 2.0/tan44≈2.07m；main: 2.4/tan46≈2.32m。
-const RIVER_CHANNEL_MIN_SLOPE_DEG = 44
-const MAIN_RIVER_CHANNEL_CUT = 2.4
-const MAIN_RIVER_CHANNEL_SLOPE_DEG = 46
-const MAIN_RIVER_WATER_DEPTH = 0.75
-const BRANCH_RIVER_WATER_DEPTH = 0.45
-const GULLY_STREAM_WATER_DEPTH = 0.35
+const RIVER_CHANNEL_MIN_SLOPE_DEG = 44 // 小河岸坡角；调小岸更宽更缓，调大岸更窄更陡。
+const MAIN_RIVER_CHANNEL_CUT = 2.4 // 主河切深；调大主河床更低，调小可能水面显浅。
+const MAIN_RIVER_CHANNEL_SLOPE_DEG = 46 // 主河岸坡角；调小更宽缓，调大更贴岸但更容易出陡面。
+const MAIN_RIVER_WATER_DEPTH = 0.75 // 主河水深；调大水面更高，调小更浅。
+const BRANCH_RIVER_WATER_DEPTH = 0.45 // 支流水深；影响所有 RIVER_BRANCHES 的水面高度。
+const GULLY_STREAM_WATER_DEPTH = 0.35 // wet 冲沟水深；调大细流更明显，也更容易淹没沟底。
 
 function channelBankRun(cutDepth, slopeDeg = RIVER_CHANNEL_MIN_SLOPE_DEG) {
   return cutDepth / Math.tan(THREE.MathUtils.degToRad(slopeDeg))
@@ -3125,6 +4422,239 @@ function getBestBranchSampleAt(x, z) {
     if (!best || sample.distance < best.distance) best = sample
   }
   return best
+}
+
+function newlandBraidedHalfWidthAt(channel, t) {
+  const mid = Math.sin(t * Math.PI) * 0.9
+  return THREE.MathUtils.lerp(channel.halfWidthStart, channel.halfWidthEnd, t) + mid
+}
+
+function newlandBraidedWaterDepthAt(channel, t) {
+  return channel.waterDepth + Math.sin(t * Math.PI) * 0.08
+}
+
+function getNewlandBraidedSampleAt(channel, x, z) {
+  const sample = getPathSample(channel.points, x, z)
+  const halfWidth = newlandBraidedHalfWidthAt(channel, sample.t)
+  const waterDepth = newlandBraidedWaterDepthAt(channel, sample.t)
+  const edgeDistance = Math.abs(sample.distance - halfWidth)
+  const whitewater = THREE.MathUtils.smoothstep(halfWidth - sample.distance, -0.8, 1.8) * 0.18
+  return {
+    ...sample,
+    channelId: channel.id,
+    channel,
+    halfWidth,
+    waterDepth,
+    waterY: 0,
+    edgeDistance,
+    whitewater,
+    flowSpeed: THREE.MathUtils.lerp(0.38, 1.1, THREE.MathUtils.clamp(whitewater + (1 - sample.t) * 0.18, 0, 1)),
+    skipNetworkCarve: true,
+  }
+}
+
+function getBestNewlandBraidedSampleAt(x, z) {
+  let best = null
+  for (const { channel, bounds } of NEWLAND_BRAIDED_BOUNDS) {
+    if (!isInsideBounds(bounds, x, z)) continue
+    const sample = getNewlandBraidedSampleAt(channel, x, z)
+    const edge = sample.distance - sample.halfWidth
+    if (!best || edge < best.edge) best = { ...sample, edge }
+  }
+  return best
+}
+
+function getDendriticGullySampleAt(gully, x, z) {
+  const sample = getPathSample(gully.points, x, z)
+  const halfWidth = gully.width + Math.sin(sample.t * Math.PI) * 0.85
+  return {
+    ...sample,
+    gully,
+    halfWidth,
+    influence: gully.influence,
+    depth: gully.depth,
+    treeClearance: gully.treeClearance,
+    edge: sample.distance - halfWidth,
+  }
+}
+
+function getBestDendriticGullySampleAt(x, z) {
+  let best = null
+  for (const { gully, bounds } of NEWLAND_DENDRITIC_GULLY_BOUNDS) {
+    if (!isInsideBounds(bounds, x, z)) continue
+    const sample = getDendriticGullySampleAt(gully, x, z)
+    if (!best || sample.edge < best.edge) best = sample
+  }
+  return best
+}
+
+function isInsideDendriticGullyTreeClearance(x, z) {
+  const sample = getBestDendriticGullySampleAt(x, z)
+  return Boolean(sample && sample.distance <= sample.halfWidth + sample.treeClearance)
+}
+
+function dendriticGullyGrassKeep(x, z) {
+  const sample = getBestDendriticGullySampleAt(x, z)
+  if (!sample || sample.distance > sample.halfWidth + sample.influence * 0.62) return 1
+  const near = 1 - THREE.MathUtils.smoothstep(sample.distance, sample.halfWidth + 4, sample.halfWidth + sample.influence * 0.62)
+  return THREE.MathUtils.lerp(0.72, 0.34, near)
+}
+
+function eastRimDryRiverHalfWidthAt(river, t) {
+  return THREE.MathUtils.lerp(river.widthStart, river.widthEnd, t) + Math.sin(t * Math.PI) * (river.tier === 'main' ? 1.8 : 0.75)
+}
+
+function eastRimDryRiverDepthAt(river, t) {
+  return THREE.MathUtils.lerp(river.depthStart, river.depthEnd, t) + Math.sin(t * Math.PI) * (river.tier === 'main' ? 1.4 : 0.55)
+}
+
+function getEastRimDryRiverSampleAt(river, x, z) {
+  const sample = getPathSample(river.points, x, z)
+  const halfWidth = eastRimDryRiverHalfWidthAt(river, sample.t)
+  return {
+    ...sample,
+    river,
+    halfWidth,
+    influence: river.influence,
+    depth: eastRimDryRiverDepthAt(river, sample.t),
+    treeClearance: river.treeClearance,
+    edge: sample.distance - halfWidth,
+  }
+}
+
+function getBestEastRimDryRiverSampleAt(x, z) {
+  let best = null
+  for (const { river, bounds } of EAST_RIM_DRY_RIVER_BOUNDS) {
+    if (!isInsideBounds(bounds, x, z)) continue
+    const sample = getEastRimDryRiverSampleAt(river, x, z)
+    if (!best || sample.edge < best.edge) best = sample
+  }
+  return best
+}
+
+function isInsideEastRimDryRiverTreeClearance(x, z) {
+  const sample = getBestEastRimDryRiverSampleAt(x, z)
+  return Boolean(sample && sample.distance <= sample.halfWidth + sample.treeClearance)
+}
+
+function lowlandErosionGullyHalfWidthAt(gully, t) {
+  return gully.width + Math.sin(t * Math.PI) * 0.75
+}
+
+function lowlandErosionGullyDepthAt(gully, t) {
+  return gully.depth * (0.86 + Math.sin(t * Math.PI) * 0.22)
+}
+
+function getLowlandErosionGullySampleAt(gully, x, z) {
+  const sample = getPathSample(gully.points, x, z)
+  const halfWidth = lowlandErosionGullyHalfWidthAt(gully, sample.t)
+  return {
+    ...sample,
+    gully,
+    halfWidth,
+    influence: gully.influence,
+    depth: lowlandErosionGullyDepthAt(gully, sample.t),
+    treeClearance: gully.treeClearance,
+    edge: sample.distance - halfWidth,
+  }
+}
+
+function getBestLowlandErosionGullySampleAt(x, z) {
+  let best = null
+  for (const { gully, bounds } of LOWLAND_EROSION_GULLY_BOUNDS) {
+    if (!isInsideBounds(bounds, x, z)) continue
+    const sample = getLowlandErosionGullySampleAt(gully, x, z)
+    if (!best || sample.edge < best.edge) best = sample
+  }
+  return best
+}
+
+function isInsideLowlandErosionGullyTreeClearance(x, z) {
+  const sample = getBestLowlandErosionGullySampleAt(x, z)
+  return Boolean(sample && sample.distance <= sample.halfWidth + sample.treeClearance)
+}
+
+function lowlandErosionGrassKeep(x, z) {
+  const sample = getBestLowlandErosionGullySampleAt(x, z)
+  if (!sample || sample.distance > sample.halfWidth + sample.influence * 0.55) return 1
+  const near = 1 - THREE.MathUtils.smoothstep(sample.distance, sample.halfWidth + 2.5, sample.halfWidth + sample.influence * 0.55)
+  return THREE.MathUtils.lerp(0.82, 0.18, near)
+}
+
+function isLowlandErosionProtected(x, z, height) {
+  if (height > 58 || height < MOUNTAIN_FALL_FLOOR_Y + 10) return true
+  if (protectedTerrainMask(x, z) > 0.08) return true
+  const channel = sampleChannelNetwork(x, z)
+  if (channel && channel.edge < 20) return true
+  const { weight: poolW } = confluencePoolWeightAt(x, z)
+  if (poolW > 0) return true
+  if (NEWLAND_STATIC_LAKES.some(lake => getNewlandStaticLakeShapeAt(lake, x, z).edge < lake.treeClearance + 8)) return true
+  return false
+}
+
+function lowlandErosionMicroNoise(x, z) {
+  const wx = x + Math.sin(x * 0.009 + z * 0.013) * 28 + Math.sin(z * 0.021) * 10
+  const wz = z + Math.sin(z * 0.010 - x * 0.012) * 28 + Math.sin(x * 0.019) * 10
+  const r1 = 1 - Math.abs(Math.sin(wx * 0.021 + wz * 0.034))
+  const r2 = 1 - Math.abs(Math.sin(wx * 0.037 - wz * 0.020 + 1.8))
+  const r3 = 1 - Math.abs(Math.sin(wx * 0.058 + wz * 0.012 + 0.7))
+  return Math.max(r1 * 0.78, r2 * 0.68, r3 * 0.52)
+}
+
+function applyLowlandMicroErosionHeight(x, z, height) {
+  if (isLowlandErosionProtected(x, z, height)) return height
+  const lowlandMask = (1 - THREE.MathUtils.smoothstep(height, 24, 64))
+    * THREE.MathUtils.smoothstep(height, MOUNTAIN_FALL_FLOOR_Y + 16, MOUNTAIN_FALL_FLOOR_Y + 48)
+  if (lowlandMask <= 0) return height
+
+  const broad = Math.sin(x * 0.010 + z * 0.014) * 0.5
+    + Math.sin(x * 0.018 - z * 0.009 + 1.4) * 0.34
+    + Math.sin(x * 0.034 + z * 0.026 + 0.6) * 0.18
+  const rill = THREE.MathUtils.smoothstep(lowlandErosionMicroNoise(x, z), 0.72, 0.96)
+  const swale = THREE.MathUtils.smoothstep(-broad, 0.08, 0.78)
+  const shoulder = THREE.MathUtils.smoothstep(rill, 0.36, 0.82) * (0.15 + Math.max(0, broad) * 0.18)
+  const cut = rill * (0.42 + swale * 0.62) + swale * 0.36
+  return height - (cut - shoulder) * lowlandMask
+}
+
+function isDendriticGullyNearWater(x, z) {
+  const channel = sampleChannelNetwork(x, z)
+  if (channel && channel.edge < 12) return true
+  return NEWLAND_STATIC_LAKES.some(lake => getNewlandStaticLakeShapeAt(lake, x, z).edge < 12)
+}
+
+function newlandMountainOutletHalfWidthAt(t) {
+  return THREE.MathUtils.lerp(NEWLAND_MOUNTAIN_OUTLET.halfWidthStart, NEWLAND_MOUNTAIN_OUTLET.halfWidthEnd, t)
+    + Math.sin(t * Math.PI) * 0.7
+}
+
+function getNewlandMountainOutletSampleAt(x, z) {
+  const sample = getPathSample(NEWLAND_MOUNTAIN_OUTLET.points, x, z)
+  const halfWidth = newlandMountainOutletHalfWidthAt(sample.t)
+  const edgeDistance = Math.abs(sample.distance - halfWidth)
+  const whitewater = THREE.MathUtils.smoothstep(halfWidth - sample.distance, -0.7, 1.6) * 0.16
+  return {
+    ...sample,
+    outletId: NEWLAND_MOUNTAIN_OUTLET.id,
+    halfWidth,
+    waterDepth: NEWLAND_MOUNTAIN_OUTLET.waterDepth,
+    waterY: 0,
+    edgeDistance,
+    whitewater,
+    flowSpeed: THREE.MathUtils.lerp(0.36, 1.0, THREE.MathUtils.clamp(whitewater + (1 - sample.t) * 0.12, 0, 1)),
+    skipNetworkCarve: true,
+  }
+}
+
+function newlandBraidedOverlapWeightAt(x, z, ownChannelId = null) {
+  let bestEdge = Infinity
+  for (const { channel, bounds } of NEWLAND_BRAIDED_BOUNDS) {
+    if (ownChannelId && channel.id === ownChannelId) continue
+    if (!isInsideBounds(bounds, x, z)) continue
+    const sample = getNewlandBraidedSampleAt(channel, x, z)
+    bestEdge = Math.min(bestEdge, sample.distance - sample.halfWidth)
+  }
+  return 1 - THREE.MathUtils.smoothstep(bestEdge, -0.8, 4.0)
 }
 
 function applyRiverBranchHeight(x, z, height) {
@@ -3258,6 +4788,124 @@ function applyGullyNetworkHeight(x, z, height) {
   return Math.min(height, shaped, carved)
 }
 
+function applyDendriticGullyHeight(x, z, height) {
+  const sample = getBestDendriticGullySampleAt(x, z)
+  if (!sample || sample.distance > sample.influence) return height
+  if (isDendriticGullyNearWater(x, z)) return height
+  const floorMask = 1 - THREE.MathUtils.smoothstep(sample.distance, sample.halfWidth * 0.55, sample.halfWidth + 0.5)
+  const apronMask = 1 - THREE.MathUtils.smoothstep(sample.distance, sample.halfWidth + 10, sample.influence)
+  const bankNoise = Math.sin(x * 0.045 + z * 0.061) * 0.30 + Math.sin(x * 0.019 - z * 0.073) * 0.18
+  const bedNoise = Math.sin(x * 0.15 + z * 0.09) * 0.10 + Math.sin(x * 0.053 - z * 0.117) * 0.07
+  const floor = height - sample.depth + bedNoise
+  const apronDrop = (0.72 + sample.depth * 0.16 + Math.max(0, bankNoise) * 0.18) * apronMask
+  const shaped = THREE.MathUtils.lerp(height - apronDrop, floor, floorMask)
+  const carved = applySteepChannelCarve(height, sample.distance, sample.halfWidth, {
+    cutDepth: sample.depth,
+    slopeDeg: 42,
+    bedTarget: floor,
+  })
+  return Math.min(height, shaped, carved)
+}
+
+function applyEastRimDryRiverHeight(x, z, height) {
+  const sample = getBestEastRimDryRiverSampleAt(x, z)
+  if (!sample || sample.distance > sample.influence) return height
+  const floorMask = 1 - THREE.MathUtils.smoothstep(sample.distance, sample.halfWidth * 0.58, sample.halfWidth + 0.85)
+  const apronMask = 1 - THREE.MathUtils.smoothstep(sample.distance, sample.halfWidth + 18, sample.influence)
+  const bankNoise = Math.sin(x * 0.034 + z * 0.047) * 0.46 + Math.sin(x * 0.013 - z * 0.059) * 0.24
+  const bedNoise = Math.sin(x * 0.115 + z * 0.072) * 0.16 + Math.sin(x * 0.041 - z * 0.106) * 0.10
+  const floor = height - sample.depth + bedNoise
+  const apronDrop = (1.2 + sample.depth * 0.18 + Math.max(0, bankNoise) * 0.30) * apronMask
+  const shaped = THREE.MathUtils.lerp(height - apronDrop, floor, floorMask)
+  const carved = applySteepChannelCarve(height, sample.distance, sample.halfWidth, {
+    cutDepth: sample.depth,
+    slopeDeg: sample.river.tier === 'main' ? 27 : 34,
+    bedTarget: floor,
+  })
+  return Math.min(height, shaped, carved)
+}
+
+function applyLowlandErosionGullyHeight(x, z, height) {
+  const sample = getBestLowlandErosionGullySampleAt(x, z)
+  if (!sample || sample.distance > sample.influence) return height
+  if (isLowlandErosionProtected(x, z, height)) return height
+
+  const lowlandMask = 1 - THREE.MathUtils.smoothstep(height, 34, 58)
+  const coreMask = 1 - THREE.MathUtils.smoothstep(sample.distance, sample.halfWidth * 0.48, sample.halfWidth + 0.6)
+  const bankMask = 1 - THREE.MathUtils.smoothstep(sample.distance, sample.halfWidth + 2, sample.halfWidth + 12)
+  const apronMask = 1 - THREE.MathUtils.smoothstep(sample.distance, sample.halfWidth + 12, sample.influence)
+  const shoulderMask = THREE.MathUtils.smoothstep(sample.distance, sample.halfWidth + 0.8, sample.halfWidth + 7.5)
+    * (1 - THREE.MathUtils.smoothstep(sample.distance, sample.halfWidth + 7.5, sample.halfWidth + 20))
+  const meanderNoise = Math.sin(x * 0.043 + z * 0.071 + sample.gully.depth) * 0.28
+    + Math.sin(x * 0.018 - z * 0.052 + sample.gully.width) * 0.20
+  const bedNoise = Math.sin(x * 0.18 + z * 0.11 + sample.gully.depth) * 0.13
+    + Math.sin(x * 0.061 - z * 0.149) * 0.08
+
+  const floor = height - sample.depth + bedNoise
+  const bankDrop = (0.65 + sample.depth * 0.22 + Math.max(0, meanderNoise) * 0.20) * bankMask
+  const apronDrop = (0.45 + sample.depth * 0.12 + Math.max(0, meanderNoise) * 0.18) * apronMask
+  let target = height - apronDrop
+  target = THREE.MathUtils.lerp(target, height - bankDrop, bankMask * 0.72)
+  target = THREE.MathUtils.lerp(target, floor, coreMask)
+  target += shoulderMask * (0.18 + Math.max(0, meanderNoise) * 0.16)
+
+  const blend = Math.max(coreMask, bankMask * 0.9, apronMask * 0.62) * lowlandMask
+  return Math.min(height, THREE.MathUtils.lerp(height, target, blend))
+}
+
+function applyNewlandBraidedRiverHeight(x, z, height) {
+  let result = height
+  for (const { channel, bounds } of NEWLAND_BRAIDED_BOUNDS) {
+    if (!isInsideBounds(bounds, x, z)) continue
+    const sample = getNewlandBraidedSampleAt(channel, x, z)
+    const run = Math.max(0.35, channelBankRun(channel.cutDepth, NEWLAND_BRAIDED_SLOPE_DEG))
+    const apronWidth = 9
+    if (sample.distance > sample.halfWidth + run + apronWidth) continue
+    const bedNoise = Math.sin(x * 0.17 + z * 0.11) * 0.10 + Math.sin(x * 0.049 - z * 0.083) * 0.07
+    const bedTarget = height - channel.cutDepth + bedNoise
+    const carved = applySteepChannelCarve(height, sample.distance, sample.halfWidth, {
+      cutDepth: channel.cutDepth,
+      slopeDeg: NEWLAND_BRAIDED_SLOPE_DEG,
+      bedTarget,
+    })
+    const apron = 1 - THREE.MathUtils.smoothstep(sample.distance, sample.halfWidth + run, sample.halfWidth + run + apronWidth)
+    result = Math.min(result, carved, height - apron * 0.42)
+  }
+  return result
+}
+
+function applyNewlandMountainOutletHeight(x, z, height) {
+  if (!isInsideBounds(NEWLAND_MOUNTAIN_OUTLET_BOUNDS, x, z)) return height
+  const sample = getNewlandMountainOutletSampleAt(x, z)
+  const run = Math.max(0.35, channelBankRun(NEWLAND_MOUNTAIN_OUTLET.cutDepth, NEWLAND_BRAIDED_SLOPE_DEG))
+  const apronWidth = 12
+  if (sample.distance > sample.halfWidth + run + apronWidth) return height
+  const bedNoise = Math.sin(x * 0.12 + z * 0.075) * 0.09 + Math.sin(x * 0.041 - z * 0.062) * 0.06
+  const bedTarget = height - NEWLAND_MOUNTAIN_OUTLET.cutDepth + bedNoise
+  const carved = applySteepChannelCarve(height, sample.distance, sample.halfWidth, {
+    cutDepth: NEWLAND_MOUNTAIN_OUTLET.cutDepth,
+    slopeDeg: NEWLAND_BRAIDED_SLOPE_DEG,
+    bedTarget,
+  })
+  const apron = 1 - THREE.MathUtils.smoothstep(sample.distance, sample.halfWidth + run, sample.halfWidth + run + apronWidth)
+  return Math.min(height, carved, height - apron * 0.55)
+}
+
+function applyNewlandStaticLakeHeight(x, z, height) {
+  let result = height
+  for (const endpointLake of NEWLAND_STATIC_LAKES) {
+    const lake = getNewlandStaticLakeShapeAt(endpointLake, x, z)
+    if (lake.edge > endpointLake.shoreRun) continue
+    const shore = 1 - THREE.MathUtils.smoothstep(lake.edge, 0, endpointLake.shoreRun)
+    const core = 1 - THREE.MathUtils.smoothstep(lake.radial / Math.max(0.001, lake.boundary), 0.18, 0.92)
+    const bedNoise = Math.sin(x * 0.12 + z * 0.08 + endpointLake.seed * 0.01) * 0.04
+      + Math.sin(x * 0.05 - z * 0.11 + endpointLake.seed * 0.017) * 0.03
+    const depression = endpointLake.waterDepth + 0.24 * shore + 0.26 * core - bedNoise
+    result = Math.min(result, height - depression * shore)
+  }
+  return result
+}
+
 function applyLargeWorldHeight(x, z, height) {
   const protect = protectedTerrainMask(x, z)
   const broad = Math.sin(x * 0.010 + z * 0.006) * 6.5
@@ -3278,6 +4926,65 @@ function alpineRidgedNoise(x, z) {
   const r2 = 1 - Math.abs(Math.sin(wx * 0.0098 - wz * 0.0081))
   const r3 = 1 - Math.abs(Math.sin(wx * 0.0205 + wz * 0.0233))
   return r1 * 0.55 + r2 * 0.30 + r3 * 0.15
+}
+
+function taishanNewlandRidgeLift(x, z, crag) {
+  const ax = -850
+  const az = -1180
+  const bx = -560
+  const bz = -860
+  const vx = bx - ax
+  const vz = bz - az
+  const len = Math.hypot(vx, vz)
+  const ux = vx / len
+  const uz = vz / len
+  const wx = x - ax
+  const wz = z - az
+  const along = THREE.MathUtils.clamp((wx * ux + wz * uz) / len, 0, 1)
+  const side = Math.abs(wx * -uz + wz * ux)
+  if (side > 260) return 0
+
+  const alongMask = Math.pow(Math.sin(along * Math.PI), 0.72)
+  const crest = Math.exp(-Math.pow(side / 42, 1.18))
+  const shoulder = Math.exp(-Math.pow(side / 145, 1.55)) * 0.34
+  const cut = 1 - THREE.MathUtils.smoothstep(side, 180, 260)
+  const brokenCrest = 0.88
+    + Math.sin(along * Math.PI * 5.0 + 0.8) * 0.10
+    + Math.sin(x * 0.027 - z * 0.018) * 0.05
+  return 86 * alongMask * cut * (crest * brokenCrest + shoulder * (0.72 + crag * 0.34))
+}
+
+function huangshanNewlandRidgeLift(x, z, crag) {
+  const ax = -1160
+  const az = 610
+  const bx = -860
+  const bz = 742
+  const vx = bx - ax
+  const vz = bz - az
+  const len = Math.hypot(vx, vz)
+  const ux = vx / len
+  const uz = vz / len
+  const wx = x - ax
+  const wz = z - az
+  const along = THREE.MathUtils.clamp((wx * ux + wz * uz) / len, 0, 1)
+  const sideSigned = wx * -uz + wz * ux
+  const side = Math.abs(sideSigned)
+  if (side > 210) return 0
+
+  const alongMask = Math.pow(Math.sin(along * Math.PI), 0.64)
+  const core = 1 - THREE.MathUtils.smoothstep(side, 14, 32)
+  const shoulder = Math.exp(-Math.pow(side / 118, 1.35)) * 0.42
+  const outerCut = 1 - THREE.MathUtils.smoothstep(side, 150, 210)
+  const crestRipple = 0.94
+    + Math.sin(along * Math.PI * 4.6 + 1.5) * 0.055
+    + Math.sin(x * 0.033 + z * 0.019) * 0.035
+
+  const knobs =
+    Math.exp(-Math.pow((along - 0.25) / 0.08, 2) - Math.pow((sideSigned - 38) / 34, 2)) * 13
+    + Math.exp(-Math.pow((along - 0.64) / 0.10, 2) - Math.pow((sideSigned + 45) / 38, 2)) * 16
+    + Math.exp(-Math.pow((along - 0.78) / 0.07, 2) - Math.pow((sideSigned - 26) / 30, 2)) * 11
+
+  return alongMask * outerCut * (80 * (core * crestRipple + shoulder * (0.75 + crag * 0.30)) + knobs)
 }
 
 // 新区（−X/−Z 外扩）完整地形：近区连绵丘陵 → 中景矮山 → 外缘连续雪脊（内缓外陡，比着参考图）。
@@ -3315,11 +5022,31 @@ function applyExtendedRegionHeight(x, z, height) {
     return h * Math.pow(b, 1.3) * (0.65 + crag * 0.6)
   }
   base += foot(-1250, -650, 360, 55)
-        + foot(-700, -1300, 340, 48)
         + foot(-1550, -1550, 400, 80)
-        + foot(-950, -1000, 300, 40)
+        + foot(-700, -1300, 300, 22)
+        + foot(-950, -1000, 260, 16)
+        + taishanNewlandRidgeLift(x, z, crag)
+        + huangshanNewlandRidgeLift(x, z, crag)
 
   return THREE.MathUtils.lerp(height, base, w)
+}
+
+function applyEastRimMegaslopeHeight(x, z, height) {
+  const dx = x - EAST_RIM_MEGASLOPE.x
+  const dz = z - EAST_RIM_MEGASLOPE.z
+  const along = dx * EAST_RIM_MEGASLOPE.downX + dz * EAST_RIM_MEGASLOPE.downZ
+  const side = Math.abs(dx * EAST_RIM_MEGASLOPE.sideX + dz * EAST_RIM_MEGASLOPE.sideZ)
+  if (along < -EAST_RIM_MEGASLOPE.backRun - 140 || along > EAST_RIM_MEGASLOPE.length || side > EAST_RIM_MEGASLOPE.halfWidth + EAST_RIM_MEGASLOPE.feather) return height
+
+  const outerFade = THREE.MathUtils.smoothstep(along, -EAST_RIM_MEGASLOPE.backRun - 120, -EAST_RIM_MEGASLOPE.backRun + 45)
+  const downhill = 1 - THREE.MathUtils.smoothstep(along, -EAST_RIM_MEGASLOPE.backRun, EAST_RIM_MEGASLOPE.length)
+  const sideFade = 1 - THREE.MathUtils.smoothstep(side, EAST_RIM_MEGASLOPE.halfWidth, EAST_RIM_MEGASLOPE.halfWidth + EAST_RIM_MEGASLOPE.feather)
+  const crest = 0.94
+    + Math.sin(x * 0.010 + z * 0.013) * 0.045
+    + Math.sin(x * 0.026 - z * 0.018) * 0.025
+  const lift = EAST_RIM_MEGASLOPE.height * Math.pow(Math.max(0, downhill), 1.18) * outerFade * sideFade * crest
+  const shoulder = 34 * Math.pow(Math.max(0, downhill), 1.7) * (1 - THREE.MathUtils.smoothstep(side, EAST_RIM_MEGASLOPE.halfWidth * 0.58, EAST_RIM_MEGASLOPE.halfWidth))
+  return height + lift + shoulder
 }
 
 function applyLargeRiverValleyHeight(x, z, height) {
@@ -3352,6 +5079,7 @@ const SNOW_PEAKS = [
   { x: -690, z: 330, rx: 244, rz: 292, h: 167, axis: 0.34, corePower: 0.92, ridgeHalfWidth: 30, ridgeAmp: 0.26, ridgeFreq: 0.017, ridgeShift: 2.4 },
   { x: -120, z: 500, rx: 306, rz: 280, h: 123, axis: 0.92, corePower: 0.94, ridgeHalfWidth: 34, ridgeAmp: 0.22, ridgeFreq: 0.016, ridgeShift: 1.9 },
 ]
+// 雪山峰体；x/z 定中心，rx/rz 定占地，h 定高度，axis/corePower 控制形状，ridge* 控制主脊强度/频率/偏移。
 
 const SNOW_RIDGE_LINES = [
   { a: { x: -690, z: 298 }, b: { x: -555, z: 548 }, h: 56, width: 42, freq: 0.013, freq2: 0.019, phase: 0.8, rough: 0.44 },
@@ -3360,6 +5088,7 @@ const SNOW_RIDGE_LINES = [
   { a: { x: -290, z: 630 }, b: { x: -120, z: 500 }, h: 44, width: 36, freq: 0.018, freq2: 0.015, phase: 0.6, rough: 0.35 },
   { a: { x: -680, z: 350 }, b: { x: -540, z: 390 }, h: 34, width: 32, freq: 0.021, freq2: 0.009, phase: 2.2, rough: 0.31 },
 ]
+// 雪山连接山脊；a/b 是线段端点，h/width 控制山脊高度和宽度，freq/phase/rough 控制破碎感。
 
 // 多向叠加正弦基噪声，归一到 ~[-1,1]（3 个旋转方向避免轴向规整）。
 function snowNoiseBase(x, z, f, p) {
@@ -3525,6 +5254,7 @@ function nearbyChannelSecondEdge(x, z) {
   push(getRiverSampleAt(x, z))
   push(getBestBranchSampleAt(x, z))
   push(getBestWetGullyStreamSampleAt(x, z))
+  push(getBestNewlandBraidedSampleAt(x, z))
   if (edges.length < 2) return Infinity
   edges.sort((a, b) => a - b)
   return edges[1]
@@ -3555,6 +5285,7 @@ const CONFLUENCE_POOLS = [
   // （大谷抬升已恢复 → 周边回到 ~-2..-4，故回到 -3.3/-4.1 锚定；不再用 -16 盆地值。）
   { x: -146, z: 80, rInner: 11, rOuter: 19, depth: 0.8, surfaceY: -3.3, bedY: -4.1 },
 ]
+// 交汇水潭字段：x/z 中心，rInner/rOuter 是池心和过渡半径，depth 是默认水深，surfaceY/bedY 可用实测绝对高度锚定。
 function confluencePoolSurfaceY(pool) {
   // 显式 surfaceY（实测锚定，用于与解析水位脱钩的坑地）优先；否则按解析河水位推导
   // （与河道渲染水面同高：waterY - 0.15，见 applyChannelNetworkCarve）。
@@ -3583,12 +5314,18 @@ function sampleChannelNetwork(x, z) {
     if (!s) return
     const edge = s.distance - s.halfWidth   // <0 表示在水道内，越小越主导
     if (!best || edge < best.edge) {
-      best = { edge, distance: s.distance, halfWidth: s.halfWidth, waterY: s.waterY, dirX: s.dirX, dirZ: s.dirZ, x: s.x, z: s.z, depth }
+      best = { edge, distance: s.distance, halfWidth: s.halfWidth, waterY: s.waterY, dirX: s.dirX, dirZ: s.dirZ, x: s.x, z: s.z, depth, skipNetworkCarve: !!s.skipNetworkCarve }
     }
   }
   consider(getRiverSampleAt(x, z), MAIN_RIVER_WATER_DEPTH)
   consider(getBestBranchSampleAt(x, z), BRANCH_RIVER_WATER_DEPTH)
   consider(getBestWetGullyStreamSampleAt(x, z), GULLY_STREAM_WATER_DEPTH)
+  const braided = getBestNewlandBraidedSampleAt(x, z)
+  consider(braided, braided?.waterDepth ?? 0)
+  if (isInsideBounds(NEWLAND_MOUNTAIN_OUTLET_BOUNDS, x, z)) {
+    const outlet = getNewlandMountainOutletSampleAt(x, z)
+    consider(outlet, NEWLAND_MOUNTAIN_OUTLET.waterDepth)
+  }
   return best
 }
 
@@ -3609,10 +5346,11 @@ function channelNetworkWaterYAt(x, z, getTerrainHeight) {
 
 // ── 统一碳刻：保证任何水道（含交叉口）都被挖到河床，消除漏挖/水漫/飘空 ──
 // 作为最后一道"兜底"碳刻附加在所有河谷塑形之后；Math.min 只会加深，不破坏既有塑形。
-const CHANNEL_NETWORK_CARVE_RUN = Math.max(0.35, channelBankRun(RIVER_CHANNEL_MIN_CUT, RIVER_CHANNEL_MIN_SLOPE_DEG))
+const CHANNEL_NETWORK_CARVE_RUN = Math.max(0.35, channelBankRun(RIVER_CHANNEL_MIN_CUT, RIVER_CHANNEL_MIN_SLOPE_DEG)) // 统一水道碳刻岸坡水平宽度；由切深和坡角派生，通常不直接改。
 function applyChannelNetworkCarve(x, z, height) {
   const s = sampleChannelNetwork(x, z)
   if (!s) return height
+  if (s.skipNetworkCarve) return height
   if (s.distance > s.halfWidth + CHANNEL_NETWORK_CARVE_RUN) return height
   // 保护区（城堡引道/矿洞等）外圈不强行开挖；河道核心仍保证开挖
   const protect = protectedTerrainMask(x, z)
@@ -3646,9 +5384,9 @@ function applyConfluencePoolCarve(x, z, height) {
 // 渲染水面=河床+depth，河床纵向陡升处水面随之竖起成片。这里把每条 wet 河道的河床沿程做
 // 「双向上坡限速」缓化（每米上升不超过 tan(12°)），只加深(Math.min) → 抹平向上台阶、把进/出
 // 深潭的竖直水台阶缓化为斜坡；向下跌水头另由「裁剪高源头段」消除（碳刻无法抬高下游来削平跌水）。
-const GRADE_MAX_SLOPE = Math.tan(THREE.MathUtils.degToRad(12))
-const GRADE_BANK_RUN = Math.max(0.35, channelBankRun(RIVER_CHANNEL_MIN_CUT, RIVER_CHANNEL_MIN_SLOPE_DEG))
-const GRADE_SAMPLE_STEP = 3
+const GRADE_MAX_SLOPE = Math.tan(THREE.MathUtils.degToRad(12)) // 湿河道纵向最大上坡率；角度越小水面越顺但会挖得更深。
+const GRADE_BANK_RUN = Math.max(0.35, channelBankRun(RIVER_CHANNEL_MIN_CUT, RIVER_CHANNEL_MIN_SLOPE_DEG)) // 限坡影响到河岸外的水平宽度；派生值，通常改切深/坡角。
+const GRADE_SAMPLE_STEP = 3 // 沿河采样步距；调小限坡更精细但预计算更多，调大更快但可能漏短台阶。
 let _gradeProfiles = null
 // 直接重跑「平滑前」的修改器链求某点河床（不依赖 onReady 时序、不递归进本 modifier）。
 // 仅含影响河道床位的几道；城堡/山缘/矿洞与本河道区无关，略去。
@@ -4002,10 +5740,10 @@ function createTerrainBlendMaterial(texLoader) {
   }
 
   const mat = new THREE.MeshStandardMaterial({
-    map: applyRepeat(texLoader.load('/textures/souls_terrain/Ground103_1K-JPG_Color.jpg'), { color: true }),
-    normalMap: applyRepeat(texLoader.load('/textures/souls_terrain/Ground103_1K-JPG_NormalGL.jpg')),
-    roughnessMap: applyRepeat(texLoader.load('/textures/souls_terrain/Ground103_1K-JPG_Roughness.jpg')),
-    aoMap: applyRepeat(texLoader.load('/textures/souls_terrain/Ground103_1K-JPG_AmbientOcclusion.jpg')),
+    map: applyRepeat(texLoader.load('/textures/nature_pbr/aerial_ground_rock/aerial_ground_rock_diff_1k.jpg'), { color: true }),
+    normalMap: applyRepeat(texLoader.load('/textures/nature_pbr/aerial_ground_rock/aerial_ground_rock_nor_gl_1k.jpg')),
+    roughnessMap: applyRepeat(texLoader.load('/textures/nature_pbr/aerial_ground_rock/aerial_ground_rock_rough_1k.jpg')),
+    aoMap: applyRepeat(texLoader.load('/textures/nature_pbr/aerial_ground_rock/aerial_ground_rock_ao_1k.jpg')),
     roughness: 1,
     metalness: 0,
     normalScale: new THREE.Vector2(0.78, 0.78),
@@ -4013,13 +5751,16 @@ function createTerrainBlendMaterial(texLoader) {
   })
 
   const uniforms = {
-    uRockMap: { value: applyRepeat(texLoader.load('/textures/souls_terrain/Rock064_1K-JPG_Color.jpg'), { color: true }) },
-    uRockNormalMap: { value: applyRepeat(texLoader.load('/textures/souls_terrain/Rock064_1K-JPG_NormalGL.jpg')) },
-    uRockRoughnessMap: { value: applyRepeat(texLoader.load('/textures/souls_terrain/Rock064_1K-JPG_Roughness.jpg')) },
-    uRockAoMap: { value: applyRepeat(texLoader.load('/textures/souls_terrain/Rock064_1K-JPG_AmbientOcclusion.jpg')) },
+    uRockMap: { value: applyRepeat(texLoader.load('/textures/nature_pbr/aerial_rocks_02/aerial_rocks_02_diff_1k.jpg'), { color: true }) },
+    uRockNormalMap: { value: applyRepeat(texLoader.load('/textures/nature_pbr/aerial_rocks_02/aerial_rocks_02_nor_gl_1k.jpg')) },
+    uRockRoughnessMap: { value: applyRepeat(texLoader.load('/textures/nature_pbr/aerial_rocks_02/aerial_rocks_02_rough_1k.jpg')) },
+    uRockAoMap: { value: applyRepeat(texLoader.load('/textures/nature_pbr/aerial_rocks_02/aerial_rocks_02_ao_1k.jpg')) },
+    uMossRockMap: { value: applyRepeat(texLoader.load('/textures/nature_pbr/aerial_grass_rock/aerial_grass_rock_diff_1k.jpg'), { color: true }) },
+    uMountainRockMap: { value: applyRepeat(texLoader.load(MOUNTAIN_ROCK_TEXTURE_URL), { color: true }) },
     uDebrisMap: { value: applyRepeat(texLoader.load('/textures/ground_debris/polyhaven/dry_decay_leaves_diff_1k.jpg'), { color: true }) },
-    uDirtUvScale: { value: 0.42 },
-    uRockUvScale: { value: 0.27 },
+    uDirtUvScale: { value: 0.2 },
+    uRockUvScale: { value: 0.18 },
+    uMountainRockUvScale: { value: 0.018 },
   }
 
   mat.onBeforeCompile = (shader) => {
@@ -4042,9 +5783,12 @@ function createTerrainBlendMaterial(texLoader) {
       uniform sampler2D uRockNormalMap;
       uniform sampler2D uRockRoughnessMap;
       uniform sampler2D uRockAoMap;
+      uniform sampler2D uMossRockMap;
+      uniform sampler2D uMountainRockMap;
       uniform sampler2D uDebrisMap;
       uniform float uDirtUvScale;
       uniform float uRockUvScale;
+      uniform float uMountainRockUvScale;
 
       vec2 terrainDirtUv() {
         return vWorldPos.xz * uDirtUvScale;
@@ -4141,6 +5885,11 @@ function createTerrainBlendMaterial(texLoader) {
 
 ${TERRAIN_RIVER_SAMPLE_GLSL}
 ${TERRAIN_BRANCH_SAMPLE_GLSL}
+${TERRAIN_NEWLAND_BRAID_SAMPLE_GLSL}
+${TERRAIN_NEWLAND_MOUNTAIN_OUTLET_SAMPLE_GLSL}
+${TERRAIN_NEWLAND_DENDRITIC_GULLY_SAMPLE_GLSL}
+${TERRAIN_EAST_RIM_DRY_RIVER_SAMPLE_GLSL}
+${TERRAIN_LOWLAND_EROSION_GULLY_SAMPLE_GLSL}
 
       vec3 terrainGullySegment(vec2 p, vec2 a, vec2 b, float wet, vec3 best) {
         vec2 ab = b - a;
@@ -4180,6 +5929,18 @@ ${TERRAIN_BRANCH_SAMPLE_GLSL}
         best = terrainGullySegment(p, vec2(-440.0, 90.0), vec2(-430.0, 20.0), 0.0, best);
         best = terrainGullySegment(p, vec2(-235.0, 140.0), vec2(-171.0, 100.0), 1.0, best);
         best = terrainGullySegment(p, vec2(-171.0, 100.0), vec2(-160.0, 40.0), 1.0, best);
+        best = terrainGullySegment(p, vec2(-720.0, -1100.0), vec2(-790.0, -1010.0), 0.0, best);
+        best = terrainGullySegment(p, vec2(-790.0, -1010.0), vec2(-850.0, -940.0), 0.0, best);
+        best = terrainGullySegment(p, vec2(-850.0, -940.0), vec2(-900.0, -875.0), 0.0, best);
+        best = terrainGullySegment(p, vec2(-570.0, -980.0), vec2(-690.0, -940.0), 0.0, best);
+        best = terrainGullySegment(p, vec2(-690.0, -940.0), vec2(-805.0, -910.0), 0.0, best);
+        best = terrainGullySegment(p, vec2(-805.0, -910.0), vec2(-870.0, -860.0), 0.0, best);
+        best = terrainGullySegment(p, vec2(-1120.0, -650.0), vec2(-1035.0, -700.0), 0.0, best);
+        best = terrainGullySegment(p, vec2(-1035.0, -700.0), vec2(-950.0, -760.0), 0.0, best);
+        best = terrainGullySegment(p, vec2(-950.0, -760.0), vec2(-900.0, -825.0), 0.0, best);
+        best = terrainGullySegment(p, vec2(-1020.0, -520.0), vec2(-940.0, -585.0), 0.0, best);
+        best = terrainGullySegment(p, vec2(-940.0, -585.0), vec2(-865.0, -670.0), 0.0, best);
+        best = terrainGullySegment(p, vec2(-865.0, -670.0), vec2(-825.0, -735.0), 0.0, best);
         return best;
       }
     ` + shader.fragmentShader
@@ -4190,9 +5951,10 @@ ${TERRAIN_BRANCH_SAMPLE_GLSL}
       vec3 tpW = tpWeights();
       // 反照率走三平面：陡坡不再把草/岩沿竖直方向拉成条纹
       vec4 dirtColor = vec4(triplanarColor(map, uDirtUvScale, tpW), 1.0);
-      // 土壤加深：压暗 + 偏暖褐，从浅沙黄变更深的泥土色
-      dirtColor.rgb *= vec3(0.66, 0.58, 0.50);
+      // 土壤加深：保留新 PBR 航拍纹理的细节，同时压掉旧版浅沙黄游戏感
+      dirtColor.rgb *= vec3(0.70, 0.67, 0.58);
       vec4 rockColor = vec4(triplanarColor(uRockMap, uRockUvScale, tpW), 1.0);
+      vec3 mossRockColor = triplanarColor(uMossRockMap, 0.18, tpW);
       vec3 debrisColor = texture2D(uDebrisMap, dirtUv * 0.46 + vec2(0.17, 0.09)).rgb;
       float rockMask = terrainRockMask();
       float dampMask = terrainDampMask() * (1.0 - rockMask);
@@ -4200,8 +5962,22 @@ ${TERRAIN_BRANCH_SAMPLE_GLSL}
 
       vec3 dirt = mix(dirtColor.rgb, dirtColor.rgb * vec3(0.52, 0.56, 0.58), dampMask * 0.5);
       dirt = mix(dirt, debrisColor * vec3(0.72, 0.68, 0.58), debrisMask);
-      vec3 rock = rockColor.rgb * vec3(0.82, 0.84, 0.78);
+      vec3 rock = rockColor.rgb * vec3(0.86, 0.88, 0.84);
       vec3 terrainColor = mix(dirt, rock, rockMask);
+      float meadowBroad = terrainNoise(vWorldPos.xz * 0.030 + vec2(14.2, 5.6));
+      float meadowPatch = terrainNoise(vWorldPos.xz * 0.085 + vec2(3.7, 18.4));
+      float meadowFine = terrainNoise(vWorldPos.xz * 0.19 + vec2(21.3, 9.1));
+      float meadowGentle = smoothstep(0.52, 0.82, clamp(dot(normalize(vWorldNormal), vec3(0.0, 1.0, 0.0)), 0.0, 1.0));
+      float meadowHeightMask = 1.0 - smoothstep(56.0, 88.0, vWorldPos.y);
+      float meadowOpenSoil = smoothstep(0.70, 0.92, terrainNoise(vWorldPos.xz * 0.055 + vec2(9.8, 2.4))) * 0.28;
+      float meadowMask = meadowGentle * meadowHeightMask * (1.0 - rockMask) * (0.62 + meadowBroad * 0.24) * (1.0 - meadowOpenSoil);
+      vec3 meadowFresh = vec3(0.230, 0.330, 0.155);
+      vec3 meadowDeep = vec3(0.105, 0.190, 0.080);
+      vec3 meadowDry = vec3(0.330, 0.300, 0.195);
+      vec3 meadowColor = mix(meadowDeep, meadowFresh, meadowBroad);
+      meadowColor = mix(meadowColor, meadowDry, smoothstep(0.56, 0.86, meadowPatch) * 0.45);
+      meadowColor *= 0.90 + meadowFine * 0.16;
+      terrainColor = mix(terrainColor, meadowColor, clamp(meadowMask * 0.56, 0.0, 0.66));
       vec3 riverSample = terrainRiverSample(vWorldPos.xz);
       float riverWidth = mix(3.6, 7.2, pow(riverSample.y, 0.72));
       // 用噪声扰动到河距离，使湿泥/黏土带边界呈不规则锯齿状蜿蜒，而非同心硬边
@@ -4219,7 +5995,7 @@ ${TERRAIN_BRANCH_SAMPLE_GLSL}
       float mottleA = terrainNoise(vWorldPos.xz * 0.22 + vec2(13.1, 5.5));
       float mottleB = terrainNoise(vWorldPos.xz * 0.55 + vec2(4.3, 18.9));
       float mottleC = terrainNoise(vWorldPos.xz * 1.05 + vec2(9.7, 2.2));
-      vec3 bankMoss = vec3(0.17, 0.26, 0.12) * (0.84 + riverBankNoise * 0.22);
+      vec3 bankMoss = mossRockColor * vec3(0.42, 0.56, 0.34) * (0.84 + riverBankNoise * 0.22);
       vec3 riverClay = vec3(0.30, 0.24, 0.15) * (0.84 + riverBankNoise * 0.26);   // 偏暖赭黄黏土
       vec3 warmHumus = vec3(0.13, 0.10, 0.06) * (0.82 + mottleB * 0.28);          // 暖棕腐殖
       // 更暗、偏黑棕的湿泥（参考图水边特征）
@@ -4247,7 +6023,7 @@ ${TERRAIN_BRANCH_SAMPLE_GLSL}
       float centralFloodplain = (1.0 - smoothstep(centralRiverWidth + 26.0, centralRiverWidth + 92.0 + centralRiverBelt * 38.0, riverSample.x)) * smoothstep(centralRiverWidth + 14.0, centralRiverWidth + 42.0, riverSample.x);
       float centralRiverNoise = terrainNoise(vWorldPos.xz * 0.31 + vec2(6.4, 3.9));
       vec3 centralSand = vec3(0.48, 0.44, 0.34) * (0.86 + centralRiverNoise * 0.24);
-      vec3 centralFloodplainGreen = vec3(0.25, 0.34, 0.20) * (0.82 + centralRiverNoise * 0.20);
+      vec3 centralFloodplainGreen = vec3(0.18, 0.27, 0.14) * (0.82 + centralRiverNoise * 0.20);
       terrainColor = mix(terrainColor, centralSand, centralPointBar * 0.50);
       terrainColor = mix(terrainColor, centralFloodplainGreen, centralFloodplain * 0.34);
       terrainColor = mix(terrainColor, wetMud * 0.9, centralWetEdge * 0.9);
@@ -4264,7 +6040,7 @@ ${TERRAIN_BRANCH_SAMPLE_GLSL}
       float branchNoise = terrainNoise(vWorldPos.xz * 0.52 + vec2(4.2, 15.8));
       vec3 branchGravel = vec3(0.40, 0.38, 0.31) * (0.84 + branchNoise * 0.22);
       vec3 branchWetMud = vec3(0.085, 0.066, 0.044) * (0.80 + branchNoise * 0.22);   // 更暗偏棕
-      vec3 branchLowGrass = vec3(0.17, 0.26, 0.13) * (0.86 + branchNoise * 0.18);
+      vec3 branchLowGrass = vec3(0.13, 0.21, 0.105) * (0.86 + branchNoise * 0.18);
       // 支流湿泥也斑驳：复用主河 mottle 噪声，棕腐/黏土/苔绿交错
       vec3 branchSoil = branchWetMud;
       branchSoil = mix(branchSoil, warmHumus, smoothstep(0.35, 0.75, mottleA));
@@ -4273,24 +6049,90 @@ ${TERRAIN_BRANCH_SAMPLE_GLSL}
       terrainColor = mix(terrainColor, branchGravel, branchBank * 0.42);
       terrainColor = mix(terrainColor, branchLowGrass, branchLowland * 0.30);
       terrainColor = mix(terrainColor, branchSoil, branchWetEdge * 0.82);
+      vec3 newlandBraidSample = terrainNewlandBraidSample(vWorldPos.xz);
+      float newlandBraidWidth = 6.4;
+      float newlandBraidEdgeNoise = (terrainNoise(vWorldPos.xz * 0.19 + vec2(12.7, 4.9)) - 0.5) * 3.0
+                                  + (terrainNoise(vWorldPos.xz * 0.63 + vec2(3.4, 10.2)) - 0.5) * 1.2;
+      float newlandBraidWetDist = newlandBraidSample.x + newlandBraidEdgeNoise;
+      float newlandBraidWetEdge = 1.0 - smoothstep(newlandBraidWidth - 0.35, newlandBraidWidth + 9.5, newlandBraidWetDist);
+      float newlandBraidBank = (1.0 - smoothstep(newlandBraidWidth + 2.0, newlandBraidWidth + 17.0, newlandBraidWetDist)) * smoothstep(newlandBraidWidth + 0.8, newlandBraidWidth + 6.0, newlandBraidWetDist);
+      float newlandBraidIsland = (1.0 - smoothstep(newlandBraidWidth + 8.0, newlandBraidWidth + 28.0, newlandBraidSample.x)) * smoothstep(newlandBraidWidth + 4.0, newlandBraidWidth + 12.0, newlandBraidSample.x);
+      float newlandBraidNoise = terrainNoise(vWorldPos.xz * 0.48 + vec2(1.8, 12.4));
+      vec3 braidSand = vec3(0.42, 0.39, 0.29) * (0.86 + newlandBraidNoise * 0.22);
+      vec3 braidWetMud = vec3(0.060, 0.047, 0.030) * (0.82 + newlandBraidNoise * 0.22);
+      vec3 braidIslandGrass = vec3(0.13, 0.21, 0.10) * (0.86 + newlandBraidNoise * 0.18);
+      terrainColor = mix(terrainColor, braidSand, newlandBraidBank * 0.48);
+      terrainColor = mix(terrainColor, braidIslandGrass, newlandBraidIsland * 0.26);
+      terrainColor = mix(terrainColor, braidWetMud, newlandBraidWetEdge * 0.78);
+      vec3 mountainOutletSample = terrainNewlandMountainOutletSample(vWorldPos.xz);
+      float mountainOutletWidth = mix(8.0, 6.0, mountainOutletSample.y) + sin(mountainOutletSample.y * 3.14159265) * 0.7;
+      float mountainOutletEdgeNoise = (terrainNoise(vWorldPos.xz * 0.18 + vec2(2.6, 14.1)) - 0.5) * 3.2
+                                    + (terrainNoise(vWorldPos.xz * 0.58 + vec2(16.2, 1.7)) - 0.5) * 1.2;
+      float mountainOutletWetDist = mountainOutletSample.x + mountainOutletEdgeNoise;
+      float mountainOutletWetEdge = 1.0 - smoothstep(mountainOutletWidth - 0.35, mountainOutletWidth + 10.0, mountainOutletWetDist);
+      float mountainOutletBank = (1.0 - smoothstep(mountainOutletWidth + 2.0, mountainOutletWidth + 18.0, mountainOutletWetDist)) * smoothstep(mountainOutletWidth + 0.8, mountainOutletWidth + 6.5, mountainOutletWetDist);
+      float mountainOutletLowland = (1.0 - smoothstep(mountainOutletWidth + 8.0, mountainOutletWidth + 32.0, mountainOutletSample.x)) * smoothstep(mountainOutletWidth + 4.0, mountainOutletWidth + 13.0, mountainOutletSample.x);
+      float mountainOutletNoise = terrainNoise(vWorldPos.xz * 0.45 + vec2(10.4, 3.2));
+      vec3 mountainOutletSand = vec3(0.40, 0.37, 0.28) * (0.86 + mountainOutletNoise * 0.22);
+      vec3 mountainOutletWetMud = vec3(0.058, 0.045, 0.030) * (0.82 + mountainOutletNoise * 0.22);
+      vec3 mountainOutletGrass = vec3(0.13, 0.22, 0.105) * (0.86 + mountainOutletNoise * 0.18);
+      terrainColor = mix(terrainColor, mountainOutletSand, mountainOutletBank * 0.50);
+      terrainColor = mix(terrainColor, mountainOutletGrass, mountainOutletLowland * 0.25);
+      terrainColor = mix(terrainColor, mountainOutletWetMud, mountainOutletWetEdge * 0.78);
       vec3 gullySample = terrainGullySample(vWorldPos.xz);
       float gullyCore = 1.0 - smoothstep(2.4, 8.5, gullySample.x);
       float gullyApron = (1.0 - smoothstep(8.0, 34.0, gullySample.x)) * smoothstep(3.0, 12.0, gullySample.x);
       float gullyNoise = terrainNoise(vWorldPos.xz * 0.6 + vec2(8.8, 1.9));
       vec3 gullyGravel = vec3(0.43, 0.41, 0.34) * (0.86 + gullyNoise * 0.22);
       vec3 wetCut = vec3(0.105, 0.094, 0.066) * (0.82 + gullyNoise * 0.24);
-      vec3 gullyGrass = vec3(0.20, 0.29, 0.16) * (0.86 + gullyNoise * 0.16);
+      vec3 gullyGrass = vec3(0.15, 0.23, 0.12) * (0.86 + gullyNoise * 0.16);
       terrainColor = mix(terrainColor, gullyGravel, gullyApron * 0.22);
       terrainColor = mix(terrainColor, wetCut, gullyCore * 0.74);
       terrainColor = mix(terrainColor, gullyGrass, gullyApron * 0.26);
+      vec3 lowlandErosionSample = terrainLowlandErosionGullySample(vWorldPos.xz);
+      float lowlandErosionCore = 1.0 - smoothstep(3.2, 8.8, lowlandErosionSample.x);
+      float lowlandErosionApron = (1.0 - smoothstep(9.0, 42.0, lowlandErosionSample.x)) * smoothstep(3.5, 13.0, lowlandErosionSample.x);
+      float lowlandErosionNoise = terrainNoise(vWorldPos.xz * 0.54 + vec2(22.8, 6.3));
+      vec3 lowlandDryCut = vec3(0.18, 0.145, 0.095) * (0.82 + lowlandErosionNoise * 0.24);
+      vec3 lowlandGravel = vec3(0.38, 0.36, 0.29) * (0.84 + lowlandErosionNoise * 0.22);
+      vec3 lowlandSparseGrass = vec3(0.125, 0.195, 0.095) * (0.82 + lowlandErosionNoise * 0.20);
+      terrainColor = mix(terrainColor, lowlandGravel, lowlandErosionApron * 0.46);
+      terrainColor = mix(terrainColor, lowlandSparseGrass, lowlandErosionApron * 0.12);
+      terrainColor = mix(terrainColor, lowlandDryCut, lowlandErosionCore * 0.86);
+      vec3 dendriticGullySample = terrainNewlandDendriticGullySample(vWorldPos.xz);
+      float dendriticCore = 1.0 - smoothstep(4.5, 11.0, dendriticGullySample.x);
+      float dendriticApron = (1.0 - smoothstep(12.0, 48.0, dendriticGullySample.x)) * smoothstep(4.0, 15.0, dendriticGullySample.x);
+      float dendriticNoise = terrainNoise(vWorldPos.xz * 0.42 + vec2(17.4, 6.6));
+      vec3 dendriticPaleGrass = vec3(0.24, 0.34, 0.15) * (0.86 + dendriticNoise * 0.18);
+      vec3 dendriticDrySilt = vec3(0.42, 0.40, 0.31) * (0.86 + dendriticNoise * 0.18);
+      terrainColor = mix(terrainColor, dendriticPaleGrass, dendriticApron * 0.46);
+      terrainColor = mix(terrainColor, dendriticDrySilt, dendriticCore * 0.42);
+      terrainColor = mix(terrainColor, dendriticPaleGrass, dendriticCore * 0.18);
+      vec3 eastRimDrySample = terrainEastRimDryRiverSample(vWorldPos.xz);
+      float eastRimDryNoise = terrainNoise(vWorldPos.xz * 0.37 + vec2(12.4, 21.7));
+      float eastRimDryDist = eastRimDrySample.x + (eastRimDryNoise - 0.5) * 3.0;
+      float eastRimDryCore = 1.0 - smoothstep(8.0, 22.0, eastRimDryDist);
+      float eastRimDryApron = (1.0 - smoothstep(22.0, 76.0, eastRimDrySample.x)) * smoothstep(9.0, 24.0, eastRimDrySample.x);
+      vec3 eastRimPaleGrass = vec3(0.25, 0.36, 0.16) * (0.86 + eastRimDryNoise * 0.16);
+      vec3 eastRimDrySilt = vec3(0.50, 0.45, 0.34) * (0.88 + eastRimDryNoise * 0.18);
+      vec3 eastRimGravel = vec3(0.40, 0.38, 0.32) * (0.88 + eastRimDryNoise * 0.16);
+      terrainColor = mix(terrainColor, eastRimPaleGrass, eastRimDryApron * 0.38);
+      terrainColor = mix(terrainColor, eastRimDrySilt, eastRimDryCore * 0.66);
+      terrainColor = mix(terrainColor, eastRimGravel, eastRimDryCore * 0.34);
       // ── 陡河岸斑驳岩壁/地衣（参考图对岸特征）：靠近河 ∩ 坡陡 处把 rock 染绿灰 + 深色地衣斑 ──
       float bankProximity = max(
         1.0 - smoothstep(riverWidth + 2.0, riverWidth + 30.0, wetDist),
-        1.0 - smoothstep(branchWidth + 1.0, branchWidth + 18.0, branchWetDist)
+        max(
+          1.0 - smoothstep(branchWidth + 1.0, branchWidth + 18.0, branchWetDist),
+          max(
+            1.0 - smoothstep(newlandBraidWidth + 1.0, newlandBraidWidth + 18.0, newlandBraidWetDist),
+            1.0 - smoothstep(mountainOutletWidth + 1.0, mountainOutletWidth + 18.0, mountainOutletWetDist)
+          )
+        )
       );
       float bankSteep = smoothstep(0.14, 0.40, 1.0 - clamp(dot(normalize(vWorldNormal), vec3(0.0, 1.0, 0.0)), 0.0, 1.0));
       float bankRockMask = bankProximity * bankSteep;
-      vec3 lichenRock = rockColor.rgb * vec3(0.62, 0.66, 0.55);   // 绿灰风化岩
+      vec3 lichenRock = mix(rockColor.rgb * vec3(0.62, 0.66, 0.55), mossRockColor * vec3(0.55, 0.66, 0.45), 0.44);   // 绿灰风化岩
       float lichenPatch = smoothstep(0.52, 0.84, terrainNoise(vWorldPos.xz * 0.30 + vec2(3.3, 7.7)));
       lichenRock = mix(lichenRock, vec3(0.17, 0.19, 0.15), lichenPatch * 0.7);   // 深色地衣斑
       lichenRock = mix(lichenRock, vec3(0.30, 0.36, 0.24), smoothstep(0.6, 0.9, terrainNoise(vWorldPos.xz * 0.7)) * 0.35);  // 零星苔绿
@@ -4306,9 +6148,12 @@ ${TERRAIN_BRANCH_SAMPLE_GLSL}
       // 远处山丘缓坡（远离河道、非岩、非高坡）→ 草绿
       float farMeadowMask = farFactor * farGentle * (1.0 - rockMask)
         * (1.0 - bankProximity) * (1.0 - smoothstep(24.0, 34.0, vWorldPos.y));
-      vec3 farMeadowGreen = mix(vec3(0.150, 0.250, 0.090), vec3(0.205, 0.330, 0.120),
-        terrainNoise(vWorldPos.xz * 0.21 + vec2(8.3, 2.6)));
-      terrainColor = mix(terrainColor, farMeadowGreen, farMeadowMask * 0.75);
+      float farMeadowBroad = terrainNoise(vWorldPos.xz * 0.080 + vec2(8.3, 2.6));
+      float farMeadowFine = terrainNoise(vWorldPos.xz * 0.24 + vec2(19.1, 5.4));
+      vec3 farMeadowGreen = mix(vec3(0.105, 0.185, 0.070), vec3(0.185, 0.285, 0.105), farMeadowBroad);
+      vec3 farMeadowYellow = vec3(0.260, 0.330, 0.125) * (0.88 + farMeadowFine * 0.20);
+      farMeadowGreen = mix(farMeadowGreen, farMeadowYellow, smoothstep(0.50, 0.88, farMeadowBroad) * 0.34);
+      terrainColor = mix(terrainColor, farMeadowGreen, farMeadowMask * 0.64);
       // ── 陡面强制裸岩：坡度大处一律盖掉草绿/河岸地衣绿，露中性冷灰岩，
       //    避免绿草爬上近垂直崖面（河道穿山导致 2D 距离近，绿苔本会染到高崖）──
       float cliffSlope = 1.0 - clamp(dot(normalize(vWorldNormal), vec3(0.0, 1.0, 0.0)), 0.0, 1.0);
@@ -4320,10 +6165,14 @@ ${TERRAIN_BRANCH_SAMPLE_GLSL}
       float snowMountainMask = smoothstep(22.0, 64.0, vWorldPos.y);
       float highAlpineMask = smoothstep(95.0, 175.0, vWorldPos.y);
       float slopeMask = terrainSlopeMask();
-      // ── 高山岩：三平面噪声做"地层带"明暗 + 颗粒，陡面深冷灰、缓坡略暖，杜绝竖直拉伸 ──
+      // ── 高山岩：三平面采样专用岩壁贴图，陡面露灰岩，缓坡保留雪/草过渡 ──
       float strata = terrainNoiseTP(0.045, tpW);          // 低频：沉积/节理大带
       float rockGrain = terrainNoiseTP(0.5, tpW);         // 高频：岩石颗粒
+      vec3 mountainRockA = triplanarColor(uMountainRockMap, uMountainRockUvScale, tpW);
+      vec3 mountainRockB = triplanarColor(uMountainRockMap, uMountainRockUvScale * 0.43, tpW);
+      vec3 mountainRockTex = mix(mountainRockA, mountainRockB, 0.28) * vec3(0.86, 0.92, 0.98);
       vec3 alpineRock = mix(vec3(0.40, 0.42, 0.44), vec3(0.60, 0.61, 0.62), strata);
+      alpineRock = mix(alpineRock, mountainRockTex, clamp(smoothstep(0.12, 0.62, slopeMask) * 0.86 + highAlpineMask * 0.34, 0.0, 0.96));
       alpineRock = mix(alpineRock, vec3(0.30, 0.33, 0.37), slopeMask * 0.45);                 // 陡面更深冷
       alpineRock = mix(alpineRock, alpineRock * vec3(1.05, 1.0, 0.93), (1.0 - slopeMask) * 0.22); // 缓坡略暖
       alpineRock *= 0.90 + rockGrain * 0.18;
@@ -4331,12 +6180,12 @@ ${TERRAIN_BRANCH_SAMPLE_GLSL}
       // ── 雪分布：缓坡/凹处堆积，陡面露岩；雪线用三平面噪声犬牙交错 ──
       float snowPatch = terrainNoiseTP(0.03, tpW);
       float windSnow = terrainNoiseTP(0.16, tpW);
-      float settledSnow = smoothstep(46.0, 100.0, vWorldPos.y) * (1.0 - smoothstep(0.18, 0.62, slopeMask));
+      float settledSnow = smoothstep(46.0, 100.0, vWorldPos.y) * (1.0 - smoothstep(0.14, 0.54, slopeMask));
       float streakSnow = smoothstep(44.0, 116.0, vWorldPos.y)
         * smoothstep(0.42, 0.74, snowPatch + windSnow * 0.22)
-        * (1.0 - smoothstep(0.66, 0.96, slopeMask));
-      float summitSnow = highAlpineMask * (1.0 - smoothstep(0.86, 1.05, slopeMask)) * 0.98;    // 高山雪盖（仅近垂直露岩）
-      float glacierSnow = smoothstep(150.0, 240.0, vWorldPos.y) * (1.0 - smoothstep(0.95, 1.12, slopeMask)); // 极高处雪原/冰川，覆盖陡雪峰
+        * (1.0 - smoothstep(0.52, 0.86, slopeMask));
+      float summitSnow = highAlpineMask * (1.0 - smoothstep(0.74, 0.98, slopeMask)) * 0.90;    // 高山雪盖（仅近垂直露岩）
+      float glacierSnow = smoothstep(150.0, 240.0, vWorldPos.y) * (1.0 - smoothstep(0.82, 1.05, slopeMask)); // 极高处雪原/冰川，覆盖陡雪峰
       float snowMask = clamp(max(max(max(settledSnow, streakSnow), summitSnow), glacierSnow), 0.0, 1.0);
       // ── 雪色：亮白基底 + 细颗粒微光，陡面/阴影冷蓝，起伏轻微明暗 ──
       float snowGrain = terrainNoiseTP(1.1, tpW);
@@ -4345,6 +6194,11 @@ ${TERRAIN_BRANCH_SAMPLE_GLSL}
       snowColor *= 0.95 + snowPatch * 0.06;
       terrainColor = mix(terrainColor, snowColor, snowMask);
       terrainColor *= 0.93 + terrainNoiseTP(1.3, tpW) * 0.10;
+      float topdownSoilBreakup = terrainNoise(vWorldPos.xz * 0.018 + vec2(33.0, 12.0));
+      vec3 topdownEarth = vec3(0.19, 0.17, 0.12) * (0.82 + topdownSoilBreakup * 0.22);
+      float gentleOpen = smoothstep(0.72, 0.94, clamp(dot(normalize(vWorldNormal), vec3(0.0, 1.0, 0.0)), 0.0, 1.0))
+        * (1.0 - rockMask) * (1.0 - bankProximity) * (1.0 - snowMask);
+      terrainColor = mix(terrainColor, topdownEarth, gentleOpen * smoothstep(0.62, 0.92, topdownSoilBreakup) * 0.18);
       diffuseColor *= vec4(terrainColor, dirtColor.a);
       `
     )
@@ -4453,20 +6307,24 @@ ${TERRAIN_BRANCH_SAMPLE_GLSL}
     )
   }
 
-  mat.customProgramCacheKey = () => 'terrain-dirt-rock-pbr-v9'
+  mat.customProgramCacheKey = () => 'terrain-dirt-rock-pbr-v13'
   return mat
 }
 
 function createDistantTerrainProxyMaterial(texLoader) {
-  const map = texLoader.load('/textures/souls_terrain/Ground103_1K-JPG_Color.jpg')
+  const map = texLoader.load('/textures/nature_pbr/aerial_ground_rock/aerial_ground_rock_diff_1k.jpg')
   map.wrapS = map.wrapT = THREE.RepeatWrapping
   map.repeat.set(16, 16)
   map.anisotropy = 4
   map.colorSpace = THREE.SRGBColorSpace
+  const mountainRockMap = texLoader.load(MOUNTAIN_ROCK_TEXTURE_URL)
+  mountainRockMap.wrapS = mountainRockMap.wrapT = THREE.RepeatWrapping
+  mountainRockMap.anisotropy = 4
+  mountainRockMap.colorSpace = THREE.SRGBColorSpace
 
   const material = new THREE.MeshBasicMaterial({
     map,
-    color: 0xa0a4a0,
+    color: 0x8b8a7e,
     fog: true,
     polygonOffset: true,
     polygonOffsetFactor: 1,
@@ -4479,6 +6337,7 @@ function createDistantTerrainProxyMaterial(texLoader) {
     uNightFactor: { value: 0 },
     uSkyColor: { value: new THREE.Color(0xb8ddff) },    // 半球环境光-天空
     uGroundColor: { value: new THREE.Color(0x6a6e72) }, // 半球环境光-地面（中性灰，非草绿）
+    uMountainRockMap: { value: mountainRockMap },
   }
   material.userData.uniforms = uniforms
   material.onBeforeCompile = (shader) => {
@@ -4500,6 +6359,7 @@ function createDistantTerrainProxyMaterial(texLoader) {
       uniform float uNightFactor;
       uniform vec3 uSkyColor;
       uniform vec3 uGroundColor;
+      uniform sampler2D uMountainRockMap;
 
       float proxyHash(vec2 p) {
         return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
@@ -4526,12 +6386,21 @@ function createDistantTerrainProxyMaterial(texLoader) {
       float fine = proxyNoise(vProxyWorldPos.xz * 0.20 + vec2(9.4, 1.8));
       float streakN = proxyNoise(vProxyWorldPos.xz * 0.42 + vec2(13.7, 2.4));
       float alpine = smoothstep(22.0, 74.0, vProxyWorldPos.y);
-      vec3 lowGround = diffuseColor.rgb * vec3(0.76, 0.78, 0.70);
+      vec3 lowGround = diffuseColor.rgb * vec3(0.66, 0.65, 0.56);
       // 远景低地染草绿，与近处草地衔接（alpine=高山因子，slope=坡度）
       float proxyMeadow = (1.0 - alpine) * (1.0 - smoothstep(0.30, 0.62, slope));
-      vec3 proxyMeadowGreen = mix(vec3(0.150, 0.250, 0.090), vec3(0.200, 0.320, 0.120), broad);
-      lowGround = mix(lowGround, proxyMeadowGreen, proxyMeadow * 0.6);
-      vec3 coldRock = mix(vec3(0.40, 0.43, 0.45), vec3(0.64, 0.66, 0.67), broad);
+      vec3 proxyMeadowGreen = mix(vec3(0.105, 0.185, 0.070), vec3(0.185, 0.285, 0.105), broad);
+      vec3 proxyMeadowYellow = vec3(0.260, 0.330, 0.125) * (0.88 + fine * 0.20);
+      vec3 proxySoil = vec3(0.22, 0.20, 0.145) * (0.82 + broad * 0.22);
+      proxyMeadowGreen = mix(proxyMeadowGreen, proxyMeadowYellow, smoothstep(0.50, 0.88, broad) * 0.34);
+      lowGround = mix(lowGround, proxyMeadowGreen, proxyMeadow * 0.50);
+      lowGround = mix(lowGround, proxySoil, proxyMeadow * smoothstep(0.62, 0.90, fine) * 0.20);
+      vec3 proxyRockXY = texture2D(uMountainRockMap, vProxyWorldPos.xy * vec2(0.028, 0.017)).rgb;
+      vec3 proxyRockZY = texture2D(uMountainRockMap, vProxyWorldPos.zy * vec2(0.028, 0.017) + vec2(0.19, 0.07)).rgb;
+      float xFace = abs(proxyN.x) / max(abs(proxyN.x) + abs(proxyN.z), 0.0001);
+      vec3 proxyRockTex = mix(proxyRockXY, proxyRockZY, xFace) * vec3(0.86, 0.92, 0.98);
+      vec3 coldRock = mix(vec3(0.40, 0.43, 0.45), proxyRockTex, alpine * 0.88);
+      coldRock = mix(coldRock, vec3(0.64, 0.66, 0.67), broad * 0.18);
       // 陡岩更暗更冷，强化裸岩与雪的明度对比
       coldRock = mix(coldRock, vec3(0.26, 0.31, 0.36), smoothstep(0.30, 0.82, slope) * 0.55);
       coldRock *= vec3(0.84, 0.92, 1.0) * (0.92 + fine * 0.10);
@@ -4539,14 +6408,14 @@ function createDistantTerrainProxyMaterial(texLoader) {
       // 大尺度伪 AO：山谷/背阴处压暗，增加体积层次
       baseMountain *= 0.82 + broad * 0.18;
       // 平缓处积雪
-      float settledSnow = smoothstep(56.0, 120.0, vProxyWorldPos.y) * (1.0 - smoothstep(0.14, 0.58, slope));
+      float settledSnow = smoothstep(56.0, 120.0, vProxyWorldPos.y) * (1.0 - smoothstep(0.12, 0.48, slope));
       // 雪沟 streak：顺坡而下的纵向雪带，陡面被裸岩切断
       float streakMask = smoothstep(0.42, 0.78, broad * 0.7 + streakN * 0.5 + fine * 0.18);
       float streakSnow = smoothstep(78.0, 150.0, vProxyWorldPos.y)
         * streakMask
-        * (1.0 - smoothstep(0.62, 0.92, slope));
-      float summitSnow = smoothstep(95.0, 160.0, vProxyWorldPos.y) * (1.0 - smoothstep(0.80, 1.02, slope)) * 0.97;
-      float glacierSnow = smoothstep(150.0, 240.0, vProxyWorldPos.y) * (1.0 - smoothstep(0.90, 1.10, slope)); // 极高处雪原；最陡岩壁露灰岩
+        * (1.0 - smoothstep(0.48, 0.78, slope));
+      float summitSnow = smoothstep(110.0, 170.0, vProxyWorldPos.y) * (1.0 - smoothstep(0.68, 0.96, slope)) * 0.88;
+      float glacierSnow = smoothstep(165.0, 250.0, vProxyWorldPos.y) * (1.0 - smoothstep(0.76, 1.04, slope)); // 极高处雪原；最陡岩壁露灰岩
       float snow = clamp(max(max(max(settledSnow, streakSnow), summitSnow), glacierSnow), 0.0, 1.0);
       // ── 廉价太阳光照（MeshBasicMaterial 本身不受光，这里手算）──
       vec3 sunDir = normalize(uSunDir);
@@ -4589,7 +6458,7 @@ function createDistantTerrainProxyMaterial(texLoader) {
       `
     )
   }
-  material.customProgramCacheKey = () => 'distant-terrain-snow-proxy-v7'
+  material.customProgramCacheKey = () => 'distant-terrain-snow-proxy-v9'
   return material
 }
 
@@ -4607,7 +6476,7 @@ let _rockInstancedMesh = null  // 游戏模式下的岩石 InstancedMesh
 let _sampleTerrainHeight = () => 0
 let _terrainReady = false
 const _pendingGroundings = []
-const TREE_MODEL_SCALE = 3
+const TREE_MODEL_SCALE = 3 // 编辑器/单独克隆树模型的默认缩放；调大手放树更高，调小更矮，不影响 world-tree 实例配置。
 
 function _applyGrounding(group, yOffset = 0) {
   if (!group) return
@@ -4955,8 +6824,10 @@ function createHeroRiverMaterial() {
     vertexShader: `
       attribute float aShore;
       attribute float aSubmerge;
+      attribute float aConfluence;
       varying float vShore;
       varying float vSubmerge;
+      varying float vConfluence;
       varying vec2 vUv;
       varying float vEdge;
       varying float vFlow;
@@ -4967,6 +6838,7 @@ function createHeroRiverMaterial() {
         vUv = uv;
         vShore = aShore;
         vSubmerge = aSubmerge;
+        vConfluence = aConfluence;
         vEdge = abs(uv.x - 0.5) * 2.0;
         vFlow = uv.y;
         vec4 worldPos = modelMatrix * vec4(position, 1.0);
@@ -5092,8 +6964,12 @@ function createMainRiverMaterial() {
     vertexShader: `
       attribute float aShore;
       attribute float aSubmerge;
+      attribute float aConfluence;
+      attribute float aWaterMask;
       varying float vShore;
       varying float vSubmerge;
+      varying float vConfluence;
+      varying float vWaterMask;
       varying vec2 vUv;
       varying float vEdge;
       varying float vFlow;
@@ -5104,6 +6980,8 @@ function createMainRiverMaterial() {
         vUv = uv;
         vShore = aShore;
         vSubmerge = aSubmerge;
+        vConfluence = aConfluence;
+        vWaterMask = aWaterMask;
         vEdge = abs(uv.x - 0.5) * 2.0;
         vFlow = uv.y;
         vec4 worldPos = modelMatrix * vec4(position, 1.0);
@@ -5119,6 +6997,8 @@ function createMainRiverMaterial() {
       uniform float uTime;
       varying float vShore;
       varying float vSubmerge;
+      varying float vConfluence;
+      varying float vWaterMask;
       varying vec2 vUv;
       varying float vEdge;
       varying float vFlow;
@@ -5174,6 +7054,7 @@ function createMainRiverMaterial() {
         float centerDepth = 1.0 - smoothstep(0.12, 0.88, side);
         float shallowBank = smoothstep(0.42, 0.94, sideW);
         float edgeBand = smoothstep(0.70, 1.0, sideW);
+        float confluenceGate = 1.0 - clamp(vConfluence, 0.0, 1.0);
         float flow = vFlow * 18.0 - time * 2.25;
 
         float h = waterHeight(world, time);
@@ -5201,7 +7082,7 @@ function createMainRiverMaterial() {
 
         // vShore：浅水/真实岸线度（1=贴陆地浅水，0=深水/盖在另一片水之上）。
         // 边缘高光（绿边/泡沫/水线）只在真实岸线出现，避免交叉口内部重叠边发亮。
-        float shoreGate = smoothstep(0.25, 0.7, vShore);
+        float shoreGate = smoothstep(0.25, 0.7, vShore) * confluenceGate;
         float shoreNoise = fbm(vec2(vFlow * 0.62 - time * 0.42, vUv.x * 8.5 + time * 0.10));
         float softFoamBand = smoothstep(0.48, 0.84, sideW) * (1.0 - smoothstep(0.98, 1.0, sideW) * 0.28);
         float softShoreFoam = softFoamBand * smoothstep(0.24, 0.78, shoreNoise + longRipple * 0.22 + fine * 0.10) * shoreGate;
@@ -5210,27 +7091,27 @@ function createMainRiverMaterial() {
         float foamMask = clamp(softShoreFoam * 0.66 + shoreFoam * 0.58 + brokenFoam * 0.52, 0.0, 1.0);
         // 飞溅白点/气泡：高频阈值噪声，散布在水面（中心/浅滩稍多），对应参考图的小白点
         float speckNoise = fbm(world * 2.6 + vec2(time * 0.35, -time * 0.28));
-        float specks = smoothstep(0.84, 0.96, speckNoise) * (0.4 + shallowBank * 0.5);
+        float specks = smoothstep(0.84, 0.96, speckNoise) * (0.4 + shallowBank * 0.5) * (0.35 + confluenceGate * 0.65);
         foamMask = clamp(foamMask + specks * 0.7, 0.0, 1.0);
 
-        // 更饱和的深→浅分层：深蓝绿色中心、青绿浅滩，对应参考图的强烈深浅对比
-        vec3 deep = vec3(0.015, 0.085, 0.150);
-        vec3 mid = vec3(0.045, 0.190, 0.235);
-        vec3 shallow = vec3(0.150, 0.355, 0.300);
-        vec3 silt = vec3(0.300, 0.265, 0.165);
-        vec3 glint = vec3(0.44, 0.66, 0.72);
-        vec3 foam = vec3(0.82, 0.92, 0.90);
+        // 深→浅分层：保留动态浪纹，但压低亮青色，避免俯视时像发光贴图条。
+        vec3 deep = vec3(0.010, 0.060, 0.105);
+        vec3 mid = vec3(0.030, 0.130, 0.165);
+        vec3 shallow = vec3(0.100, 0.250, 0.205);
+        vec3 silt = vec3(0.245, 0.220, 0.145);
+        vec3 glint = vec3(0.34, 0.52, 0.58);
+        vec3 foam = vec3(0.74, 0.84, 0.80);
 
         vec3 color = mix(mid, deep, centerDepth);
         // 浅水色只在真实浅水（贴岸）出现；盖在另一片深水之上的水带边缘不变浅 → 消除深水里的浅色斜带
-        color = mix(color, shallow, shallowBank * shoreGate * (0.72 + fine * 0.18));
+        color = mix(color, shallow, shallowBank * shoreGate * (0.52 + fine * 0.14));
         // 明亮青绿浅滩发光带（参考图水边特征）：sideW 中段一条亮绿带，最外缘前收住；只在真实岸线
         float greenFringe = smoothstep(0.46, 0.82, sideW) * (1.0 - smoothstep(0.90, 1.06, sideW)) * shoreGate;
-        color = mix(color, vec3(0.16, 0.56, 0.40), greenFringe * 0.34);
+        color = mix(color, vec3(0.10, 0.34, 0.26), greenFringe * 0.22);
         color = mix(color, silt, edgeBand * shoreGate * (0.26 + shoreNoise * 0.22));
         // 网格焦散：偏青白的亮光纹（保持深水偏蓝的基调），叠加在整条水面
-        color += vec3(0.30, 0.50, 0.46) * caustic;
-        color += vec3(0.05, 0.26, 0.20) * greenFringe * (0.5 + caustic * 0.6);
+        color += vec3(0.20, 0.34, 0.32) * caustic;
+        color += vec3(0.035, 0.145, 0.115) * greenFringe * (0.5 + caustic * 0.6);
         color = mix(color, glint, fresnel * (0.22 + centerDepth * 0.14));
         color += vec3(0.90, 0.98, 0.94) * spec * (0.24 + fresnel * 0.42);
         color = mix(color, foam, foamMask);
@@ -5241,12 +7122,15 @@ function createMainRiverMaterial() {
         float lap = 0.055 * sin(time * 0.9 + vFlow * 4.5 + shoreNoise * 2.5)
                   + 0.03 * sin(time * 0.37 + vFlow * 1.7);
         float edgeCut = clamp(0.86 + lap + bankWarp * 0.35, 0.6, 0.95);
-        float edgeAlpha = 1.0 - smoothstep(edgeCut - 0.10, edgeCut + 0.05, side);
+        float stripEdgeAlpha = 1.0 - smoothstep(edgeCut - 0.10, edgeCut + 0.05, side);
+        float realShoreAlpha = mix(1.0, stripEdgeAlpha, smoothstep(0.2, 0.75, vShore));
+        float edgeAlpha = mix(1.0, realShoreAlpha, confluenceGate);
         float lapFoam = smoothstep(0.05, 0.0, abs(side - edgeCut)) * smoothstep(0.55, 0.85, side) * shoreGate;
         color = mix(color, foam, lapFoam * 0.55);
         float alpha = (mix(0.58, 0.94, centerDepth)
           + edgeBand * 0.04 + softShoreFoam * 0.18 + foamMask * 0.24 + fresnel * 0.10
-          + lapFoam * 0.30) * edgeAlpha;
+          + lapFoam * 0.30) * edgeAlpha * smoothstep(0.02, 0.82, vWaterMask);
+        if (alpha < 0.01) discard;
         gl_FragColor = vec4(color, clamp(alpha, 0.0, 0.96));
         #include <fog_fragment>
       }
@@ -5266,6 +7150,8 @@ function buildRiverStripGeometry(points, getSampleAt, {
   const uvs = []
   const shores = []
   const submerges = []
+  const confluences = []
+  const waterMasks = []
   const idx = []
   let row = 0
   let flowV = 0
@@ -5331,16 +7217,21 @@ function buildRiverStripGeometry(points, getSampleAt, {
       // 浅水度 aShore：水浅（贴陆地岸线）→1，深水/盖在另一片水之上→0。
       // shader 用它门控边缘高光，使绿边/泡沫/水线只在真实岸线出现，消除交叉口内部亮线。
       let shoreF = getGroundYAt ? (1 - THREE.MathUtils.smoothstep(vy - gy, 0.4, 1.6)) : 1
+      let confluenceF = 0
       // 交汇抑制：第二近水道在 ~0.5–4m 内 → 判为两道交叠的交汇区，平滑压低 aShore，
       // 让交汇内部接缝不起白色岸线泡沫/亮边；单条河（无第二近水道）不受影响、岸边泡沫照旧。
       if (getGroundYAt) {
         const secondEdge = nearbyChannelSecondEdge(wx, wz)
         const confluence = 1 - THREE.MathUtils.smoothstep(secondEdge, 0.5, 4.0)
-        shoreF *= (1 - confluence)
+        const braidedConfluence = newlandBraidedOverlapWeightAt(wx, wz, sample.channelId)
+        confluenceF = Math.max(confluence, braidedConfluence)
+        shoreF *= (1 - confluenceF)
       }
       verts.push(wx, vy, wz)
       uvs.push(u, flowV + whitewaterUv * 0.18)
       shores.push(shoreF)
+      confluences.push(confluenceF)
+      waterMasks.push(1)
       submerges.push(vy - gy)  // 水面高出地形的量；<0 表示地形穿出水面（着色器据此丢弃）
     }
     if (row < samples.length - 1) {
@@ -5359,6 +7250,8 @@ function buildRiverStripGeometry(points, getSampleAt, {
   geometry.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2))
   geometry.setAttribute('aShore', new THREE.Float32BufferAttribute(shores, 1))
   geometry.setAttribute('aSubmerge', new THREE.Float32BufferAttribute(submerges, 1))
+  geometry.setAttribute('aConfluence', new THREE.Float32BufferAttribute(confluences, 1))
+  geometry.setAttribute('aWaterMask', new THREE.Float32BufferAttribute(waterMasks, 1))
   geometry.setIndex(idx)
   geometry.computeVertexNormals()
   geometry.computeBoundingBox()
@@ -5399,6 +7292,176 @@ function buildGullyStreamGeometry(gully, getTerrainHeight) {
   })
 }
 
+function buildNewlandBraidedRiverGeometry(channel, getTerrainHeight) {
+  return buildRiverStripGeometry(channel.points, (x, z) => getNewlandBraidedSampleAt(channel, x, z), {
+    widthPad: 0.08,
+    stepDistance: 8,
+    crossSegments: 5,
+    getSurfaceYAt: sample => getTerrainHeight(sample.x, sample.z) + sample.waterDepth,
+    getGroundYAt: getTerrainHeight,
+    maxShoreExtend: 4,
+  })
+}
+
+function buildNewlandMountainOutletGeometry(getTerrainHeight) {
+  return buildRiverStripGeometry(NEWLAND_MOUNTAIN_OUTLET.points, getNewlandMountainOutletSampleAt, {
+    widthPad: 0.12,
+    stepDistance: 8,
+    crossSegments: 6,
+    getSurfaceYAt: sample => getTerrainHeight(sample.x, sample.z) + NEWLAND_MOUNTAIN_OUTLET.waterDepth,
+    getGroundYAt: getTerrainHeight,
+    maxShoreExtend: 6,
+  })
+}
+
+function makeNewlandBraidedWaterBounds(padding = 10) {
+  let minX = Infinity
+  let maxX = -Infinity
+  let minZ = Infinity
+  let maxZ = -Infinity
+  for (const { bounds } of NEWLAND_BRAIDED_BOUNDS) {
+    minX = Math.min(minX, bounds.minX)
+    maxX = Math.max(maxX, bounds.maxX)
+    minZ = Math.min(minZ, bounds.minZ)
+    maxZ = Math.max(maxZ, bounds.maxZ)
+  }
+  return { minX: minX - padding, maxX: maxX + padding, minZ: minZ - padding, maxZ: maxZ + padding }
+}
+
+function buildNewlandBraidedWaterGeometry(getTerrainHeight) {
+  const bounds = makeNewlandBraidedWaterBounds(8)
+  const step = 1.25
+  const nx = Math.ceil((bounds.maxX - bounds.minX) / step)
+  const nz = Math.ceil((bounds.maxZ - bounds.minZ) / step)
+  const verts = []
+  const uvs = []
+  const shores = []
+  const submerges = []
+  const confluences = []
+  const waterMasks = []
+  const idx = []
+
+  for (let iz = 0; iz <= nz; iz++) {
+    const z = bounds.minZ + iz * step
+    for (let ix = 0; ix <= nx; ix++) {
+      const x = bounds.minX + ix * step
+      const sample = getBestNewlandBraidedSampleAt(x, z)
+      const edge = sample ? sample.distance - sample.halfWidth : Infinity
+      const mask = sample ? 1 - THREE.MathUtils.smoothstep(edge, -0.35, 2.2) : 0
+      const waterY = sample ? getTerrainHeight(sample.x, sample.z) + sample.waterDepth : 0
+      const groundY = sample ? getTerrainHeight(x, z) : 0
+      const shore = sample ? (1 - THREE.MathUtils.smoothstep(waterY - groundY, 0.36, 1.45)) * mask : 0
+      const confluence = sample ? newlandBraidedOverlapWeightAt(x, z, sample.channelId) : 0
+      const flowU = ((x - bounds.minX) / Math.max(1, bounds.maxX - bounds.minX))
+      const flowV = ((z - bounds.minZ) / Math.max(1, bounds.maxZ - bounds.minZ)) * 9
+
+      verts.push(x, waterY, z)
+      uvs.push(flowU, flowV)
+      shores.push(shore)
+      submerges.push(sample ? Math.max(waterY - groundY, -0.05) : -0.05)
+      confluences.push(confluence)
+      waterMasks.push(mask)
+    }
+  }
+
+  const rowStride = nx + 1
+  for (let iz = 0; iz < nz; iz++) {
+    for (let ix = 0; ix < nx; ix++) {
+      const a = iz * rowStride + ix
+      const b = a + 1
+      const c = (iz + 1) * rowStride + ix
+      const d = c + 1
+      const maskCount = [a, b, c, d].reduce((count, vertexIndex) => (
+        count + (waterMasks[vertexIndex] > 0.015 ? 1 : 0)
+      ), 0)
+      if (maskCount < 1) continue
+      idx.push(a, c, b, b, c, d)
+    }
+  }
+
+  const geometry = new THREE.BufferGeometry()
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(verts, 3))
+  geometry.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2))
+  geometry.setAttribute('aShore', new THREE.Float32BufferAttribute(shores, 1))
+  geometry.setAttribute('aSubmerge', new THREE.Float32BufferAttribute(submerges, 1))
+  geometry.setAttribute('aConfluence', new THREE.Float32BufferAttribute(confluences, 1))
+  geometry.setAttribute('aWaterMask', new THREE.Float32BufferAttribute(waterMasks, 1))
+  geometry.setIndex(idx)
+  geometry.computeVertexNormals()
+  geometry.computeBoundingBox()
+  geometry.computeBoundingSphere()
+  return geometry
+}
+
+function getNewlandStaticLakeWaterY(lake, getTerrainHeight) {
+  return getTerrainHeight(lake.x, lake.z) + lake.waterDepth
+}
+
+function buildNewlandStaticLakeGeometry(lake, getTerrainHeight) {
+  const rings = 12
+  const seg = 72
+  const waterY = getNewlandStaticLakeWaterY(lake, getTerrainHeight)
+  const cos = Math.cos(lake.rot)
+  const sin = Math.sin(lake.rot)
+  const verts = []
+  const uvs = []
+  const shores = []
+  const submerges = []
+  const confluences = []
+  const waterMasks = []
+  const idx = []
+
+  for (let r = 0; r <= rings; r++) {
+    const ringT = r / rings
+    for (let s = 0; s < seg; s++) {
+      const angle = (s / seg) * Math.PI * 2
+      const boundary = newlandStaticLakeBoundaryScale(lake, angle)
+      const localX = Math.cos(angle) * lake.rx * boundary * ringT
+      const localZ = Math.sin(angle) * lake.rz * boundary * ringT
+      const x = lake.x + localX * cos - localZ * sin
+      const z = lake.z + localX * sin + localZ * cos
+      const shape = getNewlandStaticLakeShapeAt(lake, x, z)
+      const groundY = getTerrainHeight(x, z)
+      const mask = 1 - THREE.MathUtils.smoothstep(shape.edge, -0.5, 1.5)
+      const shore = (1 - THREE.MathUtils.smoothstep(Math.abs(shape.edge), 0, 5)) * 0.45
+
+      verts.push(x, waterY, z)
+      uvs.push(0.5 + ringT * 0.5, 0.5)
+      shores.push(shore)
+      submerges.push(waterY - groundY)
+      confluences.push(1)
+      waterMasks.push(mask)
+    }
+  }
+
+  for (let r = 0; r < rings; r++) {
+    for (let s = 0; s < seg; s++) {
+      const a = r * seg + s
+      const b = r * seg + (s + 1) % seg
+      const c = (r + 1) * seg + s
+      const d = (r + 1) * seg + (s + 1) % seg
+      const wetCount = [a, b, c, d].reduce((count, vertexIndex) => (
+        count + (submerges[vertexIndex] > -0.12 && waterMasks[vertexIndex] > 0.015 ? 1 : 0)
+      ), 0)
+      if (wetCount < 3) continue
+      idx.push(a, c, b, b, c, d)
+    }
+  }
+
+  const geometry = new THREE.BufferGeometry()
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(verts, 3))
+  geometry.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2))
+  geometry.setAttribute('aShore', new THREE.Float32BufferAttribute(shores, 1))
+  geometry.setAttribute('aSubmerge', new THREE.Float32BufferAttribute(submerges, 1))
+  geometry.setAttribute('aConfluence', new THREE.Float32BufferAttribute(confluences, 1))
+  geometry.setAttribute('aWaterMask', new THREE.Float32BufferAttribute(waterMasks, 1))
+  geometry.setIndex(idx)
+  geometry.computeVertexNormals()
+  geometry.computeBoundingBox()
+  geometry.computeBoundingSphere()
+  return geometry
+}
+
 // 交汇水潭水盘：以池心为心的放射状网格，与各河水带共面同材质，兜底填补水带间缝。
 // 逐顶点水高用 channelNetworkWaterYAt（池内即 poolSurfaceY）；aSubmerge=水面-地形，
 // 外圈地形高于水面处 <-0.12 被着色器自动裁掉 → 水盘自动贴合实际水域形状。
@@ -5407,7 +7470,7 @@ function buildConfluencePoolGeometry(pool, getTerrainHeight) {
   const R = pool.rOuter + 2
   const rings = 9, seg = 56
   const poolY = confluencePoolSurfaceY(pool)
-  const verts = [], uvs = [], shores = [], submerges = [], idx = []
+  const verts = [], uvs = [], shores = [], submerges = [], confluences = [], waterMasks = [], idx = []
   for (let r = 0; r <= rings; r++) {
     const radius = R * r / rings
     for (let s = 0; s < seg; s++) {
@@ -5422,6 +7485,8 @@ function buildConfluencePoolGeometry(pool, getTerrainHeight) {
       // uv.y 取常数（潭水无流向），规避按角度取 uv.y 时在 0/2π 接缝处的径向裂缝。
       uvs.push(0.5 + (r / rings) * 0.5, 0.5)
       shores.push(0)          // 深水，不出岸线高光
+      confluences.push(1)      // 池面是交汇内部水面，不渲染岸线泡沫
+      waterMasks.push(1)
       submerges.push(y - gy)
     }
   }
@@ -5439,6 +7504,8 @@ function buildConfluencePoolGeometry(pool, getTerrainHeight) {
   geometry.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2))
   geometry.setAttribute('aShore', new THREE.Float32BufferAttribute(shores, 1))
   geometry.setAttribute('aSubmerge', new THREE.Float32BufferAttribute(submerges, 1))
+  geometry.setAttribute('aConfluence', new THREE.Float32BufferAttribute(confluences, 1))
+  geometry.setAttribute('aWaterMask', new THREE.Float32BufferAttribute(waterMasks, 1))
   geometry.setIndex(idx)
   geometry.computeVertexNormals()
   geometry.computeBoundingBox()
@@ -5452,6 +7519,9 @@ function createUnifiedWaterRender(scene, getTerrainHeight) {
   const geos = [buildHeroRiverGeometry(getTerrainHeight)]
   for (const branch of RIVER_BRANCHES) geos.push(buildRiverBranchGeometry(branch, getTerrainHeight))
   for (const gully of EROSION_GULLIES) if (gully.wet) geos.push(buildGullyStreamGeometry(gully, getTerrainHeight))
+  geos.push(buildNewlandBraidedWaterGeometry(getTerrainHeight))
+  geos.push(buildNewlandMountainOutletGeometry(getTerrainHeight))
+  for (const lake of NEWLAND_STATIC_LAKES) geos.push(buildNewlandStaticLakeGeometry(lake, getTerrainHeight))
   for (const pool of CONFLUENCE_POOLS) geos.push(buildConfluencePoolGeometry(pool, getTerrainHeight))
   const merged = mergeGeometries(geos, false)
   geos.forEach(g => g.dispose())
@@ -5644,6 +7714,96 @@ function createGullyStreamSystems(scene, getTerrainHeight) {
   }
 }
 
+function createNewlandBraidedRiverSystems(scene, getTerrainHeight) {
+  const systems = NEWLAND_BRAIDED_CHANNELS.map((channel) => {
+    function sampleRiver(x, z) {
+      const sample = getNewlandBraidedSampleAt(channel, x, z)
+      const waterY = getTerrainHeight(sample.x, sample.z) + sample.waterDepth
+      const terrainY = getTerrainHeight(x, z)
+      const depth = Math.max(0, waterY - terrainY)
+      const inWater = sample.distance <= sample.halfWidth && depth > 0.025
+      return {
+        ...sample,
+        sourceWaterY: sample.waterY,
+        waterY,
+        inWater,
+        depth,
+      }
+    }
+
+    return { channel, sampleRiver }
+  })
+
+  return {
+    systems,
+    update() {},
+    sampleRiver(x, z) {
+      let best = null
+      for (const system of systems) {
+        const bounds = NEWLAND_BRAIDED_BOUNDS_BY_ID.get(system.channel.id)
+        if (bounds && !isInsideBounds(bounds, x, z)) continue
+        const sample = system.sampleRiver(x, z)
+        if (!best || (sample.inWater && !best.inWater) || (sample.inWater === best.inWater && sample.depth > best.depth)) {
+          best = sample
+        }
+      }
+      return best
+    },
+  }
+}
+
+function createNewlandMountainOutletSystem(scene, getTerrainHeight) {
+  function sampleRiver(x, z) {
+    if (!isInsideBounds(NEWLAND_MOUNTAIN_OUTLET_BOUNDS, x, z)) return null
+    const sample = getNewlandMountainOutletSampleAt(x, z)
+    const waterY = getTerrainHeight(sample.x, sample.z) + NEWLAND_MOUNTAIN_OUTLET.waterDepth
+    const terrainY = getTerrainHeight(x, z)
+    const depth = Math.max(0, waterY - terrainY)
+    const inWater = sample.distance <= sample.halfWidth && depth > 0.025
+    return {
+      ...sample,
+      sourceWaterY: sample.waterY,
+      waterY,
+      inWater,
+      depth,
+    }
+  }
+
+  return {
+    update() {},
+    sampleRiver,
+  }
+}
+
+function sampleNewlandStaticLake(x, z, getTerrainHeight) {
+  let best = null
+  for (const lake of NEWLAND_STATIC_LAKES) {
+    const shape = getNewlandStaticLakeShapeAt(lake, x, z)
+    if (shape.edge > 1.5) continue
+    const waterY = getNewlandStaticLakeWaterY(lake, getTerrainHeight)
+    const terrainY = getTerrainHeight(x, z)
+    const depth = Math.max(0, waterY - terrainY)
+    const inWater = shape.edge <= 0 && depth > 0.025
+    const sample = {
+      x,
+      z,
+      waterY,
+      depth,
+      inWater,
+      flowSpeed: 0,
+      dirX: 0,
+      dirZ: 0,
+      edge: shape.edge,
+      distance: Math.max(0, -shape.edge),
+      halfWidth: 0,
+    }
+    if (!best || (sample.inWater && !best.inWater) || (sample.inWater === best.inWater && sample.depth > best.depth)) {
+      best = sample
+    }
+  }
+  return best
+}
+
 // ── 仅开发期：河道诊断 ───────────────────────────────────────────────
 // 沿每条水道中线步进，用真实 getGroundHeight 与各水系采样器评估：
 //  · 堵/埋/没水：河床(碳刻后地形) 高于该处「设计水面」→ 水道没切开，水会被埋/断流
@@ -5657,6 +7817,26 @@ function runChannelDiagnostics(getGroundHeight) {
       { id: 'MAIN 主河', points: HERO_RIVER_POINTS, depth: MAIN_RIVER_WATER_DEPTH, run: mainRun, sample: (x, z) => getRiverSampleAt(x, z) },
       ...RIVER_BRANCHES.map(b => ({ id: `支流 ${b.id}`, points: b.points, depth: BRANCH_RIVER_WATER_DEPTH, run: minRun, sample: (x, z) => getBranchSampleAt(b, x, z) })),
       ...EROSION_GULLIES.filter(g => g.wet).map(g => ({ id: `冲沟(wet) ${g.id}`, points: g.points, depth: GULLY_STREAM_WATER_DEPTH, run: minRun, sample: (x, z) => getGullyStreamSampleAt(g, x, z) })),
+      ...NEWLAND_BRAIDED_CHANNELS.map(c => ({
+        id: `新区辫状河 ${c.id}`,
+        points: c.points,
+        depth: c.waterDepth,
+        run: Math.max(0.35, channelBankRun(c.cutDepth, NEWLAND_BRAIDED_SLOPE_DEG)),
+        sample: (x, z) => {
+          const s = getNewlandBraidedSampleAt(c, x, z)
+          return { ...s, waterY: getGroundHeight(s.x, s.z) + s.waterDepth }
+        },
+      })),
+      {
+        id: '山间湖出水河',
+        points: NEWLAND_MOUNTAIN_OUTLET.points,
+        depth: NEWLAND_MOUNTAIN_OUTLET.waterDepth,
+        run: Math.max(0.35, channelBankRun(NEWLAND_MOUNTAIN_OUTLET.cutDepth, NEWLAND_BRAIDED_SLOPE_DEG)),
+        sample: (x, z) => {
+          const s = getNewlandMountainOutletSampleAt(x, z)
+          return { ...s, waterY: getGroundHeight(s.x, s.z) + NEWLAND_MOUNTAIN_OUTLET.waterDepth }
+        },
+      },
     ]
     const STEP = 5
     const summary = []
@@ -5739,6 +7919,7 @@ function runChannelProbe(getGroundHeight) {
       { id: '主河', depth: MAIN_RIVER_WATER_DEPTH, sample: (x, z) => getRiverSampleAt(x, z) },
       ...RIVER_BRANCHES.map(b => ({ id: '支流:' + b.id, depth: BRANCH_RIVER_WATER_DEPTH, sample: (x, z) => getBranchSampleAt(b, x, z) })),
       ...EROSION_GULLIES.filter(g => g.wet).map(g => ({ id: '沟:' + g.id, depth: GULLY_STREAM_WATER_DEPTH, sample: (x, z) => getGullyStreamSampleAt(g, x, z) })),
+      { id: '山间湖出水河', depth: NEWLAND_MOUNTAIN_OUTLET.waterDepth, sample: (x, z) => getNewlandMountainOutletSampleAt(x, z) },
     ]
     for (const P of PROBE_POINTS) {
       const onTop = [], buried = []
@@ -5771,6 +7952,22 @@ function runChannelProbe(getGroundHeight) {
   } catch (e) {
     console.warn('[channel-probe] 失败：', e)
   }
+}
+
+function isMapDebugFlagEnabled(name) {
+  if (!import.meta.env.DEV || typeof window === 'undefined') return false
+  const params = new URLSearchParams(window.location.search)
+  const value = params.get(name)
+  if (value != null) return value !== '0' && value !== 'false'
+  return window.localStorage?.getItem(name) === '1'
+}
+
+function isPerfFlagEnabled(name) {
+  if (typeof window === 'undefined') return false
+  const params = new URLSearchParams(window.location.search)
+  const value = params.get(name)
+  if (value != null) return value !== '0' && value !== 'false'
+  return window.localStorage?.getItem(name) === '1'
 }
 
 export function makeCampfire(scene, x, z) {
@@ -5870,7 +8067,8 @@ export function makeCampfire(scene, x, z) {
 
 // ── 主函数 ────────────────────────────────────────────
 
-export function createMap(scene, { onStaticModelReady = null } = {}) {
+export function createMap(scene, { onStaticModelReady = null, perf = null } = {}) {
+  const timePerf = (name, fn) => (perf?.time ? perf.time(name, fn) : fn())
   // 地面
   const texLoader = new THREE.TextureLoader()
   const collidables = []
@@ -5879,8 +8077,11 @@ export function createMap(scene, { onStaticModelReady = null } = {}) {
   let riverSystem = null
   let riverBranchSystems = null
   let gullyStreamSystems = null
+  let newlandBraidedRiverSystems = null
+  let newlandMountainOutletSystem = null
   let unifiedWaterRender = null
   const terrainController = createHeightmapTerrain(scene, {
+    perf,
     material: groundMat,
     size: WORLD_SIZE,
     heightmapSize: WORLD_SIZE,   // 高度图仍按 1600 映射中心 ±800（旧图不变）
@@ -5917,11 +8118,19 @@ export function createMap(scene, { onStaticModelReady = null } = {}) {
     heightModifiers: [
       applyLargeWorldHeight,
       applyExtendedRegionHeight,
+      applyEastRimMegaslopeHeight,
+      applyEastRimDryRiverHeight,
+      applyNewlandBraidedRiverHeight,
+      applyNewlandStaticLakeHeight,
       applyLargeRiverValleyHeight,
       applySnowMountainHeight,
+      applyLowlandErosionGullyHeight,
+      applyLowlandMicroErosionHeight,
       applyHeroRiverHeight,
+      applyNewlandMountainOutletHeight,
       applyRiverBranchHeight,
       applyGullyNetworkHeight,
+      applyDendriticGullyHeight,
       applyChannelNetworkCarve,
       applyConfluencePoolCarve,
       applyChannelSmoothGrade,
@@ -5956,9 +8165,13 @@ export function createMap(scene, { onStaticModelReady = null } = {}) {
       riverSystem = createRiverSystem(scene, getGroundHeight)
       riverBranchSystems = createRiverBranchSystems(scene, getGroundHeight)
       gullyStreamSystems = createGullyStreamSystems(scene, getGroundHeight)
+      newlandBraidedRiverSystems = createNewlandBraidedRiverSystems(scene, getGroundHeight)
+      newlandMountainOutletSystem = createNewlandMountainOutletSystem(scene, getGroundHeight)
       unifiedWaterRender = createUnifiedWaterRender(scene, getGroundHeight)
-      if (import.meta.env.DEV) runChannelDiagnostics(getGroundHeight)
-      if (import.meta.env.DEV) runChannelProbe(getGroundHeight)
+      if (isMapDebugFlagEnabled('riverDebug')) {
+        runChannelDiagnostics(getGroundHeight)
+        runChannelProbe(getGroundHeight)
+      }
       if (import.meta.env.DEV) {
         for (const [tx, tz] of [[-163, 55], [-164, 50], [-160, 40], [-160, -52], [-167, -36]]) {
           terrainController.traceHeightAt?.(tx, tz)
@@ -6019,50 +8232,63 @@ export function createMap(scene, { onStaticModelReady = null } = {}) {
 
   // ── 风动画 + 火堆动画更新函数 ─────────
   let _lastTime = 0
-  function update(time, playerPosition = null) {
+  function update(time, playerPosition = null, context = null) {
     const dt = Math.min(time - _lastTime, 0.05)
     _lastTime = time
-    terrainController.update?.(playerPosition)
-    unifiedWaterRender?.update(time)
-    riverSystem?.update(time, dt, playerPosition)
-    riverBranchSystems?.update(time, dt, playerPosition)
-    gullyStreamSystems?.update(time, dt, playerPosition)
-    if (_meadowBuild) stepMeadowGrassBuild()
-    if (_worldTreeBuild && !_worldTreeBuild.done) stepWorldTreeBuild()
-    _spawnGrassWindUniforms.forEach((uniform) => {
-      uniform.value = time
+    timePerf('map.terrain', () => terrainController.update?.(playerPosition))
+    timePerf('map.water', () => {
+      unifiedWaterRender?.update(time)
+      riverSystem?.update(time, dt, playerPosition)
+      riverBranchSystems?.update(time, dt, playerPosition)
+      gullyStreamSystems?.update(time, dt, playerPosition)
+      newlandBraidedRiverSystems?.update(time, dt, playerPosition)
+      newlandMountainOutletSystem?.update(time, dt, playerPosition)
     })
+    if (!_debugModelGrassDisabled) {
+      updateMeadowGrassMotion(playerPosition, dt, context)
+      enqueueLocalMeadowGrassRecords(playerPosition)
+      timePerf('map.grassQueue', () => processMeadowGrassQueue())
+    }
+    if (_worldTreeBuild && !_worldTreeBuild.done) timePerf('map.worldTreeBuild', () => stepWorldTreeBuild())
+    if (!_debugModelGrassDisabled) {
+      timePerf('map.grassWind', () => _spawnGrassWindUniforms.forEach((uniform) => {
+        uniform.value = time
+      }))
+    }
     _grassLodTimer += dt
     if (_grassLodTimer >= GRASS_LOD_INTERVAL) {
       _grassLodTimer = 0
-      updateGrassLod(playerPosition)
+      if (!_debugModelGrassDisabled) timePerf('map.grassLod', () => updateGrassLod(playerPosition))
     }
     _worldTreeVisTimer += dt
     if (_worldTreeVisTimer >= WORLD_TREE_VIS_INTERVAL) {
       _worldTreeVisTimer = 0
-      updateWorldTreeVisibility(playerPosition)
+      timePerf('map.worldTreeVisibility', () => updateWorldTreeVisibility(playerPosition))
+      timePerf('map.forestLeafFade', () => updateForestPackLeafFadeTargets(playerPosition))
     }
 
-    for (const { flames, light, glow, phase, group } of _campfireStates) {
-      if (!group.parent) continue   // 已从场景移除，跳过
-      const f = Math.sin(time * 7.3  + phase) * 0.22
-              + Math.sin(time * 13.1 + phase * 1.7) * 0.10
-              + Math.sin(time * 19.7 + phase * 0.9) * 0.05
+    timePerf('map.campfires', () => {
+      for (const { flames, light, glow, phase, group } of _campfireStates) {
+        if (!group.parent) continue   // 已从场景移除，跳过
+        const f = Math.sin(time * 7.3  + phase) * 0.22
+                + Math.sin(time * 13.1 + phase * 1.7) * 0.10
+                + Math.sin(time * 19.7 + phase * 0.9) * 0.05
 
-      light.intensity = 4.0 + f * 3.0
-      light.color.setHSL(0.065 + f * 0.015, 1.0, 0.55)
-      glow.intensity = 1.5 + f * 1.0
+        light.intensity = 4.0 + f * 3.0
+        light.color.setHSL(0.065 + f * 0.015, 1.0, 0.55)
+        glow.intensity = 1.5 + f * 1.0
 
-      flames.forEach((mesh, i) => {
-        const fi = Math.sin(time * (8 + i * 2.3) + phase + i) * 0.14
-                 + Math.sin(time * (5 + i * 1.7) + phase)     * 0.08
-        mesh.scale.x = 1.0 + fi
-        mesh.scale.z = 1.0 - fi * 0.6
-        mesh.scale.y = 0.9 + Math.abs(fi) * 0.4
-        mesh.position.y = mesh.userData.baseY + Math.sin(time * 6 + phase + i) * 0.04
-        mesh.rotation.y = time * (0.8 + i * 0.3) + phase
-      })
-    }
+        flames.forEach((mesh, i) => {
+          const fi = Math.sin(time * (8 + i * 2.3) + phase + i) * 0.14
+                   + Math.sin(time * (5 + i * 1.7) + phase)     * 0.08
+          mesh.scale.x = 1.0 + fi
+          mesh.scale.z = 1.0 - fi * 0.6
+          mesh.scale.y = 0.9 + Math.abs(fi) * 0.4
+          mesh.position.y = mesh.userData.baseY + Math.sin(time * 6 + phase + i) * 0.04
+          mesh.rotation.y = time * (0.8 + i * 0.3) + phase
+        })
+      }
+    })
 
   }
 
@@ -6079,6 +8305,9 @@ export function createMap(scene, { onStaticModelReady = null } = {}) {
     collidables,
     update,
     setDistantTerrainSun,
+    setDebugGrassDensity,
+    setDebugModelGrassDisabled,
+    setDebugTreeDensity,
     ponds: [],
     spawnRipple: () => {},
     getTerrainHeight: getGroundHeight,
@@ -6086,10 +8315,16 @@ export function createMap(scene, { onStaticModelReady = null } = {}) {
       const main = riverSystem?.sampleRiver(x, z)
       const branch = riverBranchSystems?.sampleRiver(x, z)
       const gully = gullyStreamSystems?.sampleRiver(x, z)
+      const braided = newlandBraidedRiverSystems?.sampleRiver(x, z)
+      const outlet = newlandMountainOutletSystem?.sampleRiver(x, z)
+      const lake = sampleNewlandStaticLake(x, z, getGroundHeight)
+      if (lake?.inWater && (!outlet?.inWater || lake.depth >= outlet.depth) && (!braided?.inWater || lake.depth >= braided.depth) && (!main?.inWater || lake.depth >= main.depth) && (!branch?.inWater || lake.depth >= branch.depth) && (!gully?.inWater || lake.depth >= gully.depth)) return lake
+      if (outlet?.inWater && (!braided?.inWater || outlet.depth >= braided.depth) && (!main?.inWater || outlet.depth >= main.depth) && (!branch?.inWater || outlet.depth >= branch.depth) && (!gully?.inWater || outlet.depth >= gully.depth)) return outlet
+      if (braided?.inWater && (!main?.inWater || braided.depth >= main.depth) && (!branch?.inWater || braided.depth >= branch.depth) && (!gully?.inWater || braided.depth >= gully.depth)) return braided
       if (gully?.inWater && (!main?.inWater || gully.depth >= main.depth) && (!branch?.inWater || gully.depth >= branch.depth)) return gully
       if (branch?.inWater && (!main?.inWater || branch.depth >= main.depth)) return branch
       if (main?.inWater) return main
-      return gully ?? branch ?? main ?? { inWater: false, depth: 0, flowSpeed: 0, dirX: 0, dirZ: 0 }
+      return lake ?? outlet ?? braided ?? gully ?? branch ?? main ?? { inWater: false, depth: 0, flowSpeed: 0, dirX: 0, dirZ: 0 }
     },
     getNearbyForestPackLabel,
   }

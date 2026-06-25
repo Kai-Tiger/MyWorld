@@ -51,7 +51,8 @@ function getTrackPropertyName(trackName) {
 }
 
 export function createPlayer(scene) {
-  const SPEED = 15.0
+  const GROUND_MOVE_SPEED = 5.0
+  const AIR_MOVE_SPEED = 50.0
   const DEFENSE_MOVE_SPEED_MULTIPLIER = 0.675
   const BONFIRE_SIT_SECONDS = 4.2
   const BONFIRE_STAND_SECONDS = 2.2
@@ -1184,7 +1185,8 @@ export function createPlayer(scene) {
       const locomotionDt = dt > 0 ? dt : (1 / 60)
       currentSpeed = 0
       const staminaSpeedMultiplier = staminaDepleted ? EMPTY_STAMINA_MOVE_SPEED_MULTIPLIER : 1
-      const effectiveSpeed = (inWater ? SPEED * 0.45 : SPEED) * staminaSpeedMultiplier
+      const baseMoveSpeed = (!onGround && !jumpTakeoffPending) ? AIR_MOVE_SPEED : GROUND_MOVE_SPEED
+      const effectiveSpeed = (inWater && onGround ? baseMoveSpeed * 0.45 : baseMoveSpeed) * staminaSpeedMultiplier
 
       const jNow = input.isPressed('KeyJ')
       const kNow = input.isPressed('KeyK')
@@ -1440,8 +1442,8 @@ export function createPlayer(scene) {
         terrainH,
       )
 
-      // 调试飞行：按住 Shift 起飞/上升；松开悬停（无重力，可水平移动）；按住 Ctrl 下降；降到地面退出飞行
-      const flyUp = input.isPressed('ShiftLeft') || input.isPressed('ShiftRight')
+      // 调试飞行：按住 Option 起飞/上升；松开悬停（无重力，可水平移动）；按住 Ctrl 下降；降到地面退出飞行
+      const flyUp = input.isPressed('AltLeft') || input.isPressed('AltRight')
       const flyDown = input.isPressed('ControlLeft') || input.isPressed('ControlRight')
       if (flyUp) flying = true
       if (flying) { onGround = false; vy = 0 }

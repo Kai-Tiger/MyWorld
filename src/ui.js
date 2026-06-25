@@ -1158,84 +1158,9 @@ export function createUI(container, handlers = {}) {
         height: 66px;
       }
     }
-    #fish-btn {
-      position: absolute;
-      background: rgba(230,245,255,0.95);
-      border: 2px solid #4fc3f7;
-      border-radius: 12px;
-      padding: 6px 14px;
-      font-size: 13px;
-      color: #1a5a7a;
-      font-family: sans-serif;
-      pointer-events: auto;
-      transform: translateX(-50%);
-      white-space: nowrap;
-      box-shadow: 0 4px 16px rgba(30,120,180,0.18);
-      z-index: 100;
-      cursor: pointer;
-      transition: background 0.15s;
-    }
-    #fish-btn::after {
-      content: '';
-      position: absolute;
-      bottom: -9px; left: 50%;
-      transform: translateX(-50%);
-      border: 8px solid transparent;
-      border-top-color: #4fc3f7;
-      border-bottom: 0;
-    }
-    #fish-btn:hover {
-      background: rgba(79,195,247,0.95);
-      color: white;
-    }
-    #fish-result {
-      position: absolute;
-      top: 50%; left: 50%;
-      transform: translate(-50%, -50%);
-      background: rgba(10,18,34,0.93);
-      border: 2px solid #4fc3f7;
-      border-radius: 16px;
-      padding: 32px 44px;
-      text-align: center;
-      font-family: sans-serif;
-      z-index: 300;
-      min-width: 200px;
-      box-shadow: 0 8px 32px rgba(10,80,140,0.4);
-    }
-    #fish-result .fish-icon {
-      font-size: 48px;
-      display: block;
-      margin-bottom: 12px;
-    }
-    #fish-result .fish-msg {
-      font-size: 18px;
-      font-weight: bold;
-      color: #e0f4ff;
-      margin-bottom: 6px;
-    }
-    #fish-result .fish-sub {
-      font-size: 13px;
-      color: rgba(200,230,255,0.6);
-      margin-bottom: 18px;
-    }
-    #fish-result button {
-      padding: 8px 24px;
-      border: 2px solid #4fc3f7;
-      border-radius: 20px;
-      background: transparent;
-      color: #4fc3f7;
-      font-size: 13px;
-      cursor: pointer;
-      transition: background 0.15s, color 0.15s;
-    }
-    #fish-result button:hover {
-      background: #4fc3f7;
-      color: #0a1222;
-    }
     #enter-prompt,
     #talk-btn,
     #pick-btn,
-    #fish-btn,
     #castle-action-btn,
     #exit-btn {
       min-width: 138px;
@@ -1270,7 +1195,6 @@ export function createUI(container, handlers = {}) {
     #enter-prompt::before,
     #talk-btn::before,
     #pick-btn::before,
-    #fish-btn::before,
     #castle-action-btn::before,
     #exit-btn::before {
       content: '✦';
@@ -1281,8 +1205,7 @@ export function createUI(container, handlers = {}) {
     }
     #enter-prompt::after,
     #talk-btn::after,
-    #pick-btn::after,
-    #fish-btn::after {
+    #pick-btn::after {
       display: none;
     }
     #enter-prompt button {
@@ -1299,7 +1222,6 @@ export function createUI(container, handlers = {}) {
     #enter-prompt:hover,
     #talk-btn:hover,
     #pick-btn:hover,
-    #fish-btn:hover,
     #castle-action-btn:hover,
     #exit-btn:hover,
     #enter-prompt button:hover {
@@ -1405,8 +1327,6 @@ export function createUI(container, handlers = {}) {
   }
   let talkBtn = null
   let pickBtn = null
-  let fishBtn = null
-  let fishResultEl = null
   let pickupToast = null
   let pickupToastTimer = null
   let dialoguePanel = null
@@ -1583,7 +1503,6 @@ export function createUI(container, handlers = {}) {
     if (!item) return '没有选择物品。'
     if (item.id === 'estusFlask') return '恢复生命与法力。\n在篝火处休息后会补充使用次数。'
     if (item.id === 'spell_scroll') return '能够学习新的法术。\n收藏后可作为法术类物品查看。'
-    if (item.id === 'fish') return '普通物品。\n已存入背包，可作为探索收获保存。'
     return '暂无说明。'
   }
 
@@ -2117,7 +2036,6 @@ export function createUI(container, handlers = {}) {
         this.hideExitButton()
         this.hideTalkButton()
         this.hidePickButton()
-        this.hideFishButton()
         this.hideActionPrompt()
         this.hideBonfireMenu(false)
       }
@@ -2398,66 +2316,5 @@ export function createUI(container, handlers = {}) {
       return Boolean(bagPanel)
     },
 
-    showFishButton(worldPos, camera, renderer, onFish) {
-      const v = new THREE.Vector3(worldPos.x, worldPos.y, worldPos.z).project(camera)
-      const w = renderer.domElement.clientWidth
-      const h = renderer.domElement.clientHeight
-      const sx = (v.x * 0.5 + 0.5) * w
-      const sy = (-v.y * 0.5 + 0.5) * h
-
-      if (!fishBtn) {
-        fishBtn = document.createElement('button')
-        fishBtn.id = 'fish-btn'
-        fishBtn.textContent = '钓鱼'
-        container.appendChild(fishBtn)
-        fishBtn.addEventListener('click', onFish)
-      }
-      fishBtn.style.left = `${sx}px`
-      fishBtn.style.top  = `${sy - 54}px`
-    },
-
-    hideFishButton() {
-      if (fishBtn) {
-        fishBtn.remove()
-        fishBtn = null
-      }
-    },
-
-    showFishResult(caught, onClose) {
-      if (fishResultEl) return
-      fishResultEl = document.createElement('div')
-      fishResultEl.id = 'fish-result'
-      if (caught) {
-        fishResultEl.innerHTML = `
-          <span class="fish-icon">🐟</span>
-          <div class="fish-msg">钓到了！</div>
-          <div class="fish-sub">鱼 +1 已存入背包</div>
-          <button>收好了</button>
-        `
-      } else {
-        fishResultEl.innerHTML = `
-          <span class="fish-icon">💨</span>
-          <div class="fish-msg">跑掉了...</div>
-          <div class="fish-sub">下次再来试试吧</div>
-          <button>好吧</button>
-        `
-      }
-      container.appendChild(fishResultEl)
-      fishResultEl.querySelector('button').addEventListener('click', onClose)
-      vitals.style.display = ''
-      hud.style.display = ''
-      equipmentBar.style.display = 'none'
-      closeBagPanel()
-    },
-
-    hideFishResult() {
-      if (fishResultEl) {
-        fishResultEl.remove()
-        fishResultEl = null
-      }
-      vitals.style.display = ''
-      hud.style.display = ''
-      equipmentBar.style.display = ''
-    },
   }
 }

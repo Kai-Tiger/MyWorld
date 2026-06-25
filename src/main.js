@@ -11,7 +11,6 @@ import { SpellSystem } from './systems/spells.js'
 import { createUI } from './ui.js'
 import { createIndoorScene } from './scene/indoor.js'
 import { InteractionSystem } from './systems/interaction.js'
-import { createFishingRod } from './scene/fishingRod.js'
 import { InventorySystem } from './systems/inventory.js'
 import { EstusFlaskSystem } from './systems/estusFlask.js'
 import { enemyNpcs as enemyNpcConfigs } from './config/world.js'
@@ -33,6 +32,7 @@ import {
 import { CASTLE_INDOOR_LIGHTING, OUTDOOR_LIGHTING } from './config/lighting.js'
 import { preloadRuntimeModels } from './systems/modelAssets.js'
 import { preloadAudio, unlockAudio, warmupSfx, playSfx, startLoop, stopLoop, stopAllLoops } from './systems/audio.js'
+import { createPerfMonitor } from './systems/perf.js'
 import { createPickupAura } from './effects/pickupAura.js'
 import { createHealAura } from './effects/healAura.js'
 import { createBloodSplatter } from './effects/bloodSplatter.js'
@@ -43,11 +43,33 @@ import enemyE2Url from './characters/enemy/e2.fbx?url'
 
 // ── 初始化渲染器 ──────────────────────────────────────
 const app = document.getElementById('app')
+function readDebugFlag(name) {
+  const params = new URLSearchParams(window.location.search)
+  const value = params.get(name)
+  if (value != null) return value !== '0' && value !== 'false'
+  return window.localStorage?.getItem(name) === '1'
+}
+function readDebugFlagDefault(name, fallback) {
+  const params = new URLSearchParams(window.location.search)
+  const value = params.get(name)
+  if (value != null) return value !== '0' && value !== 'false'
+  const stored = window.localStorage?.getItem(name)
+  if (stored == null) return fallback
+  return stored === '1'
+}
+const PERF_NO_CLOUDS = readDebugFlag('perfNoClouds')
+const PERF_LOW_DPR = readDebugFlag('perfLowDpr')
+const PERF_LOW_DPR_VALUE = 0.75
+let perfSceneRtObjectStats = readDebugFlagDefault('perfSceneRtObjectStats', true)
+let perfMovementActive = false
+let perfPlayerSpeed = 0
+let perfCameraTurnRate = 0
+const grassUpdateContext = { grassForwardX: 0, grassForwardZ: -1 }
 const renderer = new THREE.WebGLRenderer({ antialias: true })
 renderer.setSize(window.innerWidth, window.innerHeight)
-const _pixelRatio = Math.min(window.devicePixelRatio, 1.25)
+const _pixelRatio = PERF_LOW_DPR ? Math.min(window.devicePixelRatio, PERF_LOW_DPR_VALUE) : Math.min(window.devicePixelRatio, 1.25)
 renderer.setPixelRatio(_pixelRatio)
-const COMBAT_PIXEL_RATIO = Math.min(window.devicePixelRatio, 0.9)
+const COMBAT_PIXEL_RATIO = PERF_LOW_DPR ? _pixelRatio : Math.min(window.devicePixelRatio, 0.9)
 let currentRenderPixelRatio = _pixelRatio
 renderer.shadowMap.enabled = true
 renderer.shadowMap.type = THREE.PCFSoftShadowMap
@@ -56,6 +78,22 @@ renderer.toneMapping = THREE.ACESFilmicToneMapping
 renderer.toneMappingExposure = OUTDOOR_LIGHTING.exposure.initial
 renderer.outputColorSpace = THREE.SRGBColorSpace
 app.appendChild(renderer.domElement)
+
+const perf = createPerfMonitor({
+  renderer,
+  getContext: () => ({
+    scene: activeScene,
+    pixelRatio: currentRenderPixelRatio.toFixed(2),
+    clouds: !PERF_NO_CLOUDS && sky?.cloudsEnabled?.(activeScene) ? 1 : 0,
+    cloudQuality: sky?.getQuality?.() ?? 1,
+    shadowAuto: renderer.shadowMap.autoUpdate ? 1 : 0,
+    moving: perfMovementActive ? 1 : 0,
+    playerSpeed: perfPlayerSpeed.toFixed(2),
+    cameraTurn: perfCameraTurnRate.toFixed(2),
+    perfNoClouds: PERF_NO_CLOUDS ? 1 : 0,
+    perfLowDpr: PERF_LOW_DPR ? 1 : 0,
+  }),
+})
 
 const loadingOverlay = document.createElement('div')
 loadingOverlay.style.cssText = `
@@ -67,9 +105,12 @@ loadingOverlay.style.cssText = `
 loadingOverlay.textContent = '准备启动资源 0%'
 app.appendChild(loadingOverlay)
 
+const preloadModelsStartedAt = performance.now()
 const preloadModelsPromise = preloadRuntimeModels(({ loaded, total }) => {
   const pct = total > 0 ? Math.round(loaded / total * 100) : 100
   loadingOverlay.textContent = `准备启动资源 ${pct}%`
+}).finally(() => {
+  if (perf.enabled) console.info(`[perf] startup.preloadModels ${(performance.now() - preloadModelsStartedAt).toFixed(1)}ms`)
 })
 
 // ── 搭建场景 ──────────────────────────────────────────
@@ -99,8 +140,66 @@ function setCameraIgnoreRecursive(obj, ignore = true) {
 }
 
 let _shadowCaster = 'sun'
+const _sceneRtFrustum = new THREE.Frustum()
+const _sceneRtProjScreen = new THREE.Matrix4()
+
+function estimateObjectDrawCalls(obj) {
+  const groups = obj.geometry?.groups?.length || 1
+  const materials = Array.isArray(obj.material) ? obj.material.length : 1
+  return Math.max(groups, materials)
+}
+
+function estimateObjectTriangles(obj) {
+  const geom = obj.geometry
+  const pos = geom?.attributes?.position
+  const baseTris = geom?.index ? geom.index.count / 3 : pos ? pos.count / 3 : 0
+  const count = obj.isInstancedMesh ? (obj.count ?? 0) : 1
+  return Math.round(baseTris * count)
+}
+
+function classifySceneRtObject(obj) {
+  const name = obj.name || obj.parent?.name || ''
+  if (name.startsWith('world_tree_grass_')) return 'grass'
+  if (name.startsWith('world_tree_')) return 'wt'
+  if (name.startsWith('terrain_')) return 'terrain'
+  if (/grass/i.test(name)) return 'grass'
+  if (/water|river|lake|stream/i.test(name)) return 'water'
+  return 'other'
+}
+
+function summarizeSceneRtObjects(targetScene, activeCamera) {
+  targetScene.updateMatrixWorld(true)
+  activeCamera.updateMatrixWorld()
+  _sceneRtProjScreen.multiplyMatrices(activeCamera.projectionMatrix, activeCamera.matrixWorldInverse)
+  _sceneRtFrustum.setFromProjectionMatrix(_sceneRtProjScreen)
+
+  const summary = {
+    totalM: 0, totalCalls: 0, totalTris: 0,
+    wtM: 0, wtCalls: 0, wtTris: 0,
+    terrainM: 0, terrainCalls: 0, terrainTris: 0,
+    grassM: 0, grassCalls: 0, grassTris: 0,
+    waterM: 0, waterCalls: 0, waterTris: 0,
+    otherM: 0, otherCalls: 0, otherTris: 0,
+  }
+  targetScene.traverse((obj) => {
+    if ((!obj.isMesh && !obj.isInstancedMesh) || !obj.visible) return
+    if (obj.frustumCulled && !_sceneRtFrustum.intersectsObject(obj)) return
+    const kind = classifySceneRtObject(obj)
+    const calls = estimateObjectDrawCalls(obj)
+    const tris = estimateObjectTriangles(obj)
+    summary.totalM += 1
+    summary.totalCalls += calls
+    summary.totalTris += tris
+    summary[`${kind}M`] += 1
+    summary[`${kind}Calls`] += calls
+    summary[`${kind}Tris`] += tris
+  })
+  return summary
+}
+
 function renderWithAO(activeCamera, _sceneName = 'outdoor', targetScene = scene) {
-  renderer.render(targetScene, activeCamera)
+  // 贴图云（billboard sprite）随场景一起渲染，无需离屏管线
+  perf.time('render.direct', () => renderer.render(targetScene, activeCamera))
 }
 
 function renderCastle(activeCamera, playerPosition) {
@@ -159,7 +258,7 @@ function updateDayNightLighting(sunPhase) {
 const _proxySunDir = new THREE.Vector3()
 // 优先加载存档，无存档时使用默认地图配置
 const INITIAL_CAMPFIRE_POSITION = { x: 0, z: 50 }
-const INITIAL_PLAYER_POSITION = { x: 0, z: 40 }
+const INITIAL_PLAYER_POSITION = { x: -260, z: -445 }
 const RELOCATED_SOUTH_CAMPFIRE_FROM = { x: 10, z: -18 }
 const RELOCATED_SOUTH_CAMPFIRE_TO = { x: 19, z: -66 }
 
@@ -194,7 +293,18 @@ let resolveOutdoorStaticReady = null
 const outdoorStaticReadyPromise = new Promise(resolve => {
   resolveOutdoorStaticReady = resolve
 })
-const { collidables, update: updateMap, getTerrainHeight: getRawTerrainHeight, sampleRiver, getNearbyForestPackLabel, setDistantTerrainSun } = createMap(scene, {
+const {
+  collidables,
+  update: updateMap,
+  getTerrainHeight: getRawTerrainHeight,
+  sampleRiver,
+  getNearbyForestPackLabel,
+  setDistantTerrainSun,
+  setDebugGrassDensity,
+  setDebugModelGrassDisabled,
+  setDebugTreeDensity,
+} = createMap(scene, {
+  perf,
   onStaticModelReady: (model) => {
     resolveOutdoorStaticReady?.(model)
   },
@@ -687,11 +797,6 @@ function refillEstusFlask() {
   syncEstusFlaskToBag()
 }
 
-// ── 钓鱼 ──────────────────────────────────────────────
-const fishingRod = createFishingRod(scene)
-let _fishPhase = null   // 'casting' | 'waiting' | 'result'
-let _fishTimer = 0
-
 // ── 系统初始化 ────────────────────────────────────────
 const input = new InputSystem()
 const spells = new SpellSystem(scene)
@@ -719,6 +824,7 @@ if (import.meta.env.DEV) {
     thirdPerson,
     getTerrainHeight,
     sampleRiver,
+    perf,
     teleport(x, z, y = null) {
       const targetY = Number.isFinite(y) ? y : getTerrainHeight(x, z)
       player.setPosition(x, z, targetY)
@@ -839,6 +945,7 @@ ui = createUI(app, {
 })
 ui.updateEquipmentState?.(getPlayerEquipmentState())
 syncEstusFlaskToBag()
+createPerfDebugPanel()
 
 function setEditorButtonVisible(_visible) {}
 
@@ -1049,7 +1156,6 @@ function clearDeathRuntimeState() {
   ui.hideExitButton?.()
   ui.hideTalkButton?.()
   ui.hidePickButton?.()
-  ui.hideFishButton?.()
   ui.hideActionPrompt?.()
   ui.hideBonfireMenu?.(false)
   ui.hideDialoguePanel?.()
@@ -1058,9 +1164,6 @@ function clearDeathRuntimeState() {
   activeBonfire = null
   dismissedBonfire = null
   bonfireRestState = null
-  _fishPhase = null
-  _fishTimer = 0
-  fishingRod.hide?.()
 }
 
 function beginPlayerDeath(sourceScene = activeScene) {
@@ -1136,6 +1239,212 @@ function setRenderPixelRatio(pixelRatio) {
   renderer.setSize(window.innerWidth, window.innerHeight)
 }
 
+function readDebugNumber(name, fallback) {
+  const params = new URLSearchParams(window.location.search)
+  const raw = params.get(name) ?? window.localStorage?.getItem(name)
+  if (raw == null || raw === '') return fallback
+  const value = Number(raw)
+  return Number.isFinite(value) ? value : fallback
+}
+
+function writeDebugFlag(name, enabled) {
+  window.localStorage.setItem(name, enabled ? '1' : '0')
+}
+
+function createPerfDebugPanel() {
+  const panel = document.createElement('div')
+  panel.id = 'perf-debug-panel'
+  panel.style.cssText = `
+    position:absolute; top:12px; left:380px; z-index:2500;
+    width:260px; color:#e9f2e6; font:11px monospace;
+    background:rgba(5,7,8,0.78); border:1px solid rgba(255,255,255,0.18);
+    border-radius:6px; box-shadow:0 8px 24px rgba(0,0,0,0.35);
+    pointer-events:auto; user-select:none;
+  `
+  panel.innerHTML = `
+    <button id="perf-panel-toggle" type="button" title="展开/收起性能调试面板。这里的设置只用于定位卡顿，不是正式游戏 UI。">PERF</button>
+    <div id="perf-panel-body">
+      <label class="perf-row" title="实时开启性能日志。会输出 [perf] 窗口统计和 [perf-spike] 慢帧明细，用于判断卡顿来自渲染、地图更新、草、树还是其他系统。">
+        <span>Perf Logs <em>live</em></span><input id="perf-log-toggle" type="checkbox">
+      </label>
+      <label class="perf-row" title="慢帧阈值，单位毫秒。低于这个值不输出 [perf-spike]。保存后刷新，因为 perf monitor 初始化时读取该值。">
+        <span>Spike Threshold <em>reload</em></span><input id="perf-spike-input" type="number" min="1" max="200" step="0.1">
+      </label>
+      <label class="perf-row" title="输出 render.sceneRT.objects 分类统计。开启后每个慢帧会遍历场景估算 world tree、grass、terrain、water、other 的 calls/tris；它本身有少量调试开销。">
+        <span>SceneRT Object Stats <em>live</em></span><input id="perf-scene-stats-toggle" type="checkbox">
+      </label>
+      <label class="perf-row" title="刷新后禁用云和云合成路径，让户外渲染走 render.direct。用于判断云/sceneRT 云合成是否影响性能。">
+        <span>No Clouds <em>reload</em></span><input id="perf-no-clouds-toggle" type="checkbox">
+      </label>
+      <label class="perf-row" title="刷新后保留草数量和 LOD，但禁用模型草 shader 摆动。用于单独判断草的风摆动 sin/cos 是否有明显 GPU 成本。">
+        <span>No Grass Wind <em>reload</em></span><input id="perf-no-grass-wind-toggle" type="checkbox">
+      </label>
+      <label class="perf-row" title="实时改变渲染像素比。降低后如果明显不卡，通常说明 GPU 填充率、分辨率或后处理成本偏高。">
+        <span>Pixel Ratio <em>live</em> <b id="perf-pixel-value"></b></span><input id="perf-pixel-slider" type="range" min="0.6" max="1.25" step="0.05">
+      </label>
+      <label class="perf-row" title="刷新后以固定低 DPR 启动。它和 Pixel Ratio slider 不同，适合验证启动时低分辨率是否稳定解决卡顿。">
+        <span>Low DPR Mode <em>reload</em></span><input id="perf-low-dpr-toggle" type="checkbox">
+      </label>
+      <label class="perf-row" title="实时调整体积云质量。降低后如果帧率改善，说明云采样仍有贡献；如果变化不大，主要问题在场景对象数量。">
+        <span>Cloud Quality <em>live</em> <b id="perf-cloud-value"></b></span><input id="perf-cloud-slider" type="range" min="0.2" max="1" step="0.05">
+      </label>
+      <label class="perf-row" title="实时开关阴影贴图自动刷新。关闭后可判断动态阴影刷新是否造成卡顿；部分阴影可能不再及时更新。">
+        <span>Shadow Auto <em>live</em></span><input id="perf-shadow-toggle" type="checkbox">
+      </label>
+      <label class="perf-row" title="模型草密度调试。0-1 会实时减少已有候选的可见草；大于 1 会增加 meadow grass 生成密度，需要保存后自动刷新。最大 2x 用于测试视觉和性能上限。">
+        <span>Grass Density <em>live/reload</em> <b id="perf-grass-value"></b></span><input id="perf-grass-slider" type="range" min="0" max="2" step="0.05">
+      </label>
+      <label class="perf-row" title="实时彻底禁用模型草系统。会隐藏模型草，并跳过草队列、草 LOD 和草 wind 更新时间；不影响地表材质上的草地颜色。">
+        <span>Disable Model Grass <em>live</em></span><input id="perf-disable-grass-toggle" type="checkbox">
+      </label>
+      <label class="perf-row" title="实时降低程序化 world_tree_* 实例 count，用于判断世界树 crown/trunk 三角面是否仍是瓶颈。它不影响手工摆放的 forest_grove_* 林地树木。">
+        <span>Tree Density <em>live</em> <b id="perf-tree-value"></b></span><input id="perf-tree-slider" type="range" min="0" max="1" step="0.05">
+      </label>
+      <button id="perf-reset-button" type="button" title="清除所有性能调试配置并刷新页面，恢复默认画面和默认调试状态。">Reset Debug</button>
+    </div>
+  `
+
+  const style = document.createElement('style')
+  style.textContent = `
+    #perf-debug-panel button {
+      font:11px monospace; color:#e9f2e6; background:rgba(255,255,255,0.1);
+      border:1px solid rgba(255,255,255,0.2); border-radius:4px; cursor:pointer;
+    }
+    #perf-panel-toggle { width:100%; padding:4px 6px; text-align:left; }
+    #perf-panel-body { display:none; padding:7px; border-top:1px solid rgba(255,255,255,0.12); }
+    #perf-debug-panel.is-open #perf-panel-body { display:block; }
+    #perf-debug-panel .perf-row { display:grid; grid-template-columns:1fr auto; gap:8px; align-items:center; margin:5px 0; }
+    #perf-debug-panel .perf-row span { overflow:hidden; white-space:nowrap; text-overflow:ellipsis; }
+    #perf-debug-panel em { color:#93c5fd; font-style:normal; font-size:10px; }
+    #perf-debug-panel b { color:#facc15; font-weight:400; }
+    #perf-debug-panel input[type="range"] { width:96px; }
+    #perf-debug-panel input[type="number"] { width:64px; color:#e9f2e6; background:rgba(0,0,0,0.45); border:1px solid rgba(255,255,255,0.18); border-radius:3px; }
+    #perf-reset-button { width:100%; margin-top:7px; padding:4px 6px; }
+  `
+  document.head.appendChild(style)
+  app.appendChild(panel)
+  panel.addEventListener('pointerdown', (event) => event.stopPropagation())
+  panel.querySelectorAll('.perf-row input').forEach((input) => {
+    input.title = input.closest('.perf-row')?.title ?? ''
+  })
+
+  const $ = (id) => panel.querySelector(`#${id}`)
+  const setStoredNumber = (key, value) => window.localStorage.setItem(key, String(value))
+  const reloadWithFlag = (key, enabled) => {
+    writeDebugFlag(key, enabled)
+    window.location.reload()
+  }
+  const setRangeText = (id, value) => { $(id).textContent = Number(value).toFixed(2) }
+
+  $('perf-panel-toggle').addEventListener('click', () => {
+    panel.classList.toggle('is-open')
+  })
+
+  $('perf-log-toggle').checked = perf.enabled
+  $('perf-log-toggle').addEventListener('change', (event) => {
+    writeDebugFlag('perf', event.target.checked)
+    perf.setEnabled(event.target.checked)
+  })
+
+  $('perf-spike-input').value = readDebugNumber('perfSpike', 16.7)
+  $('perf-spike-input').addEventListener('change', (event) => {
+    setStoredNumber('perfSpike', event.target.value || 16.7)
+    window.location.reload()
+  })
+
+  $('perf-scene-stats-toggle').checked = perfSceneRtObjectStats
+  $('perf-scene-stats-toggle').addEventListener('change', (event) => {
+    perfSceneRtObjectStats = event.target.checked
+    writeDebugFlag('perfSceneRtObjectStats', perfSceneRtObjectStats)
+  })
+
+  $('perf-no-clouds-toggle').checked = PERF_NO_CLOUDS
+  $('perf-no-clouds-toggle').addEventListener('change', (event) => reloadWithFlag('perfNoClouds', event.target.checked))
+
+  $('perf-no-grass-wind-toggle').checked = readDebugFlag('perfNoGrassWind')
+  $('perf-no-grass-wind-toggle').addEventListener('change', (event) => reloadWithFlag('perfNoGrassWind', event.target.checked))
+
+  const pixelRatio = THREE.MathUtils.clamp(readDebugNumber('perfDebugPixelRatio', currentRenderPixelRatio), 0.6, 1.25)
+  $('perf-pixel-slider').value = pixelRatio
+  setRangeText('perf-pixel-value', pixelRatio)
+  setRenderPixelRatio(pixelRatio)
+  $('perf-pixel-slider').addEventListener('input', (event) => {
+    const value = Number(event.target.value)
+    setRangeText('perf-pixel-value', value)
+    setStoredNumber('perfDebugPixelRatio', value)
+    setRenderPixelRatio(value)
+  })
+
+  $('perf-low-dpr-toggle').checked = PERF_LOW_DPR
+  $('perf-low-dpr-toggle').addEventListener('change', (event) => reloadWithFlag('perfLowDpr', event.target.checked))
+
+  const cloudQuality = THREE.MathUtils.clamp(readDebugNumber('perfDebugCloudQuality', sky.getQuality?.() ?? 1), 0.2, 1)
+  $('perf-cloud-slider').value = cloudQuality
+  setRangeText('perf-cloud-value', cloudQuality)
+  sky.setQuality(cloudQuality)
+  $('perf-cloud-slider').addEventListener('input', (event) => {
+    const value = Number(event.target.value)
+    setRangeText('perf-cloud-value', value)
+    setStoredNumber('perfDebugCloudQuality', value)
+    sky.setQuality(value)
+  })
+
+  const shadowAuto = readDebugFlagDefault('perfDebugShadowAuto', renderer.shadowMap.autoUpdate)
+  $('perf-shadow-toggle').checked = shadowAuto
+  renderer.shadowMap.autoUpdate = shadowAuto
+  renderer.shadowMap.needsUpdate = true
+  $('perf-shadow-toggle').addEventListener('change', (event) => {
+    renderer.shadowMap.autoUpdate = event.target.checked
+    renderer.shadowMap.needsUpdate = true
+    writeDebugFlag('perfDebugShadowAuto', event.target.checked)
+  })
+
+  const grassDensity = THREE.MathUtils.clamp(readDebugNumber('perfDebugGrassDensity', 1), 0, 2)
+  $('perf-grass-slider').value = grassDensity
+  setRangeText('perf-grass-value', grassDensity)
+  setDebugGrassDensity?.(grassDensity)
+  $('perf-grass-slider').addEventListener('input', (event) => {
+    const value = Number(event.target.value)
+    setRangeText('perf-grass-value', value)
+    setStoredNumber('perfDebugGrassDensity', value)
+    if (value <= 1) setDebugGrassDensity?.(value)
+  })
+  $('perf-grass-slider').addEventListener('change', (event) => {
+    const value = Number(event.target.value)
+    setStoredNumber('perfDebugGrassDensity', value)
+    if (value > 1) window.location.reload()
+  })
+
+  const modelGrassDisabled = readDebugFlag('perfDisableModelGrass')
+  $('perf-disable-grass-toggle').checked = modelGrassDisabled
+  setDebugModelGrassDisabled?.(modelGrassDisabled)
+  $('perf-disable-grass-toggle').addEventListener('change', (event) => {
+    writeDebugFlag('perfDisableModelGrass', event.target.checked)
+    setDebugModelGrassDisabled?.(event.target.checked)
+  })
+
+  const treeDensity = THREE.MathUtils.clamp(readDebugNumber('perfDebugTreeDensity', 1), 0, 1)
+  $('perf-tree-slider').value = treeDensity
+  setRangeText('perf-tree-value', treeDensity)
+  setDebugTreeDensity?.(treeDensity)
+  $('perf-tree-slider').addEventListener('input', (event) => {
+    const value = Number(event.target.value)
+    setRangeText('perf-tree-value', value)
+    setStoredNumber('perfDebugTreeDensity', value)
+    setDebugTreeDensity?.(value)
+  })
+
+  $('perf-reset-button').addEventListener('click', () => {
+    for (const key of [
+      'perf', 'perfSpike', 'perfNoClouds', 'perfNoGrassWind', 'perfLowDpr',
+      'perfSceneRtObjectStats', 'perfDebugPixelRatio', 'perfDebugCloudQuality',
+      'perfDebugShadowAuto', 'perfDebugGrassDensity', 'perfDisableModelGrass',
+      'perfDebugTreeDensity',
+    ]) window.localStorage.removeItem(key)
+    window.location.reload()
+  })
+}
+
 function setCombatPerfMode(active) {
   if (combatPerfActive === active) {
     return
@@ -1144,12 +1453,14 @@ function setCombatPerfMode(active) {
   combatPerfExitTimer = 0
   if (active) {
     setRenderPixelRatio(COMBAT_PIXEL_RATIO)
+    sky.setQuality(0.4)              // 体积云降步数保帧率
     // Keep dynamic character shadows alive during combat; static shadow savings come from castShadow culling.
     renderer.shadowMap.autoUpdate = true
     renderer.shadowMap.needsUpdate = true
     return
   }
   setRenderPixelRatio(_pixelRatio)
+  sky.setQuality(1.0)                // 恢复全质量体积云
   renderer.shadowMap.autoUpdate = true
   renderer.shadowMap.needsUpdate = true
 }
@@ -1206,7 +1517,7 @@ function updateDeathSceneRuntime(dt, sourceScene) {
     return
   }
 
-  if (sourceScene === 'outdoor' || sourceScene === 'npc-talk' || sourceScene === 'fishing' || sourceScene === 'bonfire-rest') {
+  if (sourceScene === 'outdoor' || sourceScene === 'npc-talk' || sourceScene === 'bonfire-rest') {
     updateMap(clock.elapsedTime, player.getPosition())
     castle.updateOutdoor(dt)
     updatePickupAuras(dt, clock.elapsedTime)
@@ -1774,10 +2085,22 @@ function scheduleGameLoop() {
 }
 
 function gameLoop() {
+  perf.beginFrame()
+  try {
+    runGameFrame()
+  } finally {
+    perf.endFrame()
+  }
+}
+
+function runGameFrame() {
   scheduleGameLoop()
   const rawDt = Math.min(clock.getDelta(), 0.05)
   if (_hitstopTimer > 0) _hitstopTimer = Math.max(0, _hitstopTimer - rawDt)
   const dt = _hitstopTimer > 0 ? 0 : rawDt
+  perfMovementActive = false
+  perfPlayerSpeed = 0
+  perfCameraTurnRate = 0
 
   if (updateLoadingLookSweep(rawDt)) return
 
@@ -1937,64 +2260,6 @@ function gameLoop() {
     return
   }
 
-  if (activeScene === 'fishing') {
-    setCombatPerfMode(false)
-    stopPlayerFootsteps()
-    updateMap(clock.elapsedTime, player.getPosition())
-    updatePickupAuras(dt, clock.elapsedTime)
-    updateOutdoorNpcs(dt)
-    player.updateAnimation(dt)
-    updateHealAura(dt, clock.elapsedTime)
-    lockState.qWasPressed = input.isPressed('KeyQ')
-
-    fishingRod.update(dt, clock.elapsedTime, _fishPhase)
-
-    const fpos = player.getPosition()
-    thirdPerson.update(dt, fpos)
-
-    const sunPhase = SUN_PHASE_FIXED
-    updateDayNightLighting(sunPhase)
-    const _fsx = Math.cos(sunPhase) * 40
-    const _fsy = Math.sin(sunPhase) * 30 + 15
-    const _fsz = Math.sin(sunPhase * 0.6) * 25
-    const _fsl = Math.sqrt(_fsx * _fsx + _fsy * _fsy + _fsz * _fsz)
-    sun.target.position.copy(fpos)
-    sun.position.set(fpos.x + _fsx / _fsl * 80, fpos.y + _fsy / _fsl * 80, fpos.z + _fsz / _fsl * 80)
-    sun.target.updateMatrixWorld()
-    moon.target.position.copy(fpos)
-    moon.position.set(fpos.x - _fsx / _fsl * 80, fpos.y - _fsy / _fsl * 80, fpos.z - _fsz / _fsl * 80)
-    moon.target.updateMatrixWorld()
-
-    if (_fishPhase !== 'result') {
-      _fishTimer += dt
-      if (_fishPhase === 'casting' && _fishTimer >= 0.8) {
-        _fishPhase = 'waiting'
-        _fishTimer = 0
-      }
-      if (_fishPhase === 'waiting' && _fishTimer >= 5.0) {
-        _fishPhase = 'result'
-        const caught = Math.random() < 0.5
-        if (caught) {
-          inventory.add('fish')
-          syncInventoryToUi()
-        }
-        ui.showFishResult(caught, () => {
-          activeScene = 'outdoor'
-          fishingRod.hide()
-          ui.hideFishResult()
-        })
-      }
-    }
-
-    sky.update(sunPhase, dt, false)
-    updateOutdoorAreaTitle(fpos)
-    ui.update(player, sunPhase, gameCamera)
-    updateNpcCombatUi(gameCamera)
-    ui.updateCombatOverlay?.(dt, gameCamera, renderer)
-    renderWithAO(gameCamera, 'fishing')
-    return
-  }
-
   if (activeScene === 'bonfire-rest') {
     setCombatPerfMode(false)
     stopPlayerFootsteps()
@@ -2047,10 +2312,12 @@ function gameLoop() {
   }
 
   // 更新地图（风动画）
-  updateMap(clock.elapsedTime, player.getPosition())
-  castle.updateOutdoor(dt)
-  updatePickupAuras(dt, clock.elapsedTime)
-  updateBloodSplatter(dt)
+  grassUpdateContext.grassForwardX = -Math.sin(thirdPerson.yaw ?? 0)
+  grassUpdateContext.grassForwardZ = -Math.cos(thirdPerson.yaw ?? 0)
+  perf.time('main.map', () => updateMap(clock.elapsedTime, player.getPosition(), grassUpdateContext))
+  perf.time('main.castleOutdoor', () => castle.updateOutdoor(dt))
+  perf.time('main.pickups', () => updatePickupAuras(dt, clock.elapsedTime))
+  perf.time('main.blood', () => updateBloodSplatter(dt))
 
   // 更新玩家
   updateInventoryToggleInput()
@@ -2059,11 +2326,17 @@ function gameLoop() {
   updateLockToggle(input, player.getPosition())
   validateLock(player.getPosition())
   const moveIntent = getThirdPersonMoveIntent(input)
+  const prePlayerPos = player.getPosition()
+  const prePlayerX = prePlayerPos.x
+  const prePlayerZ = prePlayerPos.z
+  perfMovementActive = Boolean(moveIntent)
   const preMoveRiver = sampleRiver?.(player.getPosition().x, player.getPosition().z)
   player.setInWater(Boolean(preMoveRiver?.inWater))
-  player.update(dt, input, collision, getTerrainHeight, playerCollidable, moveIntent, false, null)
-  updateHealAura(dt, clock.elapsedTime)
-  updatePlayerFootsteps()
+  perf.time('main.player', () => player.update(dt, input, collision, getTerrainHeight, playerCollidable, moveIntent, false, null))
+  const postPlayerPos = player.getPosition()
+  perfPlayerSpeed = dt > 0 ? Math.hypot(postPlayerPos.x - prePlayerX, postPlayerPos.z - prePlayerZ) / dt : 0
+  perf.time('main.healAura', () => updateHealAura(dt, clock.elapsedTime))
+  perf.time('main.footsteps', () => updatePlayerFootsteps())
 
   const pos = player.getPosition()
   const riverSample = sampleRiver?.(pos.x, pos.z)
@@ -2077,13 +2350,13 @@ function gameLoop() {
   playerCollidable.x = pos.x
   playerCollidable.z = pos.z
   updatePlayerSpellCasting(dt, pos)
-  spells.update(dt, npcs, getTerrainHeight, handleNpcDeath, handleNpcHit)
-  updateEstusFlask(dt)
+  perf.time('main.spells', () => spells.update(dt, npcs, getTerrainHeight, handleNpcDeath, handleNpcHit))
+  perf.time('main.estus', () => updateEstusFlask(dt))
   processSwordAirCue()
   for (let i = 0; i < 4 && processPlayerMeleeAttack(); i += 1) {}
 
   // 更新 NPC
-  updateOutdoorNpcs(dt)
+  perf.time('main.npcs', () => updateOutdoorNpcs(dt))
   if (checkPlayerDeath('outdoor')) return
   for (let i = 0; i < 3 && player.consumeBlockImpact?.(); i += 1) {
     playSfx('shieldHit', { volume: 0.62 })
@@ -2110,7 +2383,11 @@ function gameLoop() {
     }
   }
 
+  const preCameraYaw = thirdPerson.yaw ?? 0
   thirdPerson.update(dt, pos)
+  const postCameraYaw = thirdPerson.yaw ?? preCameraYaw
+  const cameraDelta = Math.abs(THREE.MathUtils.euclideanModulo(postCameraYaw - preCameraYaw + Math.PI, Math.PI * 2) - Math.PI)
+  perfCameraTurnRate = dt > 0 ? cameraDelta / dt : 0
 
   // 太阳绕场景旋转，60 分钟一循环
   const sunPhase = SUN_PHASE_FIXED
@@ -2204,7 +2481,6 @@ function gameLoop() {
     if (d < nearDist) { nearDist = d; nearNpc = npc }
   })
   ui.hidePickButton()
-  ui.hideFishButton()
   const nearbyPickup = getNearbyPickup(pos)
   updatePickupInteraction(nearbyPickup, Boolean(nearCastle || nearDoor || nearMineCave || nearBonfire))
 
@@ -2251,15 +2527,17 @@ function gameLoop() {
     }
   }
 
-  sky.update(sunPhase, dt, false)
+  perf.time('main.skyUpdate', () => sky.update(sunPhase, dt, false))
 
   // 更新 UI
-  updateOutdoorAreaTitle(pos)
-  ui.update(player, sunPhase, gameCamera)
-  updateNpcCombatUi(gameCamera)
-  ui.updateCombatOverlay?.(dt, gameCamera, renderer)
+  perf.time('main.ui', () => {
+    updateOutdoorAreaTitle(pos)
+    ui.update(player, sunPhase, gameCamera)
+    updateNpcCombatUi(gameCamera)
+    ui.updateCombatOverlay?.(dt, gameCamera, renderer)
+  })
 
-  renderWithAO(gameCamera, 'outdoor')
+  perf.time('main.render', () => renderWithAO(gameCamera, 'outdoor'))
 }
 
 function waitForFrameOrTimeout(timeoutMs = 50) {
@@ -2307,12 +2585,12 @@ function updateLoadingLookSweep(dt) {
   const elapsed = (performance.now() - loadingLookSweep.startedAt) / 1000
   const t = Math.min(1, elapsed / LOADING_LOOK_SWEEP_SECONDS)
   thirdPerson.yaw = loadingLookSweep.startYaw + Math.PI * 2 * LOADING_LOOK_SWEEP_TURNS * t
-  updateMap(clock.elapsedTime, player.getPosition())
-  castle.updateOutdoor(dt)
-  thirdPerson.update(dt, player.getPosition())
+  perf.time('startup.sweepMap', () => updateMap(clock.elapsedTime, player.getPosition()))
+  perf.time('startup.sweepCastle', () => castle.updateOutdoor(dt))
+  perf.time('startup.sweepCamera', () => thirdPerson.update(dt, player.getPosition()))
   const currentTurn = Math.min(LOADING_LOOK_SWEEP_TURNS, Math.floor(t * LOADING_LOOK_SWEEP_TURNS) + 1)
   loadingOverlay.textContent = `预渲染场景 ${currentTurn}/${LOADING_LOOK_SWEEP_TURNS}`
-  renderWithAO(gameCamera, 'outdoor')
+  perf.time('startup.sweepRender', () => renderWithAO(gameCamera, 'outdoor'))
   if (t >= 1) finishLoadingLookSweep()
   return true
 }
@@ -2327,8 +2605,8 @@ async function startGame() {
     waitTimeout(1500),
   ])
   loadingOverlay.textContent = '预热法术...'
-  spells.warmup(renderer, gameCamera)
-  player.warmupThrowMagic?.()
+  perf.time('startup.spellWarmup', () => spells.warmup(renderer, gameCamera))
+  perf.time('startup.playerWarmup', () => player.warmupThrowMagic?.())
   await waitForFrameOrTimeout()
   beginLoadingLookSweep()
   clock.getDelta()

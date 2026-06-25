@@ -12,11 +12,13 @@ export class InputSystem {
     this._blockedCodes = new Set([
       'KeyW', 'KeyA', 'KeyS', 'KeyD',
       'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight',
-      'Space', 'KeyQ', 'KeyE', 'KeyF', 'KeyH', 'KeyJ', 'KeyK', 'KeyL', 'KeyR', 'KeyT', 'KeyZ',
+      'Space', 'AltLeft', 'AltRight', 'KeyQ', 'KeyE', 'KeyF', 'KeyH', 'KeyJ', 'KeyK', 'KeyL', 'KeyR', 'KeyT', 'KeyZ',
     ])
 
     const shouldIgnoreKeyCapture = (e) => {
-      if (e.metaKey || e.altKey) return true
+      if (e.metaKey) return true
+      // 放行 Option/Alt 键本身（用于"按住 Option 上升"调试），但仍忽略 Option+其他键的浏览器快捷键/字符输入
+      if (e.altKey && e.code !== 'AltLeft' && e.code !== 'AltRight') return true
       // 放行 Ctrl 键本身（用于"按住 Ctrl 下降"调试），但仍忽略 Ctrl+其他键的浏览器快捷键
       if (e.ctrlKey && e.code !== 'ControlLeft' && e.code !== 'ControlRight') return true
       const el = e.target

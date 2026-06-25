@@ -18,7 +18,3 @@ When producing a formal implementation plan for this project, keep an independen
 - Keep `conversation-history.md` for chronological conversation notes; use `docs/requirements/` for standalone plan/requirement specs.
 
 Do not create requirement documents for casual discussion, quick answers, or exploratory notes. Only create them for formal plans intended to guide implementation.
-
-## Verification
-
-After code changes, verify with `npm run build` only. Do not open a browser, use Playwright, or run browser-based checks unless the user explicitly asks for them.

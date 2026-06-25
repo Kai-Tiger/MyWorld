@@ -59,9 +59,17 @@ export const hills = [
 // 统一作用于 forest_pack 系列模型树（散布树 + 手工林地树/灌木）。
 // saturation=1, brightness=1, hueShift=0 时与原始贴图完全一致（恒等）。
 export const TREE_COLOR_GRADE = {
-  saturation: 1.0,  // 1=原样，<1 去饱和，>1 更艳
-  brightness: 1.0,  // 整体明度乘子
-  hueShift: 0.0,    // 色相旋转（弧度，0=不变）
+  saturation: 2.2, // 1=原样，<1 去饱和，>1 更艳
+  brightness: 1.2, // 整体明度乘子
+  hueShift: -0.05,  // 色相旋转（弧度，0=不变）
+}
+
+// ── GLB 模型树绿/黄比例 ────────────────────────────────
+// yellowRatio=0 只出 greenFiles，=1 只出 yellowFiles；只影响 forest_pack 的 tree_*.glb。
+export const MODEL_TREE_COLOR_MIX = {
+  yellowRatio: 0.05,
+  greenFiles: ['tree_01.glb', 'tree_02.glb'],
+  yellowFiles: ['tree_03.glb', 'tree_04.glb'],
 }
 
 // ── 敌对 NPC（追击/攻击）──────────────────────────────

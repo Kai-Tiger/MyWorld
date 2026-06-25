@@ -43,12 +43,6 @@ export const ITEM_DEFS = {
     category: ITEM_CATEGORIES.item,
     icon: null,
   },
-  fish: {
-    id: 'fish',
-    name: '鱼',
-    category: ITEM_CATEGORIES.item,
-    icon: null,
-  },
 }
 
 export const PICKUP_DEFS = [

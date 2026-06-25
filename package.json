@@ -7,7 +7,8 @@
     "build": "vite build",
     "preview": "vite preview",
     "castle:build": "/Applications/Blender.app/Contents/MacOS/Blender --background --factory-startup --python tools/blender/build_castle.py",
-    "grass:build": "/Applications/Blender.app/Contents/MacOS/Blender --background --factory-startup --python tools/blender/build_grass_clump.py"
+    "grass:build": "/Applications/Blender.app/Contents/MacOS/Blender --background --factory-startup --python tools/blender/build_grass_clump.py",
+    "terrain:alpine:heightmap": "python3 tools/blender/build_large_alpine_heightmap_terrain.py --heightmap-only"
   },
   "dependencies": {
     "three": "^0.169.0"
