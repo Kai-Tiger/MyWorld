@@ -67,8 +67,8 @@ export const TREE_COLOR_GRADE = {
 // ── GLB 模型树叶暗部提亮 ──────────────────────────────
 // 只抬 tree_*.glb/background_tree_*.glb 的叶片暗部，避免雪地前景里变成黑色剪影。
 export const TREE_LIGHT_GRADE = {
-  leafDarkLift: 0.06,
-  leafMinLuma: 0.1,
+  leafDarkLift: 0.02,
+  leafMinLuma: 0.05,
   snowContrastCompensation: 0.12,
 }
 

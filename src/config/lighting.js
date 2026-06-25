@@ -27,6 +27,8 @@ export const OUTDOOR_LIGHTING = {
   },
 }
 
+export const PLAYER_MATERIAL_BRIGHTNESS = 1.18
+
 export const HOUSE_INDOOR_LIGHTING = {
   background: 0xfff0e0,
   ambient: {

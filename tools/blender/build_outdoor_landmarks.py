@@ -10,7 +10,6 @@ from mathutils import Vector
 ROOT = Path.cwd()
 SOURCE_BLEND = ROOT / "assets" / "blender" / "outdoor_landmarks.blend"
 OUT_DIR = ROOT / "public" / "models" / "outdoor_landmarks"
-OUT_GLB = OUT_DIR / "outdoor_landmarks.glb"
 OUT_MANIFEST = OUT_DIR / "outdoor-landmarks-manifest.json"
 TEXTURE_DIR = ROOT / "public" / "textures"
 DEAD_BRANCH_TEXTURE_DIR = TEXTURE_DIR / "outdoor_dead_branches"
@@ -554,7 +553,6 @@ def export_manifest():
         "version": 1,
         "buildVersion": BUILD_VERSION,
         "source": str(SOURCE_BLEND.relative_to(ROOT)),
-        "model": "/models/outdoor_landmarks/outdoor_landmarks.glb",
         "landmarks": LANDMARKS,
         "deadBranches": DEAD_BRANCH_CLUSTERS,
         "sockets": sockets,
@@ -563,29 +561,6 @@ def export_manifest():
     OUT_MANIFEST.parent.mkdir(parents=True, exist_ok=True)
     OUT_MANIFEST.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
     print(f"Exported {OUT_MANIFEST}")
-
-
-def export_glb():
-    OUT_GLB.parent.mkdir(parents=True, exist_ok=True)
-    for obj in bpy.context.scene.objects:
-        obj.select_set(False)
-    visual_objects = [obj for obj in bpy.context.scene.objects if obj.name.startswith("VIS_")]
-    for obj in visual_objects:
-        obj.select_set(True)
-    bpy.context.view_layer.objects.active = visual_objects[0] if visual_objects else None
-    triangles = sum(sum(len(poly.vertices) - 2 for poly in obj.data.polygons) for obj in visual_objects if obj.type == "MESH")
-    print(f"Outdoor landmarks: {triangles} base triangles before modifiers")
-    bpy.ops.export_scene.gltf(
-        filepath=str(OUT_GLB),
-        export_format="GLB",
-        use_selection=True,
-        export_apply=True,
-        export_yup=True,
-        export_materials="EXPORT",
-        export_cameras=False,
-        export_lights=False,
-    )
-    print(f"Exported {OUT_GLB}")
 
 
 def main():
@@ -598,7 +573,6 @@ def main():
         SOURCE_BLEND.parent.mkdir(parents=True, exist_ok=True)
         bpy.ops.wm.save_as_mainfile(filepath=str(SOURCE_BLEND))
         print(f"Saved {SOURCE_BLEND}")
-    export_glb()
     export_manifest()
 
 

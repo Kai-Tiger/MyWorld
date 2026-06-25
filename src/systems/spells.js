@@ -27,6 +27,7 @@ const _tmpClosestB = new THREE.Vector3()
 const _tmpCapsuleStart = new THREE.Vector3()
 const _tmpCapsuleEnd = new THREE.Vector3()
 const FIREBALL_POOL_PREWARM = 3
+const FIREBALL_BURST_POOL_PREWARM = 2
 
 function makeParticleGeometry(count) {
   const geometry = new THREE.BufferGeometry()
@@ -105,8 +106,24 @@ function configureTexture(texture) {
   return texture
 }
 
-function loadTextureSet(loader, files) {
-  return files.map((file) => configureTexture(loader.load(`${VFX_TEXTURE_BASE}/${file}`)))
+function loadTrackedTexture(loader, url, pending) {
+  let resolveLoad
+  const promise = new Promise((resolve) => { resolveLoad = resolve })
+  const texture = loader.load(
+    url,
+    (loadedTexture) => resolveLoad(loadedTexture),
+    undefined,
+    (error) => {
+      console.warn(`Spell texture preload failed: ${url}`, error)
+      resolveLoad(null)
+    },
+  )
+  pending.push(promise)
+  return configureTexture(texture)
+}
+
+function loadTextureSet(loader, files, pending) {
+  return files.map((file) => loadTrackedTexture(loader, `${VFX_TEXTURE_BASE}/${file}`, pending))
 }
 
 function makeSprite(map, {
@@ -227,10 +244,12 @@ export class SpellSystem {
     this._pressed = new Set()
 
     const textureLoader = new THREE.TextureLoader()
+    const textureLoads = []
     this._textures = Object.fromEntries(
-      Object.entries(FIRE_TEXTURES).map(([key, files]) => [key, loadTextureSet(textureLoader, files)])
+      Object.entries(FIRE_TEXTURES).map(([key, files]) => [key, loadTextureSet(textureLoader, files, textureLoads)])
     )
-    this._fireballTexture = configureTexture(textureLoader.load(CUSTOM_FIREBALL_TEXTURE))
+    this._fireballTexture = loadTrackedTexture(textureLoader, CUSTOM_FIREBALL_TEXTURE, textureLoads)
+    this._textureReadyPromise = Promise.allSettled(textureLoads)
 
     this._ringGeo = new THREE.TorusGeometry(SPELLS.fireball.config.radius * 1.32, 0.016, 8, 64)
     this._shockwaveGeo = new THREE.RingGeometry(0.24, 0.42, 96)
@@ -239,6 +258,10 @@ export class SpellSystem {
     this._fireballPool = []
     for (let i = 0; i < FIREBALL_POOL_PREWARM; i++) {
       this._fireballPool.push(this._createFireballProjectile())
+    }
+    this._burstPool = []
+    for (let i = 0; i < FIREBALL_BURST_POOL_PREWARM; i++) {
+      this._burstPool.push(this._createBurst())
     }
   }
 
@@ -525,64 +548,40 @@ export class SpellSystem {
     }
   }
 
-  _spawnBurst(position) {
+  _createBurst() {
     const cfg = SPELLS.fireball.config
     const geometry = makeParticleGeometry(cfg.burstParticles)
     const points = new THREE.Points(geometry, this._burstMat)
-    points.position.copy(position)
     points.frustumCulled = false
+    points.visible = false
     this.scene.add(points)
 
     const shockwaveMat = makeShockwaveMaterial()
     const shockwave = new THREE.Mesh(this._shockwaveGeo, shockwaveMat)
-    shockwave.position.copy(position)
     shockwave.rotation.x = -Math.PI / 2
+    shockwave.visible = false
     this.scene.add(shockwave)
 
-    const sparkState = []
-    const positions = geometry.getAttribute('position')
-    const colors = geometry.getAttribute('color')
-    const sizes = geometry.getAttribute('size')
-    const alphas = geometry.getAttribute('alpha')
-    for (let i = 0; i < cfg.burstParticles; i++) {
-      const velocity = randomUnitVector(new THREE.Vector3()).multiplyScalar(2.4 + Math.random() * 7.2)
-      velocity.y += 0.7 + Math.random() * 1.8
-      sparkState.push({
-        age: 0,
-        life: 0.32 + Math.random() * 0.42,
-        velocity,
-        size: 0.18 + Math.random() * 0.26,
-      })
-      positions.setXYZ(i, 0, 0, 0)
-      if (i % 7 === 0) colors.setXYZ(i, 1.0, 0.92, 0.48)
-      else colors.setXYZ(i, 1, 0.26 + Math.random() * 0.44, 0.02)
-      sizes.setX(i, sparkState[i].size)
-      alphas.setX(i, 1)
-    }
-    geometry.attributes.position.needsUpdate = true
-    geometry.attributes.color.needsUpdate = true
-    geometry.attributes.size.needsUpdate = true
-    geometry.attributes.alpha.needsUpdate = true
+    const sparkState = Array.from({ length: cfg.burstParticles }, () => ({
+      age: 1,
+      life: 1,
+      velocity: new THREE.Vector3(),
+      size: 0,
+    }))
 
     const flameSprites = Array.from({ length: 10 }, (_, i) => {
       const sprite = makeSprite(pick(i % 3 === 0 ? this._textures.muzzle : this._textures.fire), {
         color: i % 4 === 0 ? 0xfff0a6 : 0xff6a1a,
         opacity: 0.96,
       })
-      const dir = randomUnitVector(new THREE.Vector3())
-      dir.y *= 0.45
-      sprite.position.copy(position).addScaledVector(dir, 0.18 + Math.random() * 0.22)
-      sprite.scale.setScalar(0.9 + Math.random() * 0.85)
-      sprite.material.rotation = Math.random() * Math.PI * 2
-      sprite.visible = true
       this.scene.add(sprite)
       return {
         sprite,
-        age: 0,
-        life: 0.22 + Math.random() * 0.24,
-        velocity: dir.multiplyScalar(1.3 + Math.random() * 2.8),
-        startScale: sprite.scale.x,
-        spin: (Math.random() - 0.5) * 8,
+        age: 1,
+        life: 1,
+        velocity: new THREE.Vector3(),
+        startScale: 1,
+        spin: 0,
       }
     })
 
@@ -592,28 +591,23 @@ export class SpellSystem {
         opacity: 0,
         blending: THREE.NormalBlending,
       })
-      const dir = randomUnitVector(new THREE.Vector3())
-      dir.y = Math.abs(dir.y) * 0.75 + 0.25
-      sprite.position.copy(position).addScaledVector(dir, Math.random() * 0.38)
-      sprite.scale.setScalar(0.8 + Math.random() * 0.9)
-      sprite.material.rotation = Math.random() * Math.PI * 2
-      sprite.visible = true
       this.scene.add(sprite)
       return {
         sprite,
-        age: 0,
-        life: 0.78 + Math.random() * 0.48,
-        delay: Math.random() * 0.14,
-        velocity: dir.multiplyScalar(0.45 + Math.random() * 1.0),
-        startScale: sprite.scale.x,
-        spin: (Math.random() - 0.5) * 1.8,
+        age: 1,
+        life: 1,
+        delay: 0,
+        velocity: new THREE.Vector3(),
+        startScale: 1,
+        spin: 0,
       }
     })
 
     const light = new THREE.PointLight(0xff7a22, 10.5, 14, 2)
-    light.position.copy(position)
+    light.intensity = 0
+    light.visible = false
     this.scene.add(light)
-    this.bursts.push({
+    const burst = {
       points,
       geometry,
       sparkState,
@@ -623,7 +617,151 @@ export class SpellSystem {
       smokeSprites,
       age: 0,
       life: 1.08,
+    }
+    this._resetBurst(burst)
+    return burst
+  }
+
+  _resetBurst(burst) {
+    const cfg = SPELLS.fireball.config
+    burst.age = 0
+    burst.life = 1.08
+    burst.points.visible = false
+    burst.points.position.set(0, 0, 0)
+    burst.light.intensity = 0
+    burst.light.visible = false
+    burst.shockwave.visible = false
+    burst.shockwave.position.set(0, 0, 0)
+    burst.shockwave.rotation.set(-Math.PI / 2, 0, 0)
+    burst.shockwave.scale.setScalar(1)
+    if (burst.shockwave.material.uniforms) {
+      burst.shockwave.material.uniforms.uAge.value = 0
+      burst.shockwave.material.uniforms.uLife.value = 1
+    }
+
+    const positions = burst.geometry.getAttribute('position')
+    const colors = burst.geometry.getAttribute('color')
+    const sizes = burst.geometry.getAttribute('size')
+    const alphas = burst.geometry.getAttribute('alpha')
+    for (let i = 0; i < cfg.burstParticles; i++) {
+      const state = burst.sparkState[i]
+      state.age = 1
+      state.life = 1
+      state.velocity.set(0, 0, 0)
+      state.size = 0
+      positions.setXYZ(i, 0, 0, 0)
+      colors.setXYZ(i, 1, 0.35, 0.05)
+      sizes.setX(i, 0)
+      alphas.setX(i, 0)
+    }
+    positions.needsUpdate = true
+    colors.needsUpdate = true
+    sizes.needsUpdate = true
+    alphas.needsUpdate = true
+
+    for (const state of burst.flameSprites) {
+      state.sprite.visible = false
+      state.sprite.material.opacity = 0
+      state.sprite.scale.setScalar(1)
+      state.age = 1
+      state.life = 1
+      state.velocity.set(0, 0, 0)
+      state.startScale = 1
+      state.spin = 0
+    }
+    for (const state of burst.smokeSprites) {
+      state.sprite.visible = false
+      state.sprite.material.opacity = 0
+      state.sprite.scale.setScalar(1)
+      state.age = 1
+      state.life = 1
+      state.delay = 0
+      state.velocity.set(0, 0, 0)
+      state.startScale = 1
+      state.spin = 0
+    }
+  }
+
+  _activateBurst(burst, position) {
+    const cfg = SPELLS.fireball.config
+    this._resetBurst(burst)
+    burst.points.position.copy(position)
+    burst.points.visible = true
+    burst.shockwave.position.copy(position)
+    burst.shockwave.visible = true
+    burst.light.position.copy(position)
+    burst.light.intensity = 10.5
+    burst.light.visible = true
+
+    const positions = burst.geometry.getAttribute('position')
+    const colors = burst.geometry.getAttribute('color')
+    const sizes = burst.geometry.getAttribute('size')
+    const alphas = burst.geometry.getAttribute('alpha')
+    for (let i = 0; i < cfg.burstParticles; i++) {
+      const state = burst.sparkState[i]
+      randomUnitVector(state.velocity).multiplyScalar(2.4 + Math.random() * 7.2)
+      state.velocity.y += 0.7 + Math.random() * 1.8
+      state.age = 0
+      state.life = 0.32 + Math.random() * 0.42
+      state.size = 0.18 + Math.random() * 0.26
+      positions.setXYZ(i, 0, 0, 0)
+      if (i % 7 === 0) colors.setXYZ(i, 1.0, 0.92, 0.48)
+      else colors.setXYZ(i, 1, 0.26 + Math.random() * 0.44, 0.02)
+      sizes.setX(i, state.size)
+      alphas.setX(i, 1)
+    }
+    positions.needsUpdate = true
+    colors.needsUpdate = true
+    sizes.needsUpdate = true
+    alphas.needsUpdate = true
+
+    burst.flameSprites.forEach((state, i) => {
+      const dir = randomUnitVector(state.velocity)
+      dir.y *= 0.45
+      state.sprite.position.copy(position).addScaledVector(dir, 0.18 + Math.random() * 0.22)
+      state.sprite.scale.setScalar(0.9 + Math.random() * 0.85)
+      state.sprite.material.rotation = Math.random() * Math.PI * 2
+      state.sprite.material.opacity = 0.96
+      state.sprite.visible = true
+      state.age = 0
+      state.life = 0.22 + Math.random() * 0.24
+      state.velocity.copy(dir).multiplyScalar(1.3 + Math.random() * 2.8)
+      state.startScale = state.sprite.scale.x
+      state.spin = (Math.random() - 0.5) * 8
+      state.sprite.material.color.set(i % 4 === 0 ? 0xfff0a6 : 0xff6a1a)
     })
+
+    burst.smokeSprites.forEach((state, i) => {
+      const dir = randomUnitVector(state.velocity)
+      dir.y = Math.abs(dir.y) * 0.75 + 0.25
+      state.sprite.position.copy(position).addScaledVector(dir, Math.random() * 0.38)
+      state.sprite.scale.setScalar(0.8 + Math.random() * 0.9)
+      state.sprite.material.rotation = Math.random() * Math.PI * 2
+      state.sprite.material.opacity = 0
+      state.sprite.visible = true
+      state.age = 0
+      state.life = 0.78 + Math.random() * 0.48
+      state.delay = Math.random() * 0.14
+      state.velocity.copy(dir).multiplyScalar(0.45 + Math.random() * 1.0)
+      state.startScale = state.sprite.scale.x
+      state.spin = (Math.random() - 0.5) * 1.8
+      state.sprite.material.color.set(i % 4 === 0 ? 0xff9a42 : 0x5f5045)
+    })
+  }
+
+  _acquireBurst() {
+    return this._burstPool.pop() ?? this._createBurst()
+  }
+
+  _releaseBurst(burst) {
+    this._resetBurst(burst)
+    this._burstPool.push(burst)
+  }
+
+  _spawnBurst(position) {
+    const burst = this._acquireBurst()
+    this._activateBurst(burst, position)
+    this.bursts.push(burst)
   }
 
   tryCast(spellId, input, origin, direction, playerAtk = BALANCE.player.atk) {
@@ -809,7 +947,7 @@ export class SpellSystem {
         burst.shockwave.material.uniforms.uLife.value = 0.62
       }
       if (burst.age >= burst.life) {
-        this._disposeBurst(burst)
+        this._releaseBurst(burst)
         this.bursts.splice(i, 1)
       }
     }
@@ -843,9 +981,11 @@ export class SpellSystem {
     this._fireballPool.push(p)
   }
 
-  warmup(renderer, camera) {
+  async warmup(renderer, camera) {
     if (!renderer || !camera) return false
+    await this._textureReadyPromise
     const projectile = this._acquireFireballProjectile()
+    const burst = this._acquireBurst()
     this._resetFireballProjectile(projectile)
     try {
       renderer.initTexture?.(this._fireballTexture)
@@ -864,27 +1004,13 @@ export class SpellSystem {
         state.sprite.visible = true
         state.sprite.material.opacity = 0.001
       }
+      this._activateBurst(burst, new THREE.Vector3(0, -10000, 0))
       renderer.compile(this.scene, camera)
       return true
     } finally {
       this._resetFireballProjectile(projectile)
       this._fireballPool.push(projectile)
-    }
-  }
-
-  _disposeBurst(burst) {
-    this.scene.remove(burst.points)
-    this.scene.remove(burst.light)
-    this.scene.remove(burst.shockwave)
-    burst.geometry.dispose()
-    burst.shockwave.material.dispose()
-    for (const state of burst.flameSprites) {
-      this.scene.remove(state.sprite)
-      state.sprite.material.dispose()
-    }
-    for (const state of burst.smokeSprites) {
-      this.scene.remove(state.sprite)
-      state.sprite.material.dispose()
+      this._releaseBurst(burst)
     }
   }
 
@@ -892,7 +1018,7 @@ export class SpellSystem {
     for (const p of this.projectiles) this._disposeProjectile(p)
     this.projectiles.length = 0
 
-    for (const burst of this.bursts) this._disposeBurst(burst)
+    for (const burst of this.bursts) this._releaseBurst(burst)
     this.bursts.length = 0
     this.cooldowns.clear()
     this._pressed.clear()

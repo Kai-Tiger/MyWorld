@@ -9,9 +9,7 @@ The existing heightmap works for single-layer terrain, but bridge-over-road layo
 ## Success Criteria
 
 - A Blender source scene exists at `assets/blender/outdoor_landmarks.blend`.
-- A runtime GLB exists at `public/models/outdoor_landmarks/outdoor_landmarks.glb`.
 - A manifest exists at `public/models/outdoor_landmarks/outdoor-landmarks-manifest.json`.
-- The outdoor map loads the landmark GLB.
 - The manifest adds bridge surfaces, ramps, and blocking shapes to the existing collision system.
 - The first pass includes three landmarks:
   - a broken stone bridge with a road below it,
@@ -26,9 +24,7 @@ The existing heightmap works for single-layer terrain, but bridge-over-road layo
 - Use `VIS_*` mesh names for visible landmark geometry.
 - Use `COL_BOX_*`, `COL_SURFACE_*`, and `COL_RAMP_*` objects for simplified gameplay collision.
 - Use `SOCKET_*` objects and landmark metadata for future placement hooks.
-- Load `/models/outdoor_landmarks/outdoor_landmarks.glb` from `src/scene/map.js`.
 - Fetch `/models/outdoor_landmarks/outdoor-landmarks-manifest.json` and append its colliders to the outdoor `collidables` array.
-- Add the landmark GLB to runtime model preloading.
 
 ## Test and Verification Plan
 

@@ -2,7 +2,6 @@
   "version": 1,
   "buildVersion": 2,
   "source": "assets/blender/outdoor_landmarks.blend",
-  "model": "/models/outdoor_landmarks/outdoor_landmarks.glb",
   "landmarks": [
     {
       "id": "broken_canyon_bridge",

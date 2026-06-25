@@ -47,6 +47,9 @@ export function createHeightmapTerrain(scene, {
   postHeightModifiers = [],
   holeMasks = [],
   heightmapUrl = '/heightmaps/main_height_1024.png',
+  buildAllChunksOnLoad = false,
+  startupBuildBudgetMs = 12,
+  onBuildAllProgress = null,
   onReady = null,
   perf = null,
 } = {}) {
@@ -80,6 +83,17 @@ export function createHeightmapTerrain(scene, {
   const activeBuildTasks = []
   const desiredChunkKeys = new Set()
   const visibleChunkKeys = new Set()
+  const fullTerrainMode = Boolean(buildAllChunksOnLoad && chunked)
+  const fullTerrainTotalChunks = chunkCountX * chunkCountZ
+  let fullTerrainReady = !fullTerrainMode
+  let fullTerrainLoopRunning = false
+  let resolveFullTerrainReady = null
+  let rejectFullTerrainReady = null
+  const allChunksReadyPromise = new Promise((resolve, reject) => {
+    resolveFullTerrainReady = resolve
+    rejectFullTerrainReady = reject
+  })
+  if (fullTerrainReady) resolveFullTerrainReady?.()
 
   function shapeHeight(hNorm) {
     const curved = Math.pow(clamp01(hNorm), sharpenPower)
@@ -354,6 +368,7 @@ export function createHeightmapTerrain(scene, {
   }
 
   function proxyShouldBeVisible(ix, iz) {
+    if (fullTerrainMode) return false
     const key = chunkKey(ix, iz)
     const dx = Math.abs(ix - currentCenterIx)
     const dz = Math.abs(iz - currentCenterIz)
@@ -388,7 +403,7 @@ export function createHeightmapTerrain(scene, {
 
   function updateBuiltChunkVisibility() {
     for (const [key, chunk] of meshes) {
-      chunk.visible = visibleChunkKeys.has(key)
+      chunk.visible = fullTerrainMode || visibleChunkKeys.has(key)
     }
   }
 
@@ -446,8 +461,8 @@ export function createHeightmapTerrain(scene, {
     return false
   }
 
-  function processBuildQueues() {
-    const budgetEnd = performance.now() + terrainBuildBudgetMs
+  function processBuildQueues(budgetMs = terrainBuildBudgetMs) {
+    const budgetEnd = performance.now() + budgetMs
     while (performance.now() < budgetEnd) {
       let task = activeBuildTasks[0]
       if (!task) task = takeNextBuildTask()
@@ -470,8 +485,66 @@ export function createHeightmapTerrain(scene, {
     })
   }
 
+  function reportFullTerrainProgress() {
+    if (!fullTerrainMode || typeof onBuildAllProgress !== 'function') return
+    const loaded = Math.min(meshes.size, fullTerrainTotalChunks)
+    onBuildAllProgress({
+      loaded,
+      total: fullTerrainTotalChunks,
+      percent: fullTerrainTotalChunks > 0 ? loaded / fullTerrainTotalChunks : 1,
+    })
+  }
+
+  function queueAllTerrainChunks() {
+    desiredChunkKeys.clear()
+    visibleChunkKeys.clear()
+    pendingChunks.clear()
+    pendingProxyChunks.clear()
+    for (let iz = 0; iz < chunkCountZ; iz++) {
+      for (let ix = 0; ix < chunkCountX; ix++) {
+        const key = chunkKey(ix, iz)
+        desiredChunkKeys.add(key)
+        visibleChunkKeys.add(key)
+        if (!meshes.has(key)) queueEntry(pendingChunks, key, chunkEntry(ix, iz, iz * chunkCountX + ix))
+      }
+    }
+    reportFullTerrainProgress()
+  }
+
+  function finishFullTerrainBuild() {
+    fullTerrainReady = true
+    updateBuiltChunkVisibility()
+    updateDistantProxyVisibility(currentCenterIx, currentCenterIz)
+    reportFullTerrainProgress()
+    resolveFullTerrainReady?.()
+  }
+
+  function processFullTerrainBuild() {
+    if (fullTerrainReady) return
+    processBuildQueues(startupBuildBudgetMs)
+    reportFullTerrainProgress()
+    if (meshes.size >= fullTerrainTotalChunks) {
+      finishFullTerrainBuild()
+      return
+    }
+    window.requestAnimationFrame(processFullTerrainBuild)
+  }
+
+  function startFullTerrainBuild() {
+    if (!fullTerrainMode || fullTerrainLoopRunning) return
+    fullTerrainLoopRunning = true
+    queueAllTerrainChunks()
+    window.requestAnimationFrame(processFullTerrainBuild)
+  }
+
   function updateChunks(playerPosition = null, force = false) {
     if (!chunked || !hmData) return
+    if (fullTerrainMode) {
+      if (!fullTerrainReady) processBuildQueues()
+      updateBuiltChunkVisibility()
+      updateDistantProxyVisibility(currentCenterIx, currentCenterIz)
+      return
+    }
     const px = Number.isFinite(playerPosition?.x) ? playerPosition.x : 0
     const pz = Number.isFinite(playerPosition?.z) ? playerPosition.z : 0
     const centerIx = THREE.MathUtils.clamp(Math.floor((px - gridMinX) / chunkSize), 0, chunkCountX - 1)
@@ -533,13 +606,20 @@ export function createHeightmapTerrain(scene, {
       hmData[i] = pixels[i * 4] / 255
     }
 
-    if (chunked) {
+    if (fullTerrainMode) {
+      startFullTerrainBuild()
+    } else if (chunked) {
       updateChunks({ x: 0, z: 0 }, true)
     } else {
       buildSingleMesh()
+      fullTerrainReady = true
+      resolveFullTerrainReady?.()
     }
 
     if (onReady) onReady(getHeightAt)
+  }
+  img.onerror = () => {
+    rejectFullTerrainReady?.(new Error(`Failed to load heightmap: ${heightmapUrl}`))
   }
   img.src = heightmapUrl
 
@@ -564,6 +644,7 @@ export function createHeightmapTerrain(scene, {
     mesh,
     getHeightAt,
     traceHeightAt,
+    allChunksReadyPromise,
     update(playerPosition = null) {
       updateChunks(playerPosition)
     },

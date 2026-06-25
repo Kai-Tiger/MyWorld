@@ -1,5 +1,6 @@
 import * as THREE from 'three'
 import { BALANCE } from '../config/balance.js'
+import { PLAYER_MATERIAL_BRIGHTNESS } from '../config/lighting.js'
 import { cloneFBX, cloneGLTFScene, loadFBXClips } from '../systems/modelAssets.js'
 import { playSfx } from '../systems/audio.js'
 import standFbxUrl from '../characters/player/stand.fbx?url'
@@ -36,6 +37,33 @@ function findObjectByNormalizedName(root, names) {
     if (!found && targets.has(normalizeObjectName(obj.name))) found = obj
   })
   return found
+}
+
+function clonePlayerMaterial(material) {
+  if (!material?.isMaterial) return material
+  const cloned = material.clone()
+  const previousOnBeforeCompile = cloned.onBeforeCompile
+  const previousCacheKey = cloned.customProgramCacheKey?.bind(cloned)
+  cloned.onBeforeCompile = (shader, renderer) => {
+    if (typeof previousOnBeforeCompile === 'function') previousOnBeforeCompile.call(cloned, shader, renderer)
+    shader.uniforms.playerMaterialBrightness = { value: PLAYER_MATERIAL_BRIGHTNESS }
+    shader.fragmentShader = `uniform float playerMaterialBrightness;\n${shader.fragmentShader.replace(
+      '#include <opaque_fragment>',
+      '#include <opaque_fragment>\ngl_FragColor.rgb = min(gl_FragColor.rgb * playerMaterialBrightness, vec3(1.0));',
+    )}`
+  }
+  cloned.customProgramCacheKey = () => `${previousCacheKey ? previousCacheKey() : ''}|playerMaterialBrightness:${PLAYER_MATERIAL_BRIGHTNESS}`
+  cloned.needsUpdate = true
+  return cloned
+}
+
+function applyPlayerMaterialBrightness(root) {
+  root.traverse((child) => {
+    if (!child.isMesh || !child.material) return
+    child.material = Array.isArray(child.material)
+      ? child.material.map(clonePlayerMaterial)
+      : clonePlayerMaterial(child.material)
+  })
 }
 
 function getTrackTargetName(trackName) {
@@ -108,6 +136,7 @@ export function createPlayer(scene) {
   let throwMagicPlaying = false
   let throwMagicWarmupRequested = false
   let throwMagicWarmed = false
+  const throwMagicWarmupWaiters = []
   let attackHitConsumed = false
   const attackHitEvents = []
   let attackHitEventId = 0
@@ -823,6 +852,7 @@ export function createPlayer(scene) {
       throwMagicAction.timeScale = 1.2
       throwMagicAction.enabled = true
       if (throwMagicWarmupRequested) warmupThrowMagicAction()
+      resolveThrowMagicWarmupWaiters()
     }
     if (defenseClip && !defenseAction) {
       freezeRootXZ(defenseClip)
@@ -906,9 +936,17 @@ export function createPlayer(scene) {
     return true
   }
 
+  function resolveThrowMagicWarmupWaiters() {
+    if (!throwMagicWarmupWaiters.length || !throwMagicAction || !mixer) return
+    const warmed = warmupThrowMagicAction() || throwMagicWarmed
+    const waiters = throwMagicWarmupWaiters.splice(0)
+    waiters.forEach(resolve => resolve(warmed))
+  }
+
   cloneFBX(standFbxUrl).then((object) => {
     rootModel = object
     rootModel.scale.setScalar(0.01)
+    applyPlayerMaterialBrightness(rootModel)
     const _pLights = []
     rootModel.traverse(c => {
       if (c.isMesh) c.castShadow = true
@@ -1844,6 +1882,15 @@ export function createPlayer(scene) {
     warmupThrowMagic() {
       throwMagicWarmupRequested = true
       return warmupThrowMagicAction()
+    },
+
+    warmupThrowMagicAsync() {
+      throwMagicWarmupRequested = true
+      if (warmupThrowMagicAction() || throwMagicWarmed) return Promise.resolve(true)
+      return new Promise((resolve) => {
+        throwMagicWarmupWaiters.push(resolve)
+        resolveThrowMagicWarmupWaiters()
+      })
     },
 
     playThrowMagic() {

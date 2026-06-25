@@ -258,7 +258,14 @@ function updateDayNightLighting(sunPhase) {
 const _proxySunDir = new THREE.Vector3()
 // 优先加载存档，无存档时使用默认地图配置
 const INITIAL_CAMPFIRE_POSITION = { x: 0, z: 50 }
-const INITIAL_PLAYER_POSITION = { x: -260, z: -445 }
+const INITIAL_PLAYER_POSITION = {
+  x: -357.2,
+  z: -487.4,
+  y: 54.6,
+  yaw: THREE.MathUtils.degToRad(66),
+  cameraViewYaw: THREE.MathUtils.degToRad(47),
+  cameraViewPitch: THREE.MathUtils.degToRad(-10),
+}
 const RELOCATED_SOUTH_CAMPFIRE_FROM = { x: 10, z: -18 }
 const RELOCATED_SOUTH_CAMPFIRE_TO = { x: 19, z: -66 }
 
@@ -293,6 +300,15 @@ let resolveOutdoorStaticReady = null
 const outdoorStaticReadyPromise = new Promise(resolve => {
   resolveOutdoorStaticReady = resolve
 })
+const FULL_TERRAIN_LOAD = window.location.pathname === '/full' || window.location.pathname === '/full/'
+let startupPhase = 'models'
+let latestTerrainProgress = { loaded: 0, total: 0, percent: 0 }
+function formatTerrainProgress(progress = latestTerrainProgress) {
+  const total = progress.total || 0
+  const loaded = progress.loaded || 0
+  const pct = total > 0 ? Math.round((progress.percent ?? loaded / total) * 100) : 0
+  return total > 0 ? `加载地形 ${pct}% (${loaded}/${total})` : '加载地形...'
+}
 const {
   collidables,
   update: updateMap,
@@ -302,9 +318,16 @@ const {
   setDistantTerrainSun,
   setDebugGrassDensity,
   setDebugModelGrassDisabled,
+  setDebugWaterEffectsDisabled,
   setDebugTreeDensity,
+  terrainReadyPromise,
 } = createMap(scene, {
   perf,
+  fullTerrainLoad: FULL_TERRAIN_LOAD,
+  onTerrainLoadProgress: (progress) => {
+    latestTerrainProgress = progress
+    if (startupPhase === 'terrain') loadingOverlay.textContent = formatTerrainProgress(progress)
+  },
   onStaticModelReady: (model) => {
     resolveOutdoorStaticReady?.(model)
   },
@@ -388,10 +411,13 @@ const player = createPlayer(scene)
 player.setPosition(
   INITIAL_PLAYER_POSITION.x,
   INITIAL_PLAYER_POSITION.z,
-  getTerrainHeight(INITIAL_PLAYER_POSITION.x, INITIAL_PLAYER_POSITION.z),
+  INITIAL_PLAYER_POSITION.y,
 )
+player.getGroup().rotation.y = INITIAL_PLAYER_POSITION.yaw
 const playerCollidable = { x: INITIAL_PLAYER_POSITION.x, z: INITIAL_PLAYER_POSITION.z, r: 0.4 }
 setCameraIgnoreRecursive(player.getGroup(), true)
+thirdPerson.yaw = INITIAL_PLAYER_POSITION.cameraViewYaw - Math.PI
+thirdPerson.pitch = -INITIAL_PLAYER_POSITION.cameraViewPitch
 thirdPerson.syncToTarget(player.getPosition())
 
 // ── 室内场景 ──────────────────────────────────────────
@@ -1297,6 +1323,9 @@ function createPerfDebugPanel() {
       <label class="perf-row" title="实时彻底禁用模型草系统。会隐藏模型草，并跳过草队列、草 LOD 和草 wind 更新时间；不影响地表材质上的草地颜色。">
         <span>Disable Model Grass <em>live</em></span><input id="perf-disable-grass-toggle" type="checkbox">
       </label>
+      <label class="perf-row" title="实时隐藏所有水面视觉效果，包括合并水面网格和水花；河流采样、涉水状态和水流推力仍保留，用于隔离水面渲染成本。">
+        <span>Disable Water FX <em>live</em></span><input id="perf-disable-water-toggle" type="checkbox">
+      </label>
       <label class="perf-row" title="实时降低程序化 world_tree_* 实例 count，用于判断世界树 crown/trunk 三角面是否仍是瓶颈。它不影响手工摆放的 forest_grove_* 林地树木。">
         <span>Tree Density <em>live</em> <b id="perf-tree-value"></b></span><input id="perf-tree-slider" type="range" min="0" max="1" step="0.05">
       </label>
@@ -1423,6 +1452,14 @@ function createPerfDebugPanel() {
     setDebugModelGrassDisabled?.(event.target.checked)
   })
 
+  const waterEffectsDisabled = readDebugFlag('perfDisableWaterEffects')
+  $('perf-disable-water-toggle').checked = waterEffectsDisabled
+  setDebugWaterEffectsDisabled?.(waterEffectsDisabled)
+  $('perf-disable-water-toggle').addEventListener('change', (event) => {
+    writeDebugFlag('perfDisableWaterEffects', event.target.checked)
+    setDebugWaterEffectsDisabled?.(event.target.checked)
+  })
+
   const treeDensity = THREE.MathUtils.clamp(readDebugNumber('perfDebugTreeDensity', 1), 0, 1)
   $('perf-tree-slider').value = treeDensity
   setRangeText('perf-tree-value', treeDensity)
@@ -1439,7 +1476,7 @@ function createPerfDebugPanel() {
       'perf', 'perfSpike', 'perfNoClouds', 'perfNoGrassWind', 'perfLowDpr',
       'perfSceneRtObjectStats', 'perfDebugPixelRatio', 'perfDebugCloudQuality',
       'perfDebugShadowAuto', 'perfDebugGrassDensity', 'perfDisableModelGrass',
-      'perfDebugTreeDensity',
+      'perfDisableWaterEffects', 'perfDebugTreeDensity',
     ]) window.localStorage.removeItem(key)
     window.location.reload()
   })
@@ -2557,6 +2594,24 @@ function waitTimeout(timeoutMs) {
   return new Promise(resolve => window.setTimeout(resolve, timeoutMs))
 }
 
+async function runStartupWarmup(label, task, timeoutMs = 2500) {
+  let timedOut = false
+  try {
+    const result = await Promise.race([
+      Promise.resolve().then(task),
+      waitTimeout(timeoutMs).then(() => {
+        timedOut = true
+        return false
+      }),
+    ])
+    if (timedOut) console.warn(`${label} warmup timed out after ${timeoutMs}ms`)
+    return result
+  } catch (error) {
+    console.warn(`${label} warmup failed`, error)
+    return false
+  }
+}
+
 function beginLoadingLookSweep() {
   const playerPos = player.getPosition()
   thirdPerson.syncToTarget(playerPos)
@@ -2597,6 +2652,11 @@ function updateLoadingLookSweep(dt) {
 
 async function startGame() {
   await preloadModelsPromise
+  if (FULL_TERRAIN_LOAD) {
+    startupPhase = 'terrain'
+    loadingOverlay.textContent = formatTerrainProgress()
+    await terrainReadyPromise
+  }
   loadingOverlay.textContent = '准备场景...'
   await Promise.resolve()
   await waitForFrameOrTimeout()
@@ -2605,8 +2665,12 @@ async function startGame() {
     waitTimeout(1500),
   ])
   loadingOverlay.textContent = '预热法术...'
-  perf.time('startup.spellWarmup', () => spells.warmup(renderer, gameCamera))
-  perf.time('startup.playerWarmup', () => player.warmupThrowMagic?.())
+  await Promise.all([
+    runStartupWarmup('Spell VFX', () => spells.warmup(renderer, gameCamera), 3500),
+    runStartupWarmup('Player throw magic', () => (
+      player.warmupThrowMagicAsync?.() ?? player.warmupThrowMagic?.()
+    ), 2500),
+  ])
   await waitForFrameOrTimeout()
   beginLoadingLookSweep()
   clock.getDelta()
