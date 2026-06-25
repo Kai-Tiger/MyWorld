@@ -1,6 +1,6 @@
 import * as THREE from 'three'
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
-import { WORLD_SIZE, OUTDOOR_MOUNTAIN_BOUNDS, MOUNTAIN_FALL_FLOOR_Y, TREE_COLOR_GRADE, MODEL_TREE_COLOR_MIX } from '../config/world.js'
+import { WORLD_SIZE, OUTDOOR_MOUNTAIN_BOUNDS, MOUNTAIN_FALL_FLOOR_Y, TREE_COLOR_GRADE, TREE_LIGHT_GRADE, MODEL_TREE_COLOR_MIX } from '../config/world.js'
 import { createHeightmapTerrain } from './heightmapTerrain.js'
 import { CASTLE_EXTERIOR } from '../config/castle.js'
 import oldChurchRuinsUrl from '../place/old_church_ruins_medium.glb?url'
@@ -101,8 +101,8 @@ const RIVERSIDE_GRASS_MAX_GROUND_RISE = 0.85 // 局部坡度守卫：1m 内地�
 const MEADOW_GRASS_SPACING = 0.527           // 全场网格步距（米），约 2x 面积密度
 const MEADOW_GRASS_JITTER = 0.7              // 位置抖动比例（相对步距），打散网格感
 const GRASS_FIELD_BOUNDS = OUTDOOR_MOUNTAIN_BOUNDS // 全局模型草可生成边界；扩大边界会让更远区域可长草。
-const GRASS_HEIGHT_FADE_START_Y = 80 // 全局草开始随高度变稀；低于此高度仍按原密度生成。
-const GRASS_HEIGHT_FADE_END_Y = 160 // 全局草高度衰减末端；高于此高度只保留少量簇状草。
+const GRASS_HEIGHT_FADE_START_Y = 50 // 全局草开始随高度变稀；低于此高度仍按原密度生成。
+const GRASS_HEIGHT_FADE_END_Y = 120 // 全局草高度衰减末端；高于此高度只保留少量簇状草。
 const GRASS_HEIGHT_MIN_CLUSTER_COVERAGE = 0.02 // 高处最小草簇覆盖率；调大高处草簇更多，调小更稀。
 const GRASS_HEIGHT_CLUSTER_SCALE = 0.055 // 高度衰减草簇噪声尺度；调大簇更小更碎，调小簇更大。
 const GRASS_HEIGHT_CLUSTER_EDGE_SOFTNESS = 0.10 // 草簇边缘扰动强度；调大边缘更破碎，调小边界更平滑。
@@ -1126,7 +1126,7 @@ const GRASS_LOD_VISIBLE_CAPACITY = 18000 // 每个草 mesh 最大可写实例数
 const MEADOW_GRASS_SCAN_BUDGET_MS = 3.0 // 每帧扫描候选草点预算；调大草会更快进入队列，但移动时 CPU 峰值更高。
 const MEADOW_GRASS_QUEUE_BUDGET_MS = 5.5 // 每帧生成草记录预算；调大铺草更快，但 height/过滤/矩阵准备可能造成掉帧。
 const MEADOW_GRASS_PRELOAD_DIST = 120 // 玩家周围预生成草半径；调大高速移动更不易露空，调小更省内存/CPU。
-const MEADOW_GRASS_NEAR_PRIORITY_DIST = 25 // 脚下优先半径；调大更优先补近处草，远处补草会更慢。
+const MEADOW_GRASS_NEAR_PRIORITY_DIST = 45 // 脚下优先半径；调大更优先补近处草，远处补草会更慢。
 const MEADOW_GRASS_ENQUEUE_MOVE_DIST = 8 // 玩家移动超过此距离才重排草生成队列；调小更跟手但频繁重扫，调大更省但可能跟不上。
 const GRASS_LOD_PROFILE = false // 草 LOD 详细日志开关；true 会定期输出扫描/队列/矩阵统计，排查后应关掉。
 const GRASS_LOD_PROFILE_REPORT_MS = 3000 // 草 LOD 日志间隔；调小日志更密，调大更安静。
@@ -2822,9 +2822,12 @@ function configureVegetationAlphaCutout(material) {
 // ── GLB 树调色：共享 uniform + onBeforeCompile 注入 ──
 // 所有树材质共享同一组 uniform，运行时改 .value 即可全量生效（见 setTreeColorGrade）。
 const _treeGradeUniforms = {
-  uTreeSat:    { value: TREE_COLOR_GRADE.saturation },
-  uTreeBright: { value: TREE_COLOR_GRADE.brightness },
-  uTreeHue:    { value: TREE_COLOR_GRADE.hueShift },
+  uTreeSat:                      { value: TREE_COLOR_GRADE.saturation },
+  uTreeBright:                   { value: TREE_COLOR_GRADE.brightness },
+  uTreeHue:                      { value: TREE_COLOR_GRADE.hueShift },
+  uTreeLeafDarkLift:             { value: TREE_LIGHT_GRADE.leafDarkLift },
+  uTreeLeafMinLuma:              { value: TREE_LIGHT_GRADE.leafMinLuma },
+  uTreeSnowContrastCompensation: { value: TREE_LIGHT_GRADE.snowContrastCompensation },
 }
 
 const VEGETATION_NAME_RE = /(tree|branch|leaf|leaves|background)/i
@@ -2857,28 +2860,36 @@ function resetTreeMaterialRuntimeData(material) {
   delete material.userData.__treeGraded
   delete material.userData.__treeLeafKeepUniform
   delete material.userData.__treeLeafFadeEnabledUniform
+  delete material.userData.__treeLeafLightEnabledUniform
 }
 
 // 给单个树材质注入调色片元钩子（贴图采样后做 色相旋转→饱和度→明度）。幂等。
-function applyTreeColorGrade(material, { leafFade = false } = {}) {
+function applyTreeColorGrade(material, { leafFade = false, leafLight = false } = {}) {
   if (!material) return
   material.userData = material.userData || {}
   if (material.userData.__treeGraded) {
-    const enabled = material.userData.__treeLeafFadeEnabledUniform
-    if (leafFade && enabled) enabled.value = 1
+    const fadeEnabled = material.userData.__treeLeafFadeEnabledUniform
+    const lightEnabled = material.userData.__treeLeafLightEnabledUniform
+    if (leafFade && fadeEnabled) fadeEnabled.value = 1
+    if (leafLight && lightEnabled) lightEnabled.value = 1
     return
   }
   material.userData.__treeGraded = true
   material.userData.__treeLeafKeepUniform = { value: 1 }
   material.userData.__treeLeafFadeEnabledUniform = { value: leafFade ? 1 : 0 }
+  material.userData.__treeLeafLightEnabledUniform = { value: leafLight ? 1 : 0 }
   const prevOnBeforeCompile = material.onBeforeCompile
   material.onBeforeCompile = (shader, renderer) => {
     if (typeof prevOnBeforeCompile === 'function') prevOnBeforeCompile(shader, renderer)
     shader.uniforms.uTreeSat = _treeGradeUniforms.uTreeSat
     shader.uniforms.uTreeBright = _treeGradeUniforms.uTreeBright
     shader.uniforms.uTreeHue = _treeGradeUniforms.uTreeHue
+    shader.uniforms.uTreeLeafDarkLift = _treeGradeUniforms.uTreeLeafDarkLift
+    shader.uniforms.uTreeLeafMinLuma = _treeGradeUniforms.uTreeLeafMinLuma
+    shader.uniforms.uTreeSnowContrastCompensation = _treeGradeUniforms.uTreeSnowContrastCompensation
     shader.uniforms.uTreeLeafKeep = material.userData.__treeLeafKeepUniform
     shader.uniforms.uTreeLeafFadeEnabled = material.userData.__treeLeafFadeEnabledUniform
+    shader.uniforms.uTreeLeafLightEnabled = material.userData.__treeLeafLightEnabledUniform
     shader.vertexShader = `
       varying vec3 vTreeWorldPosition;
     ` + shader.vertexShader.replace(
@@ -2901,8 +2912,12 @@ function applyTreeColorGrade(material, { leafFade = false } = {}) {
       uniform float uTreeSat;
       uniform float uTreeBright;
       uniform float uTreeHue;
+      uniform float uTreeLeafDarkLift;
+      uniform float uTreeLeafMinLuma;
+      uniform float uTreeSnowContrastCompensation;
       uniform float uTreeLeafKeep;
       uniform float uTreeLeafFadeEnabled;
+      uniform float uTreeLeafLightEnabled;
       varying vec3 vTreeWorldPosition;
       float treeLeafHash(vec3 p) {
         p = fract(p * 0.3183099 + vec3(0.13, 0.37, 0.61));
@@ -2938,11 +2953,18 @@ function applyTreeColorGrade(material, { leafFade = false } = {}) {
         diffuseColor.rgb = mix(vec3(luma), diffuseColor.rgb, uTreeSat);
         // 明度
         diffuseColor.rgb *= uTreeBright;
+        if (uTreeLeafLightEnabled > 0.5) {
+          float leafLuma = max(dot(diffuseColor.rgb, vec3(0.2126, 0.7152, 0.0722)), 0.001);
+          float darkMask = 1.0 - smoothstep(uTreeLeafMinLuma, uTreeLeafMinLuma + 0.22, leafLuma);
+          float lift = (uTreeLeafDarkLift + uTreeSnowContrastCompensation) * darkMask;
+          float targetLuma = max(leafLuma + lift, uTreeLeafMinLuma);
+          diffuseColor.rgb = clamp(diffuseColor.rgb * (targetLuma / leafLuma), 0.0, 1.0);
+        }
       }
       `
     )
   }
-  material.customProgramCacheKey = () => 'tree-color-grade-leaf-fade-v1'
+  material.customProgramCacheKey = () => 'tree-color-grade-leaf-fade-v2'
   material.needsUpdate = true
 }
 
@@ -2970,7 +2992,7 @@ function cloneForestPackLeafFadeMaterials(mesh) {
     const next = mat.clone()
     resetTreeMaterialRuntimeData(next)
     configureVegetationAlphaCutout(next)
-    applyTreeColorGrade(next, { leafFade: true })
+    applyTreeColorGrade(next, { leafFade: true, leafLight: true })
     return next
   })
   mesh.material = Array.isArray(mesh.material) ? nextMaterials : nextMaterials[0]
@@ -3043,7 +3065,7 @@ function configureStaticGltfModel(root, {
     mats.forEach((mat) => {
       if (!mat) return
       configureVegetationAlphaCutout(mat)
-      if (VEGETATION_NAME_RE.test(mat.name ?? '')) applyTreeColorGrade(mat)
+      if (VEGETATION_NAME_RE.test(mat.name ?? '')) applyTreeColorGrade(mat, { leafLight: FOREST_PACK_LEAF_RE.test(mat.name ?? '') })
       mat.needsUpdate = true
     })
   })
@@ -3803,7 +3825,7 @@ function buildWorldTreeCellMeshes(b, cell, byModel, grassArr) {
       const material = isCrown ? part.material.clone() : part.material
       if (isCrown) resetTreeMaterialRuntimeData(material)
       configureVegetationAlphaCutout(material)
-      applyTreeColorGrade(material, { leafFade: isCrown })
+      applyTreeColorGrade(material, { leafFade: isCrown, leafLight: isCrown })
       const inst = new THREE.InstancedMesh(part.geometry, material, arr.length)
       inst.name = `world_tree_${model.file.replace(/\.glb$/i, '')}_${cell.minX}_${cell.minZ}`
       inst.castShadow = false
@@ -4987,6 +5009,76 @@ function huangshanNewlandRidgeLift(x, z, crag) {
   return alongMask * outerCut * (80 * (core * crestRipple + shoulder * (0.75 + crag * 0.30)) + knobs)
 }
 
+const REFERENCE_HEIGHT_PATCH_CENTER = { x: -647, z: -650 }
+const REFERENCE_HEIGHT_PATCH_RADIUS = 560
+const REFERENCE_HEIGHT_PATCH_FADE_RADIUS = 680
+
+function referencePatchSegmentSample(x, z, ax, az, bx, bz) {
+  const vx = bx - ax
+  const vz = bz - az
+  const lenSq = Math.max(0.0001, vx * vx + vz * vz)
+  const t = THREE.MathUtils.clamp(((x - ax) * vx + (z - az) * vz) / lenSq, 0, 1)
+  const px = ax + vx * t
+  const pz = az + vz * t
+  return {
+    t,
+    distance: Math.hypot(x - px, z - pz),
+  }
+}
+
+function referencePatchRidgeLift(x, z, ax, az, bx, bz, width, lift, shoulderWidth = width * 2.8, shoulderLift = lift * 0.22) {
+  const sample = referencePatchSegmentSample(x, z, ax, az, bx, bz)
+  const along = Math.pow(Math.sin(sample.t * Math.PI), 0.62)
+  const crest = Math.exp(-Math.pow(sample.distance / width, 1.52))
+  const shoulder = Math.exp(-Math.pow(sample.distance / shoulderWidth, 1.35))
+  return along * (crest * lift + shoulder * shoulderLift)
+}
+
+function referencePatchGullyCut(x, z, ax, az, bx, bz, width, cut) {
+  const sample = referencePatchSegmentSample(x, z, ax, az, bx, bz)
+  const along = Math.pow(THREE.MathUtils.smoothstep(sample.t, 0.08, 0.94), 0.72)
+  const channel = Math.exp(-Math.pow(sample.distance / width, 1.38))
+  const apron = Math.exp(-Math.pow(sample.distance / (width * 3.2), 1.55)) * 0.24
+  return along * (channel + apron) * cut
+}
+
+function applyReferenceHeightPatch(x, z, height) {
+  const dx = x - REFERENCE_HEIGHT_PATCH_CENTER.x
+  const dz = z - REFERENCE_HEIGHT_PATCH_CENTER.z
+  const dist = Math.hypot(dx, dz)
+  if (dist >= REFERENCE_HEIGHT_PATCH_FADE_RADIUS) return height
+
+  const fade = 1 - THREE.MathUtils.smoothstep(dist, REFERENCE_HEIGHT_PATCH_RADIUS, REFERENCE_HEIGHT_PATCH_FADE_RADIUS)
+  const core = 1 - THREE.MathUtils.smoothstep(dist, 60, REFERENCE_HEIGHT_PATCH_RADIUS)
+  const broad = 1 - THREE.MathUtils.smoothstep(dist, 210, REFERENCE_HEIGHT_PATCH_FADE_RADIUS)
+  const crag = alpineRidgedNoise(x * 1.35 + 41, z * 1.35 - 29)
+  let lift = 16 * Math.pow(Math.max(0, broad), 1.2) + 18 * Math.pow(Math.max(0, core), 1.6)
+
+  lift += referencePatchRidgeLift(x, z, -1030, -865, -255, -430, 62, 42, 185, 13)
+  lift += referencePatchRidgeLift(x, z, -850, -760, -1035, -520, 42, 24, 130, 7)
+  lift += referencePatchRidgeLift(x, z, -720, -680, -520, -930, 38, 22, 118, 6)
+  lift += referencePatchRidgeLift(x, z, -610, -590, -325, -690, 36, 18, 112, 5)
+  lift += referencePatchRidgeLift(x, z, -690, -735, -900, -1045, 42, 20, 125, 6)
+
+  let cut = 0
+  cut += referencePatchGullyCut(x, z, -690, -630, -1125, -505, 26, 13)
+  cut += referencePatchGullyCut(x, z, -705, -690, -930, -975, 24, 14)
+  cut += referencePatchGullyCut(x, z, -640, -615, -460, -300, 20, 9)
+  cut += referencePatchGullyCut(x, z, -620, -675, -305, -735, 22, 10)
+  cut += referencePatchGullyCut(x, z, -760, -660, -1010, -760, 18, 8)
+  cut += referencePatchGullyCut(x, z, -555, -620, -355, -520, 17, 7)
+
+  const ribbing = Math.max(
+    0,
+    1 - Math.abs(Math.sin((x + z * 0.42) * 0.030)),
+    1 - Math.abs(Math.sin((x * 0.55 - z) * 0.026 + 1.7)),
+  )
+  const fineCut = THREE.MathUtils.smoothstep(ribbing, 0.86, 0.985) * broad * (1 - core * 0.45) * 2.6
+  const brokenCrest = (crag - 0.45) * 7.0 * Math.pow(Math.max(0, broad), 0.9)
+
+  return height + (lift + brokenCrest - cut - fineCut) * fade
+}
+
 // 新区（−X/−Z 外扩）完整地形：近区连绵丘陵 → 中景矮山 → 外缘连续雪脊（内缓外陡，比着参考图）。
 // 雪/岩着色由地形材质按高度自动出；外缘超出 bounds 部分由 applyMountainEdgeHeight 截成 void 崖藏山后。
 function applyExtendedRegionHeight(x, z, height) {
@@ -5761,6 +5853,7 @@ function createTerrainBlendMaterial(texLoader) {
     uDirtUvScale: { value: 0.2 },
     uRockUvScale: { value: 0.18 },
     uMountainRockUvScale: { value: 0.018 },
+    uRiverBankRockUvScale: { value: 0.055 },
   }
 
   mat.onBeforeCompile = (shader) => {
@@ -5789,6 +5882,7 @@ function createTerrainBlendMaterial(texLoader) {
       uniform float uDirtUvScale;
       uniform float uRockUvScale;
       uniform float uMountainRockUvScale;
+      uniform float uRiverBankRockUvScale;
 
       vec2 terrainDirtUv() {
         return vWorldPos.xz * uDirtUvScale;
@@ -6132,11 +6226,18 @@ ${TERRAIN_LOWLAND_EROSION_GULLY_SAMPLE_GLSL}
       );
       float bankSteep = smoothstep(0.14, 0.40, 1.0 - clamp(dot(normalize(vWorldNormal), vec3(0.0, 1.0, 0.0)), 0.0, 1.0));
       float bankRockMask = bankProximity * bankSteep;
-      vec3 lichenRock = mix(rockColor.rgb * vec3(0.62, 0.66, 0.55), mossRockColor * vec3(0.55, 0.66, 0.45), 0.44);   // 绿灰风化岩
-      float lichenPatch = smoothstep(0.52, 0.84, terrainNoise(vWorldPos.xz * 0.30 + vec2(3.3, 7.7)));
-      lichenRock = mix(lichenRock, vec3(0.17, 0.19, 0.15), lichenPatch * 0.7);   // 深色地衣斑
-      lichenRock = mix(lichenRock, vec3(0.30, 0.36, 0.24), smoothstep(0.6, 0.9, terrainNoise(vWorldPos.xz * 0.7)) * 0.35);  // 零星苔绿
-      terrainColor = mix(terrainColor, lichenRock, bankRockMask * 0.7);
+      float riverBankRockMask = bankRockMask * (1.0 - smoothstep(0.0, 0.18, riverWetEdge) * 0.18);
+      vec3 riverBankRockA = triplanarColor(uMountainRockMap, uRiverBankRockUvScale, tpW);
+      vec3 riverBankRockB = triplanarColor(uMountainRockMap, uRiverBankRockUvScale * 0.46, tpW);
+      vec3 riverBankRock = mix(riverBankRockA, riverBankRockB, 0.24) * vec3(0.82, 0.88, 0.92);
+      float bankStrata = terrainNoiseTP(0.075, tpW);
+      float bankDarkGroove = smoothstep(0.56, 0.88, terrainNoiseTP(0.42, tpW) * 0.55 + terrainNoise(vWorldPos.xy * vec2(0.055, 0.15) + vec2(6.7, 2.1)) * 0.45);
+      float lichenPatch = smoothstep(0.58, 0.88, terrainNoise(vWorldPos.xz * 0.42 + vec2(3.3, 7.7)));
+      riverBankRock = mix(riverBankRock, vec3(0.22, 0.25, 0.25), bankDarkGroove * 0.42);
+      riverBankRock = mix(riverBankRock, vec3(0.48, 0.50, 0.47), bankStrata * 0.18);
+      riverBankRock = mix(riverBankRock, mossRockColor * vec3(0.40, 0.52, 0.34), lichenPatch * riverMoss * 0.28);
+      riverBankRock = mix(riverBankRock, vec3(0.20, 0.23, 0.23), riverWetEdge * 0.18);
+      terrainColor = mix(terrainColor, riverBankRock, riverBankRockMask * 0.88);
       // ── 远景地面着色（按到相机水平距离）：远山丘刷草绿、河道附近刷岩石色；近处保持土壤/河岸原色 ──
       float camDistXZ = distance(vWorldPos.xz, cameraPosition.xz);
       float farFactor = smoothstep(40.0, 110.0, camDistXZ);              // 近处=0 不变，向远处渐入
@@ -6260,6 +6361,15 @@ ${TERRAIN_LOWLAND_EROSION_GULLY_SAMPLE_GLSL}
           normal = normalize(mix(normal, detN, alpineDetail * 0.75));
         }
 
+        if (riverBankRockMask > 0.001) {
+          vec3 bankDetW = abs(wn);
+          bankDetW = pow(bankDetW, vec3(4.0));
+          bankDetW /= max(bankDetW.x + bankDetW.y + bankDetW.z, 1e-4);
+          vec3 bankDetN = terrainDetailNormalWS(wn, bankDetW, 0.85, 0.62);
+          bankDetN = terrainDetailNormalWS(bankDetN, bankDetW, 2.1, 0.58);
+          normal = normalize(mix(normal, bankDetN, riverBankRockMask * 0.62));
+        }
+
       #elif defined(USE_BUMPMAP)
 
         normal = perturbNormalArb(-vViewPosition, normal, dHdxy_fwd(), faceDirection);
@@ -6276,7 +6386,9 @@ ${TERRAIN_LOWLAND_EROSION_GULLY_SAMPLE_GLSL}
         float dirtRoughness = texture2D(roughnessMap, terrainDirtUv()).g;
         float rockRoughness = texture2D(uRockRoughnessMap, terrainRockUv()).g;
         roughnessFactor *= mix(dirtRoughness, rockRoughness, terrainRockMask());
-        roughnessFactor = clamp(roughnessFactor + terrainDampMask() * 0.05, 0.72, 1.0);
+        float bankRockRoughness = mix(0.72, 0.48, clamp(riverWetEdge + bankStrata * 0.35, 0.0, 1.0));
+        roughnessFactor = mix(roughnessFactor, bankRockRoughness, riverBankRockMask * 0.82);
+        roughnessFactor = clamp(roughnessFactor + terrainDampMask() * (1.0 - riverBankRockMask) * 0.05, 0.42, 1.0);
       #endif
       `
     )
@@ -6307,7 +6419,7 @@ ${TERRAIN_LOWLAND_EROSION_GULLY_SAMPLE_GLSL}
     )
   }
 
-  mat.customProgramCacheKey = () => 'terrain-dirt-rock-pbr-v13'
+  mat.customProgramCacheKey = () => 'terrain-dirt-rock-pbr-v16'
   return mat
 }
 
@@ -8118,6 +8230,7 @@ export function createMap(scene, { onStaticModelReady = null, perf = null } = {}
     heightModifiers: [
       applyLargeWorldHeight,
       applyExtendedRegionHeight,
+      applyReferenceHeightPatch,
       applyEastRimMegaslopeHeight,
       applyEastRimDryRiverHeight,
       applyNewlandBraidedRiverHeight,

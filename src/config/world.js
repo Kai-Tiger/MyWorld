@@ -59,9 +59,17 @@ export const hills = [
 // 统一作用于 forest_pack 系列模型树（散布树 + 手工林地树/灌木）。
 // saturation=1, brightness=1, hueShift=0 时与原始贴图完全一致（恒等）。
 export const TREE_COLOR_GRADE = {
-  saturation: 2.2, // 1=原样，<1 去饱和，>1 更艳
+  saturation: 1.5, // 1=原样，<1 去饱和，>1 更艳
   brightness: 1.2, // 整体明度乘子
   hueShift: -0.05,  // 色相旋转（弧度，0=不变）
+}
+
+// ── GLB 模型树叶暗部提亮 ──────────────────────────────
+// 只抬 tree_*.glb/background_tree_*.glb 的叶片暗部，避免雪地前景里变成黑色剪影。
+export const TREE_LIGHT_GRADE = {
+  leafDarkLift: 0.06,
+  leafMinLuma: 0.1,
+  snowContrastCompensation: 0.12,
 }
 
 // ── GLB 模型树绿/黄比例 ────────────────────────────────
