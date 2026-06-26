@@ -18,3 +18,15 @@ When producing a formal implementation plan for this project, keep an independen
 - Keep `conversation-history.md` for chronological conversation notes; use `docs/requirements/` for standalone plan/requirement specs.
 
 Do not create requirement documents for casual discussion, quick answers, or exploratory notes. Only create them for formal plans intended to guide implementation.
+
+## Git Commits
+
+After each completed code or document change, create a git commit for that change.
+
+- Commit only the files directly related to the completed change.
+- Do not include unrelated dirty work, generated artifacts, or user changes in the commit.
+- Write a detailed commit message that explains:
+  - what changed
+  - why it changed
+  - how it was verified, or why verification was not run
+- If several independent changes are requested, commit them separately instead of batching them into one broad commit.
