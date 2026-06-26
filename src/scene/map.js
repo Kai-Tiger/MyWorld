@@ -7878,10 +7878,12 @@ function createMainRiverMaterial() {
       attribute float aSubmerge;
       attribute float aConfluence;
       attribute float aWaterMask;
+      attribute float aFoamBoost;
       varying float vShore;
       varying float vSubmerge;
       varying float vConfluence;
       varying float vWaterMask;
+      varying float vFoamBoost;
       varying vec2 vUv;
       varying float vEdge;
       varying float vFlow;
@@ -7895,6 +7897,7 @@ function createMainRiverMaterial() {
         vSubmerge = aSubmerge;
         vConfluence = aConfluence;
         vWaterMask = aWaterMask;
+        vFoamBoost = aFoamBoost;
         vEdge = abs(uv.x - 0.5) * 2.0;
         vFlow = uv.y;
         float shorePulse = smoothstep(0.45, 1.0, vEdge) * (1.0 - clamp(aConfluence, 0.0, 1.0));
@@ -7918,6 +7921,7 @@ function createMainRiverMaterial() {
       varying float vSubmerge;
       varying float vConfluence;
       varying float vWaterMask;
+      varying float vFoamBoost;
       varying vec2 vUv;
       varying float vEdge;
       varying float vFlow;
@@ -8005,6 +8009,8 @@ function createMainRiverMaterial() {
         // vShore：浅水/真实岸线度（1=贴陆地浅水，0=深水/盖在另一片水之上）。
         // 边缘高光（绿边/泡沫/水线）只在真实岸线出现，避免交叉口内部重叠边发亮。
         float shoreGate = smoothstep(0.25, 0.7, vShore) * confluenceGate;
+        float foamBoost = clamp(vFoamBoost, 0.0, 1.0) * confluenceGate;
+        float boostedShoreGate = max(shoreGate, smoothstep(0.12, 0.62, vShore) * foamBoost);
         float tideRise = clamp(vTide * 8.0 + 0.5, 0.0, 1.0);
         float edgeLayerGate = max(confluenceGate, 0.42);
         float visibleShore = max(shoreGate, edgeBand * edgeLayerGate * 0.98);
@@ -8014,7 +8020,12 @@ function createMainRiverMaterial() {
         float softShoreFoam = softFoamBand * smoothstep(0.24, 0.78, shoreNoise + longRipple * 0.22 + fine * 0.10) * shoreGate;
         float shoreFoam = edgeBand * smoothstep(0.42, 0.82, shoreNoise + longRipple * 0.18) * shoreGate;
         float brokenFoam = smoothstep(0.72, 0.96, caustic + shoreNoise * 0.22) * (edgeBand * 0.72) * shoreGate;
+        float lakeFoamNoise = fbm(world * 0.18 + vec2(time * 0.12, -time * 0.08));
+        float lakeFoamBand = smoothstep(0.43, 0.86, sideW) * (1.0 - smoothstep(0.93, 1.05, sideW));
+        float lakeFoamBreak = smoothstep(0.34, 0.72, shoreNoise + longRipple * 0.20 + lakeFoamNoise * 0.18);
+        float lakeFoam = lakeFoamBand * boostedShoreGate * (0.42 + lakeFoamBreak * 0.58) * (0.78 + tideRise * 0.20);
         float foamMask = clamp(softShoreFoam * 0.66 + shoreFoam * 0.58 + brokenFoam * 0.52, 0.0, 1.0);
+        foamMask = clamp(foamMask + lakeFoam * 0.72, 0.0, 1.0);
         // 飞溅白点/气泡：高频阈值噪声，散布在水面（中心/浅滩稍多），对应参考图的小白点
         float speckNoise = fbm(world * 2.6 + vec2(time * 0.35, -time * 0.28));
         float specks = smoothstep(0.84, 0.96, speckNoise) * (0.4 + shallowBank * 0.5) * (0.35 + confluenceGate * 0.65);
@@ -8029,6 +8040,7 @@ function createMainRiverMaterial() {
         vec3 mossTint = vec3(0.070, 0.210, 0.080);
         vec3 glint = vec3(0.42, 0.58, 0.62);
         vec3 foam = vec3(0.74, 0.84, 0.80);
+        vec3 lakeFoamColor = vec3(0.94, 0.98, 0.95);
 
         vec3 color = mix(mid, deep, centerDepth);
         // 深水 → 近岸浅水 → 贴水泥色，边缘颜色和 terrain 湿泥/浅淤泥保持同一色系。
@@ -8044,6 +8056,7 @@ function createMainRiverMaterial() {
         color = mix(color, glint, fresnel * (0.28 + centerDepth * 0.20));
         color += vec3(0.92, 0.98, 0.94) * spec * (0.28 + fresnel * 0.52);
         color = mix(color, foam, foamMask);
+        color = mix(color, lakeFoamColor, lakeFoam * 0.72);
 
         // ── 柔和动画水线：alpha 在网格内完全淡出（隐藏"平面切坡"的硬交界），水线随时间轻微涨落 ──
         // 用 raw side（网格边界处恒为 1.0）做淡出，保证 side→1 时 alpha=0，绝不留硬边；
@@ -8056,9 +8069,10 @@ function createMainRiverMaterial() {
         float edgeAlpha = mix(1.0, realShoreAlpha, confluenceGate);
         float lapFoam = smoothstep(0.05, 0.0, abs(side - edgeCut)) * smoothstep(0.55, 0.85, side) * shoreGate;
         color = mix(color, foam, lapFoam * 0.55);
+        color = mix(color, lakeFoamColor, lapFoam * foamBoost * 0.62);
         float alpha = (mix(0.36, 0.90, centerDepth)
           + innerShallow * visibleShore * 0.08 + edgeBand * (0.03 + visibleShore * tideRise * 0.08) + softShoreFoam * 0.16 + foamMask * 0.22 + fresnel * 0.14
-          + lapFoam * 0.30) * edgeAlpha * smoothstep(0.08, 0.86, vWaterMask);
+          + lakeFoam * 0.18 + lapFoam * 0.30) * edgeAlpha * smoothstep(0.08, 0.86, vWaterMask);
         if (alpha < 0.01) discard;
         gl_FragColor = vec4(color, clamp(alpha, 0.0, 0.96));
         #include <fog_fragment>
@@ -8082,6 +8096,7 @@ function buildRiverStripGeometry(points, getSampleAt, {
   const submerges = []
   const confluences = []
   const waterMasks = []
+  const foamBoosts = []
   const idx = []
   let row = 0
   let flowV = 0
@@ -8167,6 +8182,7 @@ function buildRiverStripGeometry(points, getSampleAt, {
       confluences.push(confluenceF)
       const baseWaterMask = edgeMask * endMask * depthMask
       waterMasks.push(getWaterMaskAt ? getWaterMaskAt(sample, wx, wz, baseWaterMask) : baseWaterMask)
+      foamBoosts.push(0)
       submerges.push(vy - gy)  // 水面高出地形的量；<0 表示地形穿出水面（着色器据此丢弃）
     }
     if (row < samples.length - 1) {
@@ -8187,6 +8203,7 @@ function buildRiverStripGeometry(points, getSampleAt, {
   geometry.setAttribute('aSubmerge', new THREE.Float32BufferAttribute(submerges, 1))
   geometry.setAttribute('aConfluence', new THREE.Float32BufferAttribute(confluences, 1))
   geometry.setAttribute('aWaterMask', new THREE.Float32BufferAttribute(waterMasks, 1))
+  geometry.setAttribute('aFoamBoost', new THREE.Float32BufferAttribute(foamBoosts, 1))
   geometry.setIndex(idx)
   geometry.computeVertexNormals()
   geometry.computeBoundingBox()
@@ -8286,6 +8303,7 @@ function buildNewlandBraidedWaterGeometry(getTerrainHeight) {
   const submerges = []
   const confluences = []
   const waterMasks = []
+  const foamBoosts = []
   const idx = []
 
   for (let iz = 0; iz <= nz; iz++) {
@@ -8311,6 +8329,7 @@ function buildNewlandBraidedWaterGeometry(getTerrainHeight) {
       submerges.push(sample ? Math.max(waterY - groundY, -0.05) : -0.05)
       confluences.push(confluence)
       waterMasks.push(mask)
+      foamBoosts.push(0)
     }
   }
 
@@ -8336,6 +8355,7 @@ function buildNewlandBraidedWaterGeometry(getTerrainHeight) {
   geometry.setAttribute('aSubmerge', new THREE.Float32BufferAttribute(submerges, 1))
   geometry.setAttribute('aConfluence', new THREE.Float32BufferAttribute(confluences, 1))
   geometry.setAttribute('aWaterMask', new THREE.Float32BufferAttribute(waterMasks, 1))
+  geometry.setAttribute('aFoamBoost', new THREE.Float32BufferAttribute(foamBoosts, 1))
   geometry.setIndex(idx)
   geometry.computeVertexNormals()
   geometry.computeBoundingBox()
@@ -8360,6 +8380,7 @@ function buildNewlandStaticLakeGeometry(lake, getTerrainHeight) {
   const submerges = []
   const confluences = []
   const waterMasks = []
+  const foamBoosts = []
   const idx = []
 
   for (let r = 0; r <= rings; r++) {
@@ -8374,14 +8395,16 @@ function buildNewlandStaticLakeGeometry(lake, getTerrainHeight) {
       const shape = getNewlandStaticLakeShapeAt(lake, x, z)
       const groundY = getTerrainHeight(x, z)
       const mask = 1 - THREE.MathUtils.smoothstep(shape.edge, -0.5, 1.5)
-      const shore = (1 - THREE.MathUtils.smoothstep(Math.abs(shape.edge), 0, 5)) * 0.45
+      const isSouthBasinLake = lake.id === 'south_basin_lake'
+      const shore = (1 - THREE.MathUtils.smoothstep(Math.abs(shape.edge), 0, isSouthBasinLake ? 8 : 5)) * (isSouthBasinLake ? 0.95 : 0.45)
 
       verts.push(x, waterY, z)
       uvs.push(0.5 + ringT * 0.5, 0.5)
       shores.push(shore)
       submerges.push(waterY - groundY)
-      confluences.push(lake.id === 'south_basin_lake' ? 0 : 1)
+      confluences.push(isSouthBasinLake ? 0 : 1)
       waterMasks.push(mask)
+      foamBoosts.push(isSouthBasinLake ? 1 : 0)
     }
   }
 
@@ -8406,6 +8429,7 @@ function buildNewlandStaticLakeGeometry(lake, getTerrainHeight) {
   geometry.setAttribute('aSubmerge', new THREE.Float32BufferAttribute(submerges, 1))
   geometry.setAttribute('aConfluence', new THREE.Float32BufferAttribute(confluences, 1))
   geometry.setAttribute('aWaterMask', new THREE.Float32BufferAttribute(waterMasks, 1))
+  geometry.setAttribute('aFoamBoost', new THREE.Float32BufferAttribute(foamBoosts, 1))
   geometry.setIndex(idx)
   geometry.computeVertexNormals()
   geometry.computeBoundingBox()
@@ -8422,6 +8446,7 @@ function buildConfluencePoolGeometry(pool, getTerrainHeight) {
   const rings = 9, seg = 56
   const poolY = confluencePoolSurfaceY(pool)
   const verts = [], uvs = [], shores = [], submerges = [], confluences = [], waterMasks = [], idx = []
+  const foamBoosts = []
   for (let r = 0; r <= rings; r++) {
     const radius = R * r / rings
     for (let s = 0; s < seg; s++) {
@@ -8438,6 +8463,7 @@ function buildConfluencePoolGeometry(pool, getTerrainHeight) {
       shores.push(0)          // 深水，不出岸线高光
       confluences.push(1)      // 池面是交汇内部水面，不渲染岸线泡沫
       waterMasks.push(1 - THREE.MathUtils.smoothstep(r / rings, 0.82, 1.0))
+      foamBoosts.push(0)
       submerges.push(y - gy)
     }
   }
@@ -8461,6 +8487,7 @@ function buildConfluencePoolGeometry(pool, getTerrainHeight) {
   geometry.setAttribute('aSubmerge', new THREE.Float32BufferAttribute(submerges, 1))
   geometry.setAttribute('aConfluence', new THREE.Float32BufferAttribute(confluences, 1))
   geometry.setAttribute('aWaterMask', new THREE.Float32BufferAttribute(waterMasks, 1))
+  geometry.setAttribute('aFoamBoost', new THREE.Float32BufferAttribute(foamBoosts, 1))
   geometry.setIndex(idx)
   geometry.computeVertexNormals()
   geometry.computeBoundingBox()
