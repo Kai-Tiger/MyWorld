@@ -1,16 +1,16 @@
 export const WORLD_SIZE = 1600
 export const WORLD_HALF_SIZE = WORLD_SIZE * 0.5
 
-// 世界向 −X / −Z 各外扩 ~1600m（保留 +X 城堡 / +Z 雪山边）；网格在 heightmapTerrain 解耦扩展
+// 世界向 −X / −Z 各外扩 ~800m（保留 +X 城堡 / +Z 雪山边）；网格在 heightmapTerrain 解耦扩展
 export const OUTDOOR_MOUNTAIN_BOUNDS = {
-  minX: -2360,
+  minX: -1560,
   maxX: 760,
-  minZ: -2360,
+  minZ: -1560,
   maxZ: 760,
 }
 
-// 碰撞盒对称：调大到能覆盖 −2360；+X/+Z 侧仍被 +760 山墙地形挡住，无副作用
-export const OUTDOOR_COLLISION_HALF_SIZE = 2420
+// 碰撞盒对称：覆盖收缩后的 −1560；+X/+Z 侧仍被 +760 山墙地形挡住，无副作用
+export const OUTDOOR_COLLISION_HALF_SIZE = 1620
 export const MOUNTAIN_FALL_FLOOR_Y = -180
 export const MOUNTAIN_FALL_DEATH_Y = -120
 
