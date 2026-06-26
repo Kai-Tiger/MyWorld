@@ -156,26 +156,26 @@ const FOREST_GROVE_ROCK_TYPES = [
 ]
 // 手工林地岩石模型；scale/r 与树同理，r 缺省时使用模型包围盒估算。
 const SOUTH_BASIN_LAKESIDE_DECORATIONS = [
-  { file: 'rock_02.glb', angleDeg: -16, radius: 39, scale: 1.28, r: 0.72 },
-  { file: 'rock_05.glb', angleDeg: 24, radius: 38, scale: 1.36, r: 0.64 },
-  { file: 'rock_03.glb', angleDeg: 66, radius: 41, scale: 1.12, r: 0.60 },
-  { file: 'rock_07.glb', angleDeg: 118, radius: 39, scale: 1.22, r: 0.58 },
-  { file: 'rock_09.glb', angleDeg: 164, radius: 42, scale: 1.26, r: 0.68 },
-  { file: 'rock_02.glb', angleDeg: 212, radius: 40, scale: 1.08, r: 0.62 },
-  { file: 'rock_05.glb', angleDeg: 252, radius: 38, scale: 1.18, r: 0.60 },
-  { file: 'rock_07.glb', angleDeg: 298, radius: 41, scale: 1.16, r: 0.58 },
-  { file: 'tree_01.glb', angleDeg: 42, radius: 51, scale: 0.42, r: 1.35 },
-  { file: 'tree_03.glb', angleDeg: 92, radius: 56, scale: 0.78, r: 1.10 },
-  { file: 'tree_02.glb', angleDeg: 142, radius: 49, scale: 0.46, r: 1.25 },
-  { file: 'tree_04.glb', angleDeg: 196, radius: 55, scale: 0.76, r: 1.05 },
-  { file: 'tree_01.glb', angleDeg: 248, radius: 52, scale: 0.40, r: 1.25 },
-  { file: 'tree_03.glb', angleDeg: 314, radius: 57, scale: 0.74, r: 1.10 },
-  { file: 'background_tree_10.glb', angleDeg: 8, radius: 46, scale: 0.62 },
-  { file: 'background_tree_12.glb', angleDeg: 76, radius: 47, scale: 0.72 },
-  { file: 'background_tree_13.glb', angleDeg: 154, radius: 45, scale: 0.58 },
-  { file: 'background_tree_10.glb', angleDeg: 232, radius: 48, scale: 0.60 },
-  { file: 'background_tree_12.glb', angleDeg: 282, radius: 46, scale: 0.70 },
-  { file: 'background_tree_13.glb', angleDeg: 338, radius: 44, scale: 0.56 },
+  { file: 'rock_02.glb', angleDeg: -16, radius: 49, scale: 1.28, r: 0.72 },
+  { file: 'rock_05.glb', angleDeg: 24, radius: 48, scale: 1.36, r: 0.64 },
+  { file: 'rock_03.glb', angleDeg: 66, radius: 51, scale: 1.12, r: 0.60 },
+  { file: 'rock_07.glb', angleDeg: 118, radius: 49, scale: 1.22, r: 0.58 },
+  { file: 'rock_09.glb', angleDeg: 164, radius: 52, scale: 1.26, r: 0.68 },
+  { file: 'rock_02.glb', angleDeg: 212, radius: 50, scale: 1.08, r: 0.62 },
+  { file: 'rock_05.glb', angleDeg: 252, radius: 48, scale: 1.18, r: 0.60 },
+  { file: 'rock_07.glb', angleDeg: 298, radius: 51, scale: 1.16, r: 0.58 },
+  { file: 'tree_01.glb', angleDeg: 42, radius: 61, scale: 0.42, r: 1.35 },
+  { file: 'tree_03.glb', angleDeg: 92, radius: 66, scale: 0.78, r: 1.10 },
+  { file: 'tree_02.glb', angleDeg: 142, radius: 59, scale: 0.46, r: 1.25 },
+  { file: 'tree_04.glb', angleDeg: 196, radius: 65, scale: 0.76, r: 1.05 },
+  { file: 'tree_01.glb', angleDeg: 248, radius: 62, scale: 0.40, r: 1.25 },
+  { file: 'tree_03.glb', angleDeg: 314, radius: 67, scale: 0.74, r: 1.10 },
+  { file: 'background_tree_10.glb', angleDeg: 8, radius: 56, scale: 0.62 },
+  { file: 'background_tree_12.glb', angleDeg: 76, radius: 57, scale: 0.72 },
+  { file: 'background_tree_13.glb', angleDeg: 154, radius: 55, scale: 0.58 },
+  { file: 'background_tree_10.glb', angleDeg: 232, radius: 58, scale: 0.60 },
+  { file: 'background_tree_12.glb', angleDeg: 282, radius: 56, scale: 0.70 },
+  { file: 'background_tree_13.glb', angleDeg: 338, radius: 54, scale: 0.56 },
 ]
 // 南部湖岸固定点缀；radius 是相对湖心距离，石头贴岸、树木外圈，避免把湖岸完全封死。
 const FOREST_TREE_COLLIDER_SCALE = 0.6 // 手工树碰撞半径倍率；调大更难贴近树干，调小更容易穿进树冠/树干。
@@ -662,7 +662,7 @@ function createNewlandEndpointLakes() {
 }
 
 const NEWLAND_ENDPOINT_LAKES = createNewlandEndpointLakes().filter((lake) => (
-  Math.hypot(lake.x + 294, lake.z + 710) > 72
+  Math.hypot(lake.x + 294, lake.z + 710) > 82
 ))
 // 南部手工湖会覆盖该区域；过滤重叠的自动端点湖，避免湖口出现两套水位。
 const NEWLAND_MOUNTAIN_LAKE = {
@@ -682,8 +682,8 @@ const SOUTH_BASIN_LAKE = {
   id: 'south_basin_lake',
   x: -294,
   z: -710,
-  rx: 35,
-  rz: 35,
+  rx: 45,
+  rz: 45,
   rot: THREE.MathUtils.degToRad(-8),
   waterDepth: 3.2,
   shoreRun: 18,
@@ -6736,10 +6736,10 @@ ${TERRAIN_LOWLAND_EROSION_GULLY_SAMPLE_GLSL}
         vec2 d = p - vec2(-294.0, -710.0);
         float lx = d.x * c + d.y * s;
         float lz = -d.x * s + d.y * c;
-        vec2 n = vec2(lx / 35.0, lz / 35.0);
+        vec2 n = vec2(lx / 45.0, lz / 45.0);
         float radial = length(n);
         float boundary = southBasinLakeBoundaryScale(atan(n.y, n.x));
-        return (radial - boundary) * 35.0;
+        return (radial - boundary) * 45.0;
       }
     ` + shader.fragmentShader
     .replace(

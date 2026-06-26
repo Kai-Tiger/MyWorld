@@ -1,10 +1,10 @@
 # South basin lake
 
 ## Context and goal
-Adjust the south basin lake into a deep lake at `(-294, -710)` with an approximate 35m water radius. The bottom should be flatter and deeper, the shoreline can be non-circular to follow the terrain, and the nearby wet gully should visibly feed into the lake instead of being blocked by a slope.
+Adjust the south basin lake into a deep lake at `(-294, -710)` with an approximate 45m water radius. The bottom should be flatter and deeper, the shoreline can be non-circular to follow the terrain, and the nearby wet gully should visibly feed into the lake instead of being blocked by a slope.
 
 ## Success criteria
-- The lake appears at `x=-294`, `z=-710` with an organic shoreline around a roughly 35m water radius.
+- The lake appears at `x=-294`, `z=-710` with an organic shoreline around a roughly 45m water radius.
 - The lake bed is carved to a deeper, flatter bottom than before.
 - The shoreline follows the surrounding banks without an obvious floating water edge.
 - At the lake / wet-gully junction near `(-267.5, -687.1)`, the blocking slope is carved down so river water can enter the lake.
@@ -16,6 +16,7 @@ Adjust the south basin lake into a deep lake at `(-294, -710)` with an approxima
 
 ## Planned changes
 - Move `SOUTH_BASIN_LAKE` 50m toward negative Z.
+- Expand the south basin lake radius by 10m, from roughly 35m to 45m.
 - Replace the hard circular shoreline with south-basin-specific shoreline scale anchors, pulling the southwest edge inward and preserving a wider river-mouth side.
 - Add per-lake flat-bed carving using a fixed bottom height and steeper inner bank interpolation.
 - Add an outer shore shelf/back-run so lake edges have terrain support instead of cutting directly into steep slopes.
@@ -26,11 +27,13 @@ Adjust the south basin lake into a deep lake at `(-294, -710)` with an approxima
 - Add a south-basin lake wet mud band to the terrain shader: dark wet soil near the water, then a dry-bank transition before grass.
 - Let the south-basin lake water mesh use the shoreline lapping path in the unified water shader.
 - Keep deterministic lakeside forest-pack rocks, trees, shrubs, and grass tied to the lake ring helper so they follow the moved organic lake.
+- Move lakeside rocks, trees, and shrubs outward by 10m so they remain outside the expanded waterline.
 
 ## Test / verification plan
 - Run `npm run build`.
 - Inspect the outdoor map at `(-294, -710)` and verify organic water shape, a deeper flat bed, supported banks, no underwater grass, and lakeside rocks/trees/grass.
 - Inspect `pos=(-320.0, -739.8)` and verify the southwest lake edge no longer reads as floating.
+- Inspect `pos=(-252.4, -700.9)` and verify the expanded northeast lake edge reaches this area naturally.
 - Inspect `pos=(-267.5, -687.1)` and verify the river / lake junction is opened and water appears continuous.
 - Inspect from overhead and verify no dark river-colored strip continues across the lake surface.
 - Verify grass does not touch the waterline; there is a wet/dry soil band before the grass begins.
@@ -38,6 +41,6 @@ Adjust the south basin lake into a deep lake at `(-294, -710)` with an approxima
 - Check that the new decorations do not noticeably increase draw calls or block movement around the lake.
 
 ## Assumptions and out of scope
-- The 35m radius refers to the visible water surface, not the full terrain influence area.
+- The 45m radius refers to the visible water surface, not the full terrain influence area.
 - The lake is standalone and does not need a new stream connection.
 - No new art assets are added; existing forest and grass assets are reused.
