@@ -719,11 +719,22 @@ const BOTTOM_DEPRESSION_LAKE = {
   rx: 105,
   rz: 105,
   rot: THREE.MathUtils.degToRad(44),
-  circular: true,
   preserveWaterShape: true,
   waterDepth: 2.7,
   shoreRun: 22,
   treeClearance: 22,
+  minBoundaryScale: 0.4,
+  boundaryScales: [
+    { angle: THREE.MathUtils.degToRad(0), scale: 0.96 },
+    { angle: THREE.MathUtils.degToRad(38), scale: 0.78 },
+    { angle: THREE.MathUtils.degToRad(64), scale: 0.55 },
+    { angle: THREE.MathUtils.degToRad(88), scale: 0.43 },
+    { angle: THREE.MathUtils.degToRad(116), scale: 0.50 },
+    { angle: THREE.MathUtils.degToRad(146), scale: 0.78 },
+    { angle: THREE.MathUtils.degToRad(196), scale: 1.02 },
+    { angle: THREE.MathUtils.degToRad(260), scale: 1.04 },
+    { angle: THREE.MathUtils.degToRad(322), scale: 1.00 },
+  ],
   flatBedY: -32.9,
   flatBedRadius: 0.7,
   flatBedFeather: 0.16,
@@ -941,7 +952,7 @@ function newlandStaticLakeBoundaryScale(lake, angle) {
       if (sampleAngle >= aAngle && sampleAngle <= bAngle) {
         const t = (sampleAngle - aAngle) / Math.max(0.001, bAngle - aAngle)
         const smoothT = t * t * (3 - 2 * t)
-        return THREE.MathUtils.clamp(THREE.MathUtils.lerp(a.scale, b.scale, smoothT), 0.72, 1.18)
+        return THREE.MathUtils.clamp(THREE.MathUtils.lerp(a.scale, b.scale, smoothT), lake.minBoundaryScale ?? 0.72, 1.18)
       }
     }
   }
@@ -2624,20 +2635,23 @@ function createNewlandBraidedRiverForestPlacements() {
 
 function createBottomLakeForestPlacements(existingPlacements = []) {
   const placements = []
-  const targetX = 41.6
-  const targetZ = -277.5
-  const baseAngle = Math.atan2(targetZ - BOTTOM_DEPRESSION_LAKE.z, targetX - BOTTOM_DEPRESSION_LAKE.x)
-  const arc = THREE.MathUtils.degToRad(38)
+  const baseAngle = THREE.MathUtils.degToRad(88)
+  const arc = THREE.MathUtils.degToRad(62)
   const maxAttempts = 90
+  const cos = Math.cos(BOTTOM_DEPRESSION_LAKE.rot)
+  const sin = Math.sin(BOTTOM_DEPRESSION_LAKE.rot)
 
   for (let attempt = 0; placements.length < 20 && attempt < maxAttempts; attempt++) {
     const seed = 96000 + attempt * 113
     const t = (attempt * 0.61803398875 + forestPlacementNoise(seed + 1) * 0.18) % 1
     const angle = baseAngle - arc * 0.5 + arc * t + THREE.MathUtils.lerp(-0.055, 0.055, forestPlacementNoise(seed + 2))
-    const lakeRadius = (BOTTOM_DEPRESSION_LAKE.rx + BOTTOM_DEPRESSION_LAKE.rz) * 0.5
-    const radius = lakeRadius + THREE.MathUtils.lerp(29, 49, forestPlacementNoise(seed + 3))
-    const x = BOTTOM_DEPRESSION_LAKE.x + Math.cos(angle) * radius + THREE.MathUtils.lerp(-3.5, 3.5, forestPlacementNoise(seed + 4))
-    const z = BOTTOM_DEPRESSION_LAKE.z + Math.sin(angle) * radius + THREE.MathUtils.lerp(-3.5, 3.5, forestPlacementNoise(seed + 5))
+    const boundary = newlandStaticLakeBoundaryScale(BOTTOM_DEPRESSION_LAKE, angle)
+    const lakeRadius = (BOTTOM_DEPRESSION_LAKE.rx + BOTTOM_DEPRESSION_LAKE.rz) * 0.5 * boundary
+    const radius = lakeRadius + THREE.MathUtils.lerp(25, 56, forestPlacementNoise(seed + 3))
+    const localX = Math.cos(angle) * radius + THREE.MathUtils.lerp(-3.5, 3.5, forestPlacementNoise(seed + 4))
+    const localZ = Math.sin(angle) * radius + THREE.MathUtils.lerp(-3.5, 3.5, forestPlacementNoise(seed + 5))
+    const x = BOTTOM_DEPRESSION_LAKE.x + localX * cos - localZ * sin
+    const z = BOTTOM_DEPRESSION_LAKE.z + localX * sin + localZ * cos
     if (!isInsideOutdoorMountainBounds(x, z, 0)) continue
     if (isInsideNewlandStaticLakeClearance(x, z)) continue
     if (isTooCloseToForestPlacement(existingPlacements, x, z, 9)) continue
