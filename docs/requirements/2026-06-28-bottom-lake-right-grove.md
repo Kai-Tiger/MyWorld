@@ -2,19 +2,21 @@
 
 ## Context And Goal
 
-The bottom depression lake currently keeps a full round water mesh, which can appear to extend under the terrain on the right side from the supplied view. The right-side dry area should become a natural shoreline grove instead of hidden water.
+The bottom depression lake currently keeps a full round water mesh, which can appear to extend under the terrain on the right side from the supplied view. The area centered at `pos=(82.7, -275.8)` should become a natural shoreline grove instead of hidden water.
 
 ## Success Criteria
 
 - The bottom lake no longer presents as a full circle continuing under the right-side terrain.
-- The right-side missing/dry area near the lake has about 20 trees.
-- Trees do not spawn inside the lake water, on the immediate shore clearance band, or inside existing forest placements.
+- The area within a 20m radius of `pos=(82.7, -275.8)` has 20 combined trees and shrubs.
+- A few random rocks sit within the same radius.
+- Trees and shrubs may slightly enter the bottom lake shallows, but should not heavily overlap existing forest placements.
 
 ## Planned Changes
 
 - Replace the bottom lake's forced circular boundary with a locally recessed boundary on the right-side shoreline.
 - Keep the lake's existing flat-bed and water-depth settings.
-- Re-anchor the bottom-lake grove generator to the recessed right-side shoreline and place trees outside the lake clearance band.
+- Re-anchor the bottom-lake grove generator to `pos=(82.7, -275.8)` with a 20m placement radius.
+- Mix tree and shrub placements, and add a small number of random rocks.
 
 ## Test/Verification Plan
 
@@ -26,4 +28,4 @@ The bottom depression lake currently keeps a full round water mesh, which can ap
 
 - "Right side" means the dry/grass area beside the visible lake edge in the screenshot.
 - This change intentionally makes the lake non-perfectly circular.
-- No shrubs, rocks, new paths, or new assets are included.
+- No new paths, terrain props, or assets are included.

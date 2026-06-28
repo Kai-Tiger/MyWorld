@@ -723,11 +723,13 @@ const BOTTOM_DEPRESSION_LAKE = {
   waterDepth: 2.7,
   shoreRun: 22,
   treeClearance: 22,
-  minBoundaryScale: 0.4,
+  minBoundaryScale: 0.26,
   boundaryScales: [
-    { angle: THREE.MathUtils.degToRad(0), scale: 0.96 },
-    { angle: THREE.MathUtils.degToRad(38), scale: 0.78 },
-    { angle: THREE.MathUtils.degToRad(64), scale: 0.55 },
+    { angle: THREE.MathUtils.degToRad(0), scale: 0.70 },
+    { angle: THREE.MathUtils.degToRad(22), scale: 0.42 },
+    { angle: THREE.MathUtils.degToRad(36), scale: 0.28 },
+    { angle: THREE.MathUtils.degToRad(54), scale: 0.38 },
+    { angle: THREE.MathUtils.degToRad(72), scale: 0.50 },
     { angle: THREE.MathUtils.degToRad(88), scale: 0.43 },
     { angle: THREE.MathUtils.degToRad(116), scale: 0.50 },
     { angle: THREE.MathUtils.degToRad(146), scale: 0.78 },
@@ -2635,39 +2637,71 @@ function createNewlandBraidedRiverForestPlacements() {
 
 function createBottomLakeForestPlacements(existingPlacements = []) {
   const placements = []
-  const baseAngle = THREE.MathUtils.degToRad(88)
-  const arc = THREE.MathUtils.degToRad(62)
-  const maxAttempts = 90
-  const cos = Math.cos(BOTTOM_DEPRESSION_LAKE.rot)
-  const sin = Math.sin(BOTTOM_DEPRESSION_LAKE.rot)
+  const occupied = [...existingPlacements]
+  const centerX = 82.7
+  const centerZ = -275.8
+  const radius = 20
+  const vegetationCount = 20
 
-  for (let attempt = 0; placements.length < 20 && attempt < maxAttempts; attempt++) {
+  const isClearOfBottomLakeWater = (x, z, minEdge = 2.5) => {
+    return NEWLAND_STATIC_LAKES.every((lake) => {
+      const shape = getNewlandStaticLakeShapeAt(lake, x, z)
+      return lake === BOTTOM_DEPRESSION_LAKE ? shape.edge >= minEdge : shape.edge >= lake.treeClearance
+    })
+  }
+
+  const pushPlacement = (placement, minSpacing) => {
+    if (!isInsideOutdoorMountainBounds(placement.dx, placement.dz, 0)) return false
+    if (!isClearOfBottomLakeWater(placement.dx, placement.dz, -4)) return false
+    if (isTooCloseToForestPlacement(occupied, placement.dx, placement.dz, minSpacing)) return false
+    occupied.push(placement)
+    placements.push(placement)
+    return true
+  }
+
+  for (let attempt = 0; placements.length < vegetationCount && attempt < 180; attempt++) {
     const seed = 96000 + attempt * 113
-    const t = (attempt * 0.61803398875 + forestPlacementNoise(seed + 1) * 0.18) % 1
-    const angle = baseAngle - arc * 0.5 + arc * t + THREE.MathUtils.lerp(-0.055, 0.055, forestPlacementNoise(seed + 2))
-    const boundary = newlandStaticLakeBoundaryScale(BOTTOM_DEPRESSION_LAKE, angle)
-    const lakeRadius = (BOTTOM_DEPRESSION_LAKE.rx + BOTTOM_DEPRESSION_LAKE.rz) * 0.5 * boundary
-    const radius = lakeRadius + THREE.MathUtils.lerp(25, 56, forestPlacementNoise(seed + 3))
-    const localX = Math.cos(angle) * radius + THREE.MathUtils.lerp(-3.5, 3.5, forestPlacementNoise(seed + 4))
-    const localZ = Math.sin(angle) * radius + THREE.MathUtils.lerp(-3.5, 3.5, forestPlacementNoise(seed + 5))
-    const x = BOTTOM_DEPRESSION_LAKE.x + localX * cos - localZ * sin
-    const z = BOTTOM_DEPRESSION_LAKE.z + localX * sin + localZ * cos
-    if (!isInsideOutdoorMountainBounds(x, z, 0)) continue
-    if (isInsideNewlandStaticLakeClearance(x, z)) continue
-    if (isTooCloseToForestPlacement(existingPlacements, x, z, 9)) continue
-    if (isTooCloseToForestPlacement(placements, x, z, 8.5)) continue
-
-    const type = pickModelTreeType(FOREST_GROVE_TREE_TYPES, seed + 12, attempt)
-    const scaleNoise = THREE.MathUtils.lerp(0.86, 1.18, forestPlacementNoise(seed + 6))
-    placements.push({
+    const angle = attempt * 2.3999632297 + forestPlacementNoise(seed + 1) * 0.55
+    const distance = Math.sqrt(forestPlacementNoise(seed + 2)) * radius
+    const x = centerX + Math.cos(angle) * distance
+    const z = centerZ + Math.sin(angle) * distance
+    const useShrub = placements.length % 5 >= 3
+    const type = useShrub
+      ? FOREST_GROVE_SHRUB_TYPES[Math.floor(forestPlacementNoise(seed + 12) * FOREST_GROVE_SHRUB_TYPES.length) % FOREST_GROVE_SHRUB_TYPES.length]
+      : pickModelTreeType(FOREST_GROVE_TREE_TYPES, seed + 12, attempt)
+    const scaleNoise = THREE.MathUtils.lerp(useShrub ? 0.82 : 0.86, useShrub ? 1.22 : 1.16, forestPlacementNoise(seed + 6))
+    const placement = {
       file: type.file,
       origin: { x: 0, z: 0 },
       dx: Number(x.toFixed(2)),
       dz: Number(z.toFixed(2)),
       rotY: Number((forestPlacementNoise(seed + 7) * Math.PI * 2).toFixed(3)),
       scale: Number((type.scale * scaleNoise).toFixed(3)),
-      r: Number((type.r * scaleNoise * FOREST_TREE_COLLIDER_SCALE).toFixed(2)),
-    })
+    }
+    if (type.r) placement.r = Number((type.r * scaleNoise * FOREST_TREE_COLLIDER_SCALE).toFixed(2))
+    pushPlacement(placement, useShrub ? 4.2 : 5.6)
+  }
+
+  let rockCount = 0
+  for (let attempt = 0; rockCount < 6 && attempt < 80; attempt++) {
+    const seed = 98200 + attempt * 97
+    const angle = attempt * 2.3999632297 + forestPlacementNoise(seed + 1) * 0.8
+    const distance = Math.sqrt(forestPlacementNoise(seed + 2)) * radius
+    const x = centerX + Math.cos(angle) * distance
+    const z = centerZ + Math.sin(angle) * distance
+    if (!isClearOfBottomLakeWater(x, z, 1.5)) continue
+    const type = FOREST_GROVE_ROCK_TYPES[Math.floor(forestPlacementNoise(seed + 3) * FOREST_GROVE_ROCK_TYPES.length) % FOREST_GROVE_ROCK_TYPES.length]
+    const scaleNoise = THREE.MathUtils.lerp(0.62, 1.08, forestPlacementNoise(seed + 4))
+    const placement = {
+      file: type.file,
+      origin: { x: 0, z: 0 },
+      dx: Number(x.toFixed(2)),
+      dz: Number(z.toFixed(2)),
+      rotY: Number((forestPlacementNoise(seed + 5) * Math.PI * 2).toFixed(3)),
+      scale: Number((type.scale * scaleNoise).toFixed(3)),
+    }
+    if (type.r) placement.r = Number((type.r * scaleNoise * FOREST_ROCK_COLLIDER_SCALE).toFixed(2))
+    if (pushPlacement(placement, 3.8)) rockCount++
   }
 
   return placements
