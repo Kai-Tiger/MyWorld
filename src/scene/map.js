@@ -712,7 +712,36 @@ const SOUTH_BASIN_LAKE = {
   seed: 26601,
 }
 // 南部新湖；boundaryScales/flatBedY/shoreShelf 只加强这个湖的岸线贴合、深平底和外侧承托，不影响其它静态湖。
-const NEWLAND_STATIC_LAKES = [...NEWLAND_ENDPOINT_LAKES, NEWLAND_MOUNTAIN_LAKE, SOUTH_BASIN_LAKE] // 所有静态湖集合；由自动端点湖 + 固定山中湖 + 南部新湖组成，供地形/水面/树木避让共用。
+const BOTTOM_DEPRESSION_LAKE = {
+  id: 'bottom_depression_lake',
+  x: 74.6,
+  z: -319.4,
+  rx: 74,
+  rz: 51,
+  rot: THREE.MathUtils.degToRad(44),
+  waterDepth: 2.7,
+  shoreRun: 16,
+  treeClearance: 14,
+  boundaryScales: [
+    { angle: THREE.MathUtils.degToRad(16), scale: 0.98 },
+    { angle: THREE.MathUtils.degToRad(74), scale: 1.04 },
+    { angle: THREE.MathUtils.degToRad(136), scale: 0.96 },
+    { angle: THREE.MathUtils.degToRad(204), scale: 1.05 },
+    { angle: THREE.MathUtils.degToRad(278), scale: 0.97 },
+    { angle: THREE.MathUtils.degToRad(338), scale: 1.02 },
+  ],
+  flatBedY: -32.9,
+  flatBedRadius: 0.58,
+  flatBedFeather: 0.18,
+  steepBankPower: 2.25,
+  shoreShelfRun: 11,
+  shoreBackRun: 8,
+  shoreShelfRise: 0.58,
+  edgeDrop: 0.6,
+  seed: 743194,
+}
+// 底部凹陷深潭；水面锚在低洼底部，避免把整个大凹陷灌满。
+const NEWLAND_STATIC_LAKES = [...NEWLAND_ENDPOINT_LAKES, NEWLAND_MOUNTAIN_LAKE, SOUTH_BASIN_LAKE, BOTTOM_DEPRESSION_LAKE] // 所有静态湖集合；由自动端点湖 + 固定山中湖 + 南部新湖组成，供地形/水面/树木避让共用。
 
 const NEWLAND_MOUNTAIN_OUTLET = {
   id: 'mountain_lake_outlet',
