@@ -91,4 +91,5 @@ export const enemyNpcs = [
   { x: -52, z: -75, rotY: 0, name: '迷宫守卫 e2-1', model: 'e2' },
   { x: -54, z: -73.5, rotY: Math.PI * 0.1, name: '迷宫守卫 e2-2', model: 'e2' },
   { x: -50, z: -73.5, rotY: -Math.PI * 0.1, name: '迷宫守卫 e2', model: 'e2' },
+  { x: -448.9, z: -474.9, rotY: Math.PI * 280 / 180, name: '远地巡守', model: 'e2' },
 ]

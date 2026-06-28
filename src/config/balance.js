@@ -74,7 +74,7 @@ export const BALANCE = {
   },
 
   player: {
-    maxHp: 9999999,
+    maxHp: 200,
     maxMp: 100,
     atk: 20,
     throwCooldown: 0.45,
@@ -131,7 +131,7 @@ export const BALANCE = {
       radius: 0.34,
       speed: 15.65,
       lifeTime: 1.55,
-      launchUpVelocity: 4.0,
+      launchUpVelocity: 2.2,
       gravity: 8.5,
       spawnForward: 0.72,
       spawnHeight: 1.18,

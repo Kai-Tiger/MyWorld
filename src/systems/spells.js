@@ -296,7 +296,7 @@ export class SpellSystem {
     if (!spell) return false
     const cfg = spell.config
 
-    _tmpForward.copy(direction).setY(0)
+    _tmpForward.copy(direction)
     if (_tmpForward.lengthSq() < 0.0001) return false
     _tmpForward.normalize()
 
@@ -467,7 +467,7 @@ export class SpellSystem {
     projectile.group.visible = true
     projectile.trail.visible = true
     projectile.velocity.copy(direction).multiplyScalar(cfg.speed)
-    projectile.velocity.y = cfg.launchUpVelocity
+    projectile.velocity.y += cfg.launchUpVelocity
     projectile.ttl = cfg.lifeTime
     projectile.damage = damage
     projectile.radius = cfg.radius

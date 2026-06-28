@@ -23,6 +23,7 @@ const AVOIDANCE_ANGLES = [
 ]
 const HIT_AGGRO_MEMORY_SECONDS = 6
 const HIT_AGGRO_LEASH_BUFFER_SECONDS = 3
+const SIGHT_AGGRO_MEMORY_SECONDS = 1.2
 const ENEMY_MODEL_SCALE = 0.015
 const ENEMY_GLB_MODEL_SCALE = 2.0
 const LOCK_MARKER_MIN_SCALE = 0.75
@@ -278,6 +279,7 @@ export function createEnemyNpcFBX(scene, {
   let pendingEngageReason = null
   let aggroByHit = false
   let aggroMemoryTimer = 0
+  let sightMemoryTimer = 0
   let alerting = false
   let alertTimer = 0
   let engagementCommitTimer = 0
@@ -471,6 +473,7 @@ export function createEnemyNpcFBX(scene, {
     aggroByHit = false
     pendingEngageReason = null
     aggroMemoryTimer = 0
+    sightMemoryTimer = 0
     alerting = false
     alertTimer = 0
     engagementCommitTimer = 0
@@ -530,7 +533,7 @@ export function createEnemyNpcFBX(scene, {
   function aggroFromSight() {
     if (!alive || dying) return
     returningHome = false
-    refreshHitAggroMemory()
+    sightMemoryTimer = Math.max(sightMemoryTimer, SIGHT_AGGRO_MEMORY_SECONDS)
     if (!engaged) {
       engaged = true
       pendingEngageReason = 'sight'
@@ -1129,11 +1132,14 @@ export function createEnemyNpcFBX(scene, {
 
       const playerPos = player.getPosition()
       _toPlayer.set(playerPos.x - group.position.x, playerPos.z - group.position.z)
-      const dist = _toPlayer.length()
-      const hasToPlayerDir = dist > 0.0001
-      const invDist = hasToPlayerDir ? 1 / dist : 0
+      const horizontalDist = _toPlayer.length()
+      const yDist = playerPos.y - group.position.y
+      const sightDist3d = Math.hypot(horizontalDist, yDist)
+      const hasToPlayerDir = horizontalDist > 0.0001
+      const invDist = hasToPlayerDir ? 1 / horizontalDist : 0
       const toPlayerX = _toPlayer.x * invDist
       const toPlayerZ = _toPlayer.y * invDist
+      const canSeePlayer = options.canSeePlayer !== false
 
       if (alive && hp > 0 && !dying && attacking && attackAction && normalizedAttackWindows.length > 0) {
         const clip = attackAction.getClip?.()
@@ -1164,7 +1170,7 @@ export function createEnemyNpcFBX(scene, {
             }
 
             const cosHalf = Math.cos(THREE.MathUtils.degToRad(window.angleDeg * 0.5))
-            if (dist <= window.range && dot >= cosHalf) {
+            if (sightDist3d <= window.range && dot >= cosHalf) {
               const damage = attackDamage * window.damageMul
               player.receiveEnemyAttack?.(damage, group)
             }
@@ -1176,7 +1182,9 @@ export function createEnemyNpcFBX(scene, {
       }
 
       const prevEngaged = engaged
-      const inSightTrigger = hasToPlayerDir && dist <= triggerRange && isPlayerInFront(toPlayerX, toPlayerZ)
+      const inSightTrigger = hasToPlayerDir && canSeePlayer && sightDist3d <= triggerRange && isPlayerInFront(toPlayerX, toPlayerZ)
+      if (inSightTrigger) sightMemoryTimer = Math.max(sightMemoryTimer, SIGHT_AGGRO_MEMORY_SECONDS)
+      else sightMemoryTimer = Math.max(0, sightMemoryTimer - dt)
       if (aggroByHit) {
         aggroFromHit()
         aggroByHit = false
@@ -1184,23 +1192,26 @@ export function createEnemyNpcFBX(scene, {
         aggroMemoryTimer = Math.max(0, aggroMemoryTimer - dt)
       }
       if (returningHome && inSightTrigger) aggroFromSight()
-      if (!returningHome && (inSightTrigger || aggroMemoryTimer > 0)) engaged = true
-      if (engaged && aggroMemoryTimer <= 0 && distanceFromHome() > leashRadius) startReturnHome()
+      if (!returningHome && (inSightTrigger || sightMemoryTimer > 0 || aggroMemoryTimer > 0)) engaged = true
+      if (engaged && aggroMemoryTimer <= 0 && sightMemoryTimer <= 0 && distanceFromHome() > leashRadius) startReturnHome()
       if (returningHome) engaged = false
       const disengageProtected = alerting || isGuardDashing() || engagementCommitTimer > 0
-      if (!disengageProtected && dist > disengageRange && aggroMemoryTimer <= 0) {
+      if (!disengageProtected && sightDist3d > disengageRange && aggroMemoryTimer <= 0) {
+        engaged = false
+      }
+      if (!disengageProtected && !inSightTrigger && sightMemoryTimer <= 0 && aggroMemoryTimer <= 0) {
         engaged = false
       }
       if (engaged && alive && !dying) _activePursuerIds.add(instanceId)
       else _activePursuerIds.delete(instanceId)
 
       const engageReason = engaged
-        ? (pendingEngageReason ?? (!prevEngaged ? (inSightTrigger ? 'sight' : 'hit') : null))
+        ? (pendingEngageReason ?? (!prevEngaged ? ((inSightTrigger || sightMemoryTimer > 0) ? 'sight' : 'hit') : null))
         : null
       pendingEngageReason = null
 
       if (engageReason) {
-        startEngagementSequence(engageReason, dist)
+        startEngagementSequence(engageReason, sightDist3d)
       }
 
       if (prevEngaged && !engaged) {
@@ -1211,7 +1222,7 @@ export function createEnemyNpcFBX(scene, {
         if (attacking) endAttack()
         if (!returningHome && !hasPatrol) setSeatedPose()
       }
-      updateEnemyAudio(dt, dist, player)
+      updateEnemyAudio(dt, sightDist3d, player)
 
       if (returningHome) {
         updateReturnHome(dt, collision)
@@ -1240,9 +1251,9 @@ export function createEnemyNpcFBX(scene, {
         alertTimer -= dt
         if (alertTimer <= 0) {
           alerting = false
-          if (!attacking && dist > attackRange) playRunLoop()
+          if (!attacking && sightDist3d > attackRange) playRunLoop()
         }
-      } else if (dist <= attackRange) {
+      } else if (sightDist3d <= attackRange) {
         if (!attacking) {
           if (attackCdRemain <= 0) playAttack()
           else playStandLoop()
@@ -1262,7 +1273,7 @@ export function createEnemyNpcFBX(scene, {
           if (move) {
             group.position.x = move.x
             group.position.z = move.z
-            if (dist > attackRange + 0.8) {
+            if (sightDist3d > attackRange + 0.8) {
               const moveYaw = Math.atan2(move.dirX, move.dirZ)
               const moveTurn = THREE.MathUtils.euclideanModulo(moveYaw - group.rotation.y + Math.PI, Math.PI * 2) - Math.PI
               group.rotation.y += moveTurn * Math.min(1, dt * turnSpeed * 0.55)

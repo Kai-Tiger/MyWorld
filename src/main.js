@@ -17,9 +17,7 @@ import { enemyNpcs as enemyNpcConfigs } from './config/world.js'
 import { defaultMap } from './config/defaultMap.js'
 import { BALANCE } from './config/balance.js'
 import { createSky } from './scene/sky.js'
-import { createMapEditor, applyLayoutToScene } from './editor/mapEditor.js'
-import { buildRockInstances } from './scene/map.js'
-import { createEditorUI } from './editor/editorUI.js'
+import { applyLayoutToScene } from './scene/layout.js'
 import { ThirdPersonCameraController } from './systems/cameraThirdPerson.js'
 import { createCastleWorld } from './scene/castle.js'
 import { CASTLE_ENTRY_TRANSITION, CASTLE_EXTERIOR } from './config/castle.js'
@@ -95,6 +93,20 @@ const perf = createPerfMonitor({
   }),
 })
 
+function waitForFrameOrTimeout(timeoutMs = 50) {
+  return new Promise(resolve => {
+    let done = false
+    const finish = () => {
+      if (done) return
+      done = true
+      resolve()
+    }
+    requestAnimationFrame(finish)
+    window.setTimeout(finish, timeoutMs)
+  })
+}
+
+const startupStartedAt = performance.now()
 const loadingOverlay = document.createElement('div')
 loadingOverlay.style.cssText = `
   position:absolute; inset:0; z-index:2000;
@@ -102,19 +114,54 @@ loadingOverlay.style.cssText = `
   background:#050608; color:#d8d5c8;
   font:14px monospace; pointer-events:none;
 `
-loadingOverlay.textContent = '准备启动资源 0%'
+loadingOverlay.innerHTML = `
+  <style>
+    @keyframes startup-loading-spin { to { transform: rotate(360deg); } }
+    .startup-loading-panel { display:flex; align-items:center; gap:14px; }
+    .startup-loading-spinner {
+      width:24px; height:24px; border-radius:50%;
+      border:2px solid rgba(216,213,200,0.22);
+      border-top-color:#d8d5c8;
+      animation:startup-loading-spin 0.9s linear infinite;
+    }
+    .startup-loading-label { min-width:220px; }
+    .startup-loading-elapsed { margin-top:6px; color:#8e8a7c; font-size:12px; }
+  </style>
+  <div class="startup-loading-panel">
+    <div class="startup-loading-spinner"></div>
+    <div>
+      <div class="startup-loading-label"></div>
+      <div class="startup-loading-elapsed"></div>
+    </div>
+  </div>
+`
+const loadingOverlayLabel = loadingOverlay.querySelector('.startup-loading-label')
+const loadingOverlayElapsed = loadingOverlay.querySelector('.startup-loading-elapsed')
+let currentLoadingStatus = ''
+function setLoadingStatus(text) {
+  if (!loadingOverlayLabel || !loadingOverlayElapsed) return
+  currentLoadingStatus = text
+  loadingOverlayLabel.textContent = text
+  loadingOverlayElapsed.textContent = `已用 ${(performance.now() - startupStartedAt).toFixed(1)}ms`
+}
+setLoadingStatus('准备启动资源 0%')
 app.appendChild(loadingOverlay)
+const loadingStatusTimer = window.setInterval(() => {
+  if (loadingOverlay.isConnected) setLoadingStatus(currentLoadingStatus)
+}, 250)
 
+async function bootstrapGame() {
+await waitForFrameOrTimeout(80)
 const preloadModelsStartedAt = performance.now()
 const preloadModelsPromise = preloadRuntimeModels(({ loaded, total }) => {
   const pct = total > 0 ? Math.round(loaded / total * 100) : 100
-  loadingOverlay.textContent = `准备启动资源 ${pct}%`
+  setLoadingStatus(`准备启动资源 ${pct}%`)
 }).finally(() => {
   if (perf.enabled) console.info(`[perf] startup.preloadModels ${(performance.now() - preloadModelsStartedAt).toFixed(1)}ms`)
 })
 
 // ── 搭建场景 ──────────────────────────────────────────
-const { scene, camera: editorCamera } = createScene()
+const { scene } = createScene()
 const { sun, moon, hemi, fill } = createLighting(scene)
 const thirdPerson = new ThirdPersonCameraController(renderer.domElement)
 const gameCamera = thirdPerson.camera
@@ -256,15 +303,16 @@ function updateDayNightLighting(sunPhase) {
   setDistantTerrainSun?.(_proxySunDir, nightFactor)
 }
 const _proxySunDir = new THREE.Vector3()
-// 优先加载存档，无存档时使用默认地图配置
+// 地图布局统一从代码配置读取，避免浏览器旧存档覆盖位置。
 const INITIAL_CAMPFIRE_POSITION = { x: 0, z: 50 }
+const MOUNTAIN_CAMPFIRE_POSITION = { x: -386.3, z: -490.7, y: 61.9 }
 const INITIAL_PLAYER_POSITION = {
-  x: -357.2,
-  z: -487.4,
-  y: 54.6,
-  yaw: THREE.MathUtils.degToRad(66),
-  cameraViewYaw: THREE.MathUtils.degToRad(47),
-  cameraViewPitch: THREE.MathUtils.degToRad(-10),
+  x: -393.7,
+  z: -505.7,
+  y: 66.7,
+  yaw: THREE.MathUtils.degToRad(63),
+  cameraViewYaw: THREE.MathUtils.degToRad(60),
+  cameraViewPitch: THREE.MathUtils.degToRad(-4),
 }
 const RELOCATED_SOUTH_CAMPFIRE_FROM = { x: 10, z: -18 }
 const RELOCATED_SOUTH_CAMPFIRE_TO = { x: 19, z: -66 }
@@ -277,13 +325,23 @@ function isCastleApproachLayoutRock(rock) {
 }
 
 function filterCastleApproachLayout(layout) {
+  let hasMountainCampfire = false
   const campfires = (layout.campfires ?? []).map(fire => {
     const dx = (fire.x ?? 0) - RELOCATED_SOUTH_CAMPFIRE_FROM.x
     const dz = (fire.z ?? 0) - RELOCATED_SOUTH_CAMPFIRE_FROM.z
     if (Math.hypot(dx, dz) < 2) return { ...fire, ...RELOCATED_SOUTH_CAMPFIRE_TO }
+    const mountainDx = (fire.x ?? 0) - MOUNTAIN_CAMPFIRE_POSITION.x
+    const mountainDz = (fire.z ?? 0) - MOUNTAIN_CAMPFIRE_POSITION.z
+    if (Math.hypot(mountainDx, mountainDz) < 2) {
+      hasMountainCampfire = true
+      return { ...fire, ...MOUNTAIN_CAMPFIRE_POSITION }
+    }
     return fire
   })
   campfires[0] = { ...(campfires[0] ?? {}), ...INITIAL_CAMPFIRE_POSITION }
+  if (!hasMountainCampfire) {
+    campfires.push(MOUNTAIN_CAMPFIRE_POSITION)
+  }
 
   return {
     ...layout,
@@ -293,9 +351,8 @@ function filterCastleApproachLayout(layout) {
   }
 }
 
-const _savedLayoutJson = localStorage.getItem('mapLayout')
-const _layoutData = filterCastleApproachLayout(_savedLayoutJson ? JSON.parse(_savedLayoutJson) : defaultMap)
-let _activeLayout = _layoutData
+const _layoutData = filterCastleApproachLayout(defaultMap)
+const _activeLayout = _layoutData
 let resolveOutdoorStaticReady = null
 const outdoorStaticReadyPromise = new Promise(resolve => {
   resolveOutdoorStaticReady = resolve
@@ -321,12 +378,16 @@ const {
   setDebugWaterEffectsDisabled,
   setDebugTreeDensity,
   terrainReadyPromise,
+  startupReadyPromise: mapStartupReadyPromise,
 } = createMap(scene, {
   perf,
   fullTerrainLoad: FULL_TERRAIN_LOAD,
   onTerrainLoadProgress: (progress) => {
     latestTerrainProgress = progress
-    if (startupPhase === 'terrain') loadingOverlay.textContent = formatTerrainProgress(progress)
+    if (startupPhase === 'terrain') setLoadingStatus(formatTerrainProgress(progress))
+  },
+  onStartupStage: (stage) => {
+    setLoadingStatus(stage)
   },
   onStaticModelReady: (model) => {
     resolveOutdoorStaticReady?.(model)
@@ -429,8 +490,6 @@ let activeNpc = null
 // ── 交互系统（门检测）────────────────────────────────
 const interaction = new InteractionSystem(_layoutData.houses ?? [])
 let activeScene = 'outdoor'
-let _editor = null
-let _editorUi = null
 let loadingLookSweep = null
 let mineCaveClimb = null
 let mineCaveInteractionRearmPending = false
@@ -902,6 +961,7 @@ function updatePlayerFootsteps() {
     player.isHealing?.() ||
     player.isPicking?.() ||
     player.isInBlockReaction?.() ||
+    player.isAirborne?.() ||
     player.isBonfireResting?.() ||
     player.isBonfireStandingUp?.()
   ) {
@@ -973,50 +1033,6 @@ ui.updateEquipmentState?.(getPlayerEquipmentState())
 syncEstusFlaskToBag()
 createPerfDebugPanel()
 
-function setEditorButtonVisible(_visible) {}
-
-function enterEditor() {
-  player.getGroup().visible = false
-  activeScene = 'editor'
-  thirdPerson.setEnabled(false)
-  setEditorButtonVisible(false)
-  _editor = createMapEditor(scene, editorCamera, renderer, player.getPosition().clone())
-  _editorUi = createEditorUI(app, {
-    onSelectType: (type) => _editor.setPlacingType(type),
-    onExport:     ()     => _editor.exportLayout(),
-    onLoad:       (json) => _editor.loadLayout(json),
-    onExit:       exitEditor,
-  })
-  _editorUi.show()
-}
-
-function exitEditor() {
-  const _exportedJson = _editor.exportLayout()
-  localStorage.setItem('mapLayout', _exportedJson)
-
-  _editor.destroy()
-  _editorUi.destroy()
-  _editor = null
-  _editorUi = null
-
-  const _newLayout = filterCastleApproachLayout(JSON.parse(_exportedJson))
-  _activeLayout = _newLayout
-
-  // 将编辑器留下的个别岩石克隆替换为 InstancedMesh，恢复游戏渲染性能
-  const _rockClones = scene.children.filter(obj => obj.userData?.editorMeta?.type === 'rock')
-  _rockClones.forEach(obj => scene.remove(obj))
-  buildRockInstances(scene, _newLayout.rocks ?? [])
-
-  // 用新布局刷新碰撞系统，确保编辑器新增的对象也有碰撞体积
-  _applyLayoutCollidables(_newLayout)
-
-  player.getGroup().visible = true
-  thirdPerson.syncToTarget(player.getPosition())
-  thirdPerson.setEnabled(true)
-  setEditorButtonVisible(true)
-  activeScene = 'outdoor'
-}
-
 // ── 游戏主循环 ────────────────────────────────────────
 const clock = new THREE.Clock()
 // 预分配，避免每帧产生 GC 压力
@@ -1031,10 +1047,36 @@ const _meleeForward   = new THREE.Vector3()
 const _toMeleeTarget  = new THREE.Vector3()
 const _bloodDirection = new THREE.Vector3()
 const _spellForward   = new THREE.Vector3()
+const _spellOrigin    = new THREE.Vector3()
+const _spellAimTarget = new THREE.Vector3()
 let pendingFireballCast = null
 let lastProcessedAttackHitEventId = 0
 let lastProcessedSwordAirCueEventId = 0
 let lastSwordAirPlayedStepId = 0
+
+const FIREBALL_AIM_NEUTRAL_PITCH = 0.3316
+const FIREBALL_AIM_MIN_PITCH_DELTA = THREE.MathUtils.degToRad(-20)
+const FIREBALL_AIM_MAX_PITCH_DELTA = THREE.MathUtils.degToRad(42)
+
+function getFireballLockAimPoint(npc, out) {
+  const pos = npc.getPosition()
+  const head = npc.getHeadWorldPos?.()
+  const y = Number.isFinite(head?.y) ? Math.max(pos.y + 0.85, head.y - 0.25) : pos.y + 1.15
+  return out.set(pos.x, y, pos.z)
+}
+
+function getUnlockedFireballDirection(out) {
+  player.getForwardXZ(out)
+  const pitchDelta = THREE.MathUtils.clamp(
+    thirdPerson.pitch - FIREBALL_AIM_NEUTRAL_PITCH,
+    FIREBALL_AIM_MIN_PITCH_DELTA,
+    FIREBALL_AIM_MAX_PITCH_DELTA,
+  )
+  const horizontal = Math.max(0.25, Math.cos(pitchDelta))
+  out.multiplyScalar(horizontal)
+  out.y = -Math.sin(pitchDelta)
+  return out.normalize()
+}
 
 const lockState = {
   targetNpc: null,
@@ -1206,7 +1248,6 @@ function beginPlayerDeath(sourceScene = activeScene) {
   clearHealAura()
   ui.setTransitionUiVisible(false)
   ui.update(player, clock.elapsedTime, gameCamera)
-  setEditorButtonVisible(false)
   thirdPerson.setEnabled(false)
   player.playDeath?.()
   return true
@@ -1254,7 +1295,6 @@ function finishPlayerRespawn() {
   ui.hideDeathMessage?.()
   ui.setSceneFade(0)
   ui.setTransitionUiVisible(true)
-  setEditorButtonVisible(true)
   thirdPerson.setEnabled(true)
 }
 
@@ -1532,14 +1572,121 @@ function shouldSkipNpcAnimation(npc, playerPos) {
   return playerPos.distanceTo(npc.getPosition()) > COMBAT_NPC_ANIMATION_DISTANCE
 }
 
+const ENEMY_SIGHT_PLAYER_EYE_Y = 1.1
+const ENEMY_SIGHT_TERRAIN_MARGIN = 0.35
+const ENEMY_SIGHT_COLLIDER_MARGIN_Y = 0.15
+const ENEMY_SIGHT_MIN_CIRCLE_BLOCKER_RADIUS = 0.75
+const _enemySightFrom = new THREE.Vector3()
+const _enemySightTo = new THREE.Vector3()
+
+function segmentCircleHitT(ax, az, bx, bz, cx, cz, r) {
+  const dx = bx - ax
+  const dz = bz - az
+  const lenSq = dx * dx + dz * dz
+  if (lenSq <= 0.000001) return null
+  const t = THREE.MathUtils.clamp(((cx - ax) * dx + (cz - az) * dz) / lenSq, 0, 1)
+  const px = ax + dx * t - cx
+  const pz = az + dz * t - cz
+  return px * px + pz * pz <= r * r ? t : null
+}
+
+function segmentAxisBoxHitT(ax, az, bx, bz, hx, hz) {
+  const dx = bx - ax
+  const dz = bz - az
+  let tMin = 0
+  let tMax = 1
+  if (Math.abs(dx) < 0.000001) {
+    if (Math.abs(ax) > hx) return null
+  } else {
+    const tx1 = (-hx - ax) / dx
+    const tx2 = (hx - ax) / dx
+    tMin = Math.max(tMin, Math.min(tx1, tx2))
+    tMax = Math.min(tMax, Math.max(tx1, tx2))
+  }
+  if (Math.abs(dz) < 0.000001) {
+    if (Math.abs(az) > hz) return null
+  } else {
+    const tz1 = (-hz - az) / dz
+    const tz2 = (hz - az) / dz
+    tMin = Math.max(tMin, Math.min(tz1, tz2))
+    tMax = Math.min(tMax, Math.max(tz1, tz2))
+  }
+  return tMin <= tMax ? tMin : null
+}
+
+function segmentColliderHitT(from, to, collider) {
+  if (collider.hx !== undefined && collider.hz !== undefined) {
+    const ax = from.x - collider.x
+    const az = from.z - collider.z
+    const bx = to.x - collider.x
+    const bz = to.z - collider.z
+    if (collider.ux !== undefined && collider.uz !== undefined && collider.vx !== undefined && collider.vz !== undefined) {
+      return segmentAxisBoxHitT(
+        ax * collider.ux + az * collider.uz,
+        ax * collider.vx + az * collider.vz,
+        bx * collider.ux + bz * collider.uz,
+        bx * collider.vx + bz * collider.vz,
+        collider.hx,
+        collider.hz,
+      )
+    }
+    return segmentAxisBoxHitT(ax, az, bx, bz, collider.hx, collider.hz)
+  }
+  if (collider.r !== undefined && collider.r >= ENEMY_SIGHT_MIN_CIRCLE_BLOCKER_RADIUS) {
+    return segmentCircleHitT(from.x, from.z, to.x, to.z, collider.x, collider.z, collider.r)
+  }
+  return null
+}
+
+function colliderBlocksEnemySight(from, to, collider, npc) {
+  if (!collider || collider === playerCollidable || collider === npc.collidable) return false
+  if (collider.type === 'clearancePath' || collider.type === 'ramp' || collider.surface) return false
+
+  const t = segmentColliderHitT(from, to, collider)
+  if (t === null || t <= 0.02 || t >= 0.98) return false
+
+  const lineY = THREE.MathUtils.lerp(from.y, to.y, t)
+  const minY = collider.minY ?? -Infinity
+  const maxY = collider.maxY ?? (collider.h !== undefined ? collider.h + 0.25 : Infinity)
+  return lineY >= minY - ENEMY_SIGHT_COLLIDER_MARGIN_Y && lineY <= maxY + ENEMY_SIGHT_COLLIDER_MARGIN_Y
+}
+
+function terrainBlocksEnemySight(from, to) {
+  const horizontalDist = Math.hypot(to.x - from.x, to.z - from.z)
+  const samples = THREE.MathUtils.clamp(Math.ceil(horizontalDist / 3), 8, 18)
+  for (let i = 1; i < samples; i += 1) {
+    const t = i / samples
+    const x = THREE.MathUtils.lerp(from.x, to.x, t)
+    const z = THREE.MathUtils.lerp(from.z, to.z, t)
+    const lineY = THREE.MathUtils.lerp(from.y, to.y, t)
+    if (getTerrainHeight(x, z, lineY) > lineY - ENEMY_SIGHT_TERRAIN_MARGIN) return true
+  }
+  return false
+}
+
+function canEnemySeePlayer(npc, playerPos) {
+  const head = npc.getHeadWorldPos?.()
+  if (!head) return true
+  _enemySightFrom.set(head.x, head.y, head.z)
+  _enemySightTo.set(playerPos.x, playerPos.y + ENEMY_SIGHT_PLAYER_EYE_Y, playerPos.z)
+
+  if (terrainBlocksEnemySight(_enemySightFrom, _enemySightTo)) return false
+  for (const collider of collision.collidables) {
+    if (colliderBlocksEnemySight(_enemySightFrom, _enemySightTo, collider, npc)) return false
+  }
+  return true
+}
+
 function updateOutdoorNpcs(dt) {
   const playerPos = player.getPosition()
   const playerOccluded = isPlayerInMineCaveUnderground(playerPos)
   npcs.forEach(npc => {
     if (npc.isAlive?.() || npc.shouldUpdateWhenDead?.()) {
+      const canSeePlayer = !npc.isHostile || (!playerOccluded && canEnemySeePlayer(npc, playerPos))
       npc.update(dt, player, collision, {
         skipAnimation: shouldSkipNpcAnimation(npc, playerPos),
         playerOccluded: playerOccluded && npc.isHostile,
+        canSeePlayer,
       })
     }
   })
@@ -1907,17 +2054,18 @@ function updatePlayerSpellCasting(dt, playerPos) {
 
   if (pendingFireballCast) return
 
+  const cfg = BALANCE.spells.fireball
   const lockTarget = lockState.targetNpc
+  _spellOrigin.set(playerPos.x, playerPos.y + cfg.spawnHeight, playerPos.z)
   if (lockTarget?.isAlive?.()) {
-    _spellForward.subVectors(lockTarget.getPosition(), playerPos).setY(0)
+    _spellForward.subVectors(getFireballLockAimPoint(lockTarget, _spellAimTarget), _spellOrigin)
   } else {
-    player.getForwardXZ(_spellForward)
+    getUnlockedFireballDirection(_spellForward)
   }
   if (_spellForward.lengthSq() <= 0.0001) return
   _spellForward.normalize()
 
   if (!spells.consumeCastRequest('fireball', input)) return
-  const cfg = BALANCE.spells.fireball
   const mpCost = cfg.mpCost ?? 0
   if ((player.getMp?.() ?? 0) < mpCost) return
   if (!spells.beginCast('fireball')) return
@@ -2008,7 +2156,6 @@ function clearNpcCombatUi() {
 
 function switchToCastleInterior() {
   savedOutdoorPos = player.getPosition().clone()
-  setEditorButtonVisible(false)
   castle.scene.add(player.getGroup())
   const spawn = CASTLE_ENTRY_TRANSITION.indoorSpawn
   player.setPosition(spawn.x, spawn.z, spawn.y)
@@ -2023,7 +2170,6 @@ function enterCastle() {
   if (castleTransition) return
   activeScene = 'castle-transition'
   castleTransition = { time: 0, switched: false }
-  setEditorButtonVisible(false)
   clearLock()
   ui.setTransitionUiVisible(false)
   thirdPerson.setEnabled(false)
@@ -2033,7 +2179,6 @@ function enterCastle() {
 
 function exitCastle() {
   activeScene = 'outdoor'
-  setEditorButtonVisible(true)
   ui.hideExitButton()
   ui.hideActionPrompt?.()
   scene.add(player.getGroup())
@@ -2046,7 +2191,6 @@ function exitCastle() {
 
 function exitCastleFromTerrace(castlePosition) {
   activeScene = 'outdoor'
-  setEditorButtonVisible(true)
   ui.hideExitButton()
   ui.hideActionPrompt?.()
   scene.add(player.getGroup())
@@ -2177,18 +2321,6 @@ function runGameFrame() {
     ui.update(player, sunPhaseClimb, gameCamera)
     ui.updateCombatOverlay?.(rawDt, gameCamera, renderer)
     renderWithAO(gameCamera, 'outdoor')
-    return
-  }
-
-  if (activeScene === 'editor') {
-    setCombatPerfMode(false)
-    stopPlayerFootsteps()
-    _editor.update(dt)
-    ui.clearCombatOverlays?.()
-    clearNpcCombatUi()
-    clearLock()
-    lockState.qWasPressed = input.isPressed('KeyQ')
-    renderWithAO(editorCamera, 'editor')
     return
   }
 
@@ -2577,19 +2709,6 @@ function runGameFrame() {
   perf.time('main.render', () => renderWithAO(gameCamera, 'outdoor'))
 }
 
-function waitForFrameOrTimeout(timeoutMs = 50) {
-  return new Promise(resolve => {
-    let done = false
-    const finish = () => {
-      if (done) return
-      done = true
-      resolve()
-    }
-    requestAnimationFrame(finish)
-    window.setTimeout(finish, timeoutMs)
-  })
-}
-
 function waitTimeout(timeoutMs) {
   return new Promise(resolve => window.setTimeout(resolve, timeoutMs))
 }
@@ -2623,13 +2742,14 @@ function beginLoadingLookSweep() {
   loadingLookSweep.timeoutId = window.setTimeout(() => {
     if (loadingLookSweep) finishLoadingLookSweep()
   }, LOADING_LOOK_SWEEP_SECONDS * 1000 + 1000)
-  loadingOverlay.textContent = `预渲染场景 1/${LOADING_LOOK_SWEEP_TURNS}`
+  setLoadingStatus(`预渲染场景 1/${LOADING_LOOK_SWEEP_TURNS}`)
 }
 
 function finishLoadingLookSweep() {
   if (loadingLookSweep?.timeoutId) window.clearTimeout(loadingLookSweep.timeoutId)
   loadingLookSweep = null
   thirdPerson.syncToTarget(player.getPosition())
+  window.clearInterval(loadingStatusTimer)
   loadingOverlay.remove()
   setArea(getOutdoorAreaId(player.getPosition()), { force: true })
   clock.getDelta()
@@ -2644,7 +2764,7 @@ function updateLoadingLookSweep(dt) {
   perf.time('startup.sweepCastle', () => castle.updateOutdoor(dt))
   perf.time('startup.sweepCamera', () => thirdPerson.update(dt, player.getPosition()))
   const currentTurn = Math.min(LOADING_LOOK_SWEEP_TURNS, Math.floor(t * LOADING_LOOK_SWEEP_TURNS) + 1)
-  loadingOverlay.textContent = `预渲染场景 ${currentTurn}/${LOADING_LOOK_SWEEP_TURNS}`
+  setLoadingStatus(`预渲染场景 ${currentTurn}/${LOADING_LOOK_SWEEP_TURNS}`)
   perf.time('startup.sweepRender', () => renderWithAO(gameCamera, 'outdoor'))
   if (t >= 1) finishLoadingLookSweep()
   return true
@@ -2652,19 +2772,23 @@ function updateLoadingLookSweep(dt) {
 
 async function startGame() {
   await preloadModelsPromise
+  startupPhase = 'map'
+  setLoadingStatus('等待地图初始化...')
   if (FULL_TERRAIN_LOAD) {
     startupPhase = 'terrain'
-    loadingOverlay.textContent = formatTerrainProgress()
+    setLoadingStatus(formatTerrainProgress())
     await terrainReadyPromise
   }
-  loadingOverlay.textContent = '准备场景...'
+  startupPhase = 'map'
+  await mapStartupReadyPromise
+  setLoadingStatus('准备场景...')
   await Promise.resolve()
   await waitForFrameOrTimeout()
   await Promise.race([
     outdoorStaticReadyPromise,
     waitTimeout(1500),
   ])
-  loadingOverlay.textContent = '预热法术...'
+  setLoadingStatus('预热法术...')
   await Promise.all([
     runStartupWarmup('Spell VFX', () => spells.warmup(renderer, gameCamera), 3500),
     runStartupWarmup('Player throw magic', () => (
@@ -2684,15 +2808,15 @@ window.addEventListener('resize', () => {
   const w = window.innerWidth
   const h = window.innerHeight
   const aspect = w / h
-  const s = 6
-  editorCamera.left   = -s * aspect
-  editorCamera.right  =  s * aspect
-  editorCamera.top    =  s
-  editorCamera.bottom = -s
-  editorCamera.far    = 400
-  editorCamera.updateProjectionMatrix()
   gameCamera.aspect = aspect
   gameCamera.updateProjectionMatrix()
   renderer.setPixelRatio(currentRenderPixelRatio)
   renderer.setSize(w, h)
+})
+}
+
+bootstrapGame().catch((error) => {
+  console.error('Game startup failed', error)
+  window.clearInterval(loadingStatusTimer)
+  setLoadingStatus('启动失败，请查看控制台')
 })

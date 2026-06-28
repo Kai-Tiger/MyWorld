@@ -5,9 +5,10 @@ import { CASTLE_INDOOR_LIGHTING } from '../config/lighting.js'
 import { snapObjectToGround } from './map.js'
 import { cloneGLTFScene } from '../systems/modelAssets.js'
 
-const CASTLE_TEXTURE_VERSION = 'v=16'
+const CASTLE_TEXTURE_VERSION = 'v=17'
 const STONE_TILE_SIZE = 3.6
 const GLB_STONE_UV_STABILIZE_SCALE = 0.78
+const CASTLE_EXTERIOR_STONE_DIFFUSE = '/textures/castle_exterior_stone_wall_diff.png'
 const ELEVATOR_ROOF_STOP_Y = 20
 const ELEVATOR_PLATFORM_OFFSET_Y = 0.2
 const ELEVATOR_ACTION_RANGE = 2.5
@@ -116,15 +117,18 @@ function syncColliderObjects(target, nextColliders) {
   }
 }
 
-function applyCastleStoneMaterial(material) {
+function applyCastleStoneMaterial(material, { diffuseMap = null, usePbrMaps = true } = {}) {
   if (!material?.name?.startsWith('Stone_')) return
   const dark = material.name.includes('Soot')
   const edge = material.name.includes('Edge')
-  material.color.setHex(dark ? 0x5f605a : edge ? 0xb3afa1 : 0x9e9b8f)
-  material.map = loadCastleTexture('/textures/castle_stone_wall_diff_1k.jpg', { color: true })
-  material.normalMap = loadCastleTexture('/textures/castle_stone_wall_nor_gl_1k.jpg')
-  material.normalScale = new THREE.Vector2(dark ? 0.2 : edge ? 0.28 : 0.34, dark ? 0.2 : edge ? 0.28 : 0.34)
-  material.roughnessMap = loadCastleTexture('/textures/castle_stone_wall_rough_1k.jpg')
+  const customDiffuse = Boolean(diffuseMap)
+  material.color.setHex(customDiffuse ? 0xffffff : dark ? 0x5f605a : edge ? 0xb3afa1 : 0x9e9b8f)
+  material.map = loadCastleTexture(diffuseMap ?? '/textures/castle_stone_wall_diff_1k.jpg', { color: true })
+  material.normalMap = usePbrMaps ? loadCastleTexture('/textures/castle_stone_wall_nor_gl_1k.jpg') : null
+  material.normalScale = usePbrMaps
+    ? new THREE.Vector2(dark ? 0.2 : edge ? 0.28 : 0.34, dark ? 0.2 : edge ? 0.28 : 0.34)
+    : new THREE.Vector2(0, 0)
+  material.roughnessMap = usePbrMaps ? loadCastleTexture('/textures/castle_stone_wall_rough_1k.jpg') : null
   material.roughness = dark ? 1 : edge ? 0.94 : 0.96
   material.metalness = 0
 }
@@ -140,7 +144,7 @@ function stabilizeStoneUvs(geometry) {
   geometry.userData.castleStoneUvsStabilized = true
 }
 
-function configureCastleModel(model, { shadows = true, stabilizeFacade = false } = {}) {
+function configureCastleModel(model, { shadows = true, stabilizeFacade = false, stoneDiffuseMap = null, stoneUsePbrMaps = true } = {}) {
   model.traverse(child => {
     if (!child.isMesh) return
     if (stabilizeFacade && child.name.startsWith('VIS_FOG_ENTRY_')) {
@@ -156,7 +160,7 @@ function configureCastleModel(model, { shadows = true, stabilizeFacade = false }
     materials.forEach(material => {
       if (!material) return
       material.vertexColors = child.geometry?.getAttribute('color') !== undefined
-      applyCastleStoneMaterial(material)
+      applyCastleStoneMaterial(material, { diffuseMap: stoneDiffuseMap, usePbrMaps: stoneUsePbrMaps })
       if (stabilizeFacade) {
         material.polygonOffset = true
         material.polygonOffsetFactor = 1
@@ -766,7 +770,7 @@ function createOutdoorFacade(outdoorScene) {
     CASTLE_ENTRANCE.modelUrl,
     group,
     () => hideDirectGrayboxMeshes(group),
-    { shadows: false, stabilizeFacade: true },
+    { shadows: false, stabilizeFacade: true, stoneDiffuseMap: CASTLE_EXTERIOR_STONE_DIFFUSE, stoneUsePbrMaps: false },
   )
   const colliders = [
     // Perimeter collision with a narrow doorway at the west fog gate.

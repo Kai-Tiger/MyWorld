@@ -2,7 +2,7 @@ import * as THREE from 'three'
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
 import { WORLD_SIZE, OUTDOOR_MOUNTAIN_BOUNDS, MOUNTAIN_FALL_FLOOR_Y, TREE_COLOR_GRADE, TREE_LIGHT_GRADE, MODEL_TREE_COLOR_MIX } from '../config/world.js'
 import { createHeightmapTerrain } from './heightmapTerrain.js'
-import { CASTLE_EXTERIOR } from '../config/castle.js'
+import { CASTLE_EXTERIOR, CASTLE_ZONES } from '../config/castle.js'
 import oldChurchRuinsUrl from '../place/old_church_ruins_medium.glb?url'
 import { cloneGLTFScene, loadGLTF } from '../systems/modelAssets.js'
 import oldChurchRuinsColliders from '../place/old_church_ruins_colliders.json'
@@ -43,6 +43,14 @@ const GRASS_LOD_SPARSE_DIST = 70 // 草减量接近远端保留比例的距离�
 const GRASS_LOD_HIDE_DIST = 90 // 模型草显示半径；调大可见草更远但候选更多，调小更省性能但边界更近。
 const GRASS_LOD_FAR_KEEP_RATIO = 0.04 // 远处草保留比例；调大远草更连续但实例更多，调小更离散更省。
 const GRASS_LOD_INTERVAL = 0.2 // LOD 评估节流秒数；调小响应更快但更耗 CPU，调大可能看到刷新滞后。
+const FAR_GRASS_IMPOSTOR_START_DIST = 80 // 无贴图远景草斑开始接管距离；需略早于模型草完全消失以避免空带。
+const FAR_GRASS_IMPOSTOR_FULL_DIST = 112 // 远景草斑完全显现距离；调小更早显眼，调大更靠后接管。
+const FAR_GRASS_IMPOSTOR_FADE_DIST = 240 // 远景草斑开始淡出距离；调大覆盖更远但实例更多。
+const FAR_GRASS_IMPOSTOR_HIDE_DIST = 280 // 远景草斑隐藏半径；调大远处更满但扫描/矩阵更多。
+const FAR_GRASS_IMPOSTOR_SPACING = 7.2 // 远景草斑候选网格间距；调小更密但更耗，调大更容易稀疏。
+const FAR_GRASS_IMPOSTOR_CAPACITY = 1800 // 每个远景草斑颜色 mesh 的最大实例数；总上限约为此值 x 3。
+const FAR_GRASS_IMPOSTOR_SCAN_BUDGET_MS = 1.6 // 每次 LOD tick 生成远景草候选的 CPU 预算。
+const FAR_GRASS_IMPOSTOR_MOVE_DIST = 24 // 玩家移动超过此距离才重排远景草扫描。
 const SPAWN_GRASS_60_REF_MODEL_URL = '/models/grass/grass_clump_60_ref.glb' // 草参考模型；只用于调试/对比显示。
 const SPAWN_GRASS_60_REF_PLACEMENT = { x: 2.5, z: 42, rotY: 0.35, scale: 1.15 } // 草参考模型位置/朝向/缩放；改了只影响参考模型。
 const GROUND_LEAF_TEXTURES = ['/textures/leaf1.png', '/textures/leaf2.png'] // 地面落叶贴图列表；增减会改变随机落叶外观多样性。
@@ -124,6 +132,7 @@ const GRASS_CAMPFIRE_CLEARINGS = [
   { x: 19, z: -66 },
   { x: -18, z: -2 },
   { x: 22, z: 22 },
+  { x: -386.3, z: -490.7 },
   { x: 104.5, z: -283.5 },
 ]
 // 火堆清草中心列表；增删点会改变哪些营地周围保持裸地。
@@ -181,6 +190,11 @@ const SOUTH_BASIN_LAKESIDE_DECORATIONS = [
 // 南部湖岸固定点缀；radius 是相对湖心距离，石头贴岸、树木外圈，避免把湖岸完全封死。
 const FOREST_TREE_COLLIDER_SCALE = 0.6 // 手工树碰撞半径倍率；调大更难贴近树干，调小更容易穿进树冠/树干。
 const FOREST_ROCK_COLLIDER_SCALE = 0.85 // 手工岩石碰撞半径倍率；调大避让更保守，调小更贴边。
+const RIVER_BANK_ROCK_ALONG_SPACING = 22 // 河岸坡面石头沿河采样间距；调小更密，调大会更稀。
+const RIVER_BANK_ROCK_KEEP_PROB = 0.42 // 河岸坡面石头保留率；调大更碎石化，调小更克制。
+const RIVER_BANK_ROCK_MIN_SPACING = 6.5 // 河岸石头之间/与既有林地点缀的最小距离，避免连成石墙。
+const RIVER_BANK_ROCK_OUTER_PAD = 5.0 // 河岸坡肩向外可放石头的额外宽度。
+const RIVER_BANK_ROCK_SEED_BASE = 91000 // 河岸石头确定性随机种子；改动会整体洗牌。
 
 // ── 世界级实例化树木散布（铺满全世界，复用草地分块/实例化框架）──
 const FOREST_GROVE_HEIGHT_BOOST = 1.8        // 手工林地树/灌木同步加高（岩石不受影响）
@@ -224,6 +238,24 @@ const MODEL_TREE_YELLOW_RATIO = (() => {
   return Number.isFinite(value) ? THREE.MathUtils.clamp(value, 0, 1) : 0
 })()
 const FOREST_CASTLE_GATE_CLEARING = { minX: 39, maxX: 52, minZ: -11, maxZ: 4 } // 城堡门口清树矩形；扩大可防树挡门，缩小会让树林更靠近入口。
+const CASTLE_TREE_EXCLUSION_PADDING = 18 // 城堡整体清树缓冲；覆盖外墙、楼梯/平台边缘和树冠穿插余量。
+const CASTLE_TREE_EXCLUSION = (() => {
+  const bounds = CASTLE_ZONES.reduce((acc, zone) => {
+    const b = zone.bounds
+    if (!b) return acc
+    acc.minX = Math.min(acc.minX, CASTLE_EXTERIOR.origin.x + b.minX)
+    acc.maxX = Math.max(acc.maxX, CASTLE_EXTERIOR.origin.x + b.maxX)
+    acc.minZ = Math.min(acc.minZ, CASTLE_EXTERIOR.origin.z + b.minZ)
+    acc.maxZ = Math.max(acc.maxZ, CASTLE_EXTERIOR.origin.z + b.maxZ)
+    return acc
+  }, { minX: Infinity, maxX: -Infinity, minZ: Infinity, maxZ: -Infinity })
+  return {
+    minX: bounds.minX - CASTLE_TREE_EXCLUSION_PADDING,
+    maxX: bounds.maxX + CASTLE_TREE_EXCLUSION_PADDING,
+    minZ: bounds.minZ - CASTLE_TREE_EXCLUSION_PADDING,
+    maxZ: bounds.maxZ + CASTLE_TREE_EXCLUSION_PADDING,
+  }
+})()
 const CASTLE_APPROACH_MOUNDS = [
   { x: 8, z: -13, rx: 5.6, rz: 3.7, h: 4.8, rot: -0.32, r: 5.4 },
   { x: 11, z: 20, rx: 6.2, rz: 4.1, h: 5.4, rot: 0.18, r: 5.8 },
@@ -418,7 +450,7 @@ for (const branch of RIVER_BRANCHES) {
   branch.points = resampleRiverPath(branch.points, 3)
 }
 
-const NEWLAND_BRAIDED_SLOPE_DEG = 45 // 新大陆辫状河岸坡角；调小河岸更缓更宽，调大河道更陡更窄。
+const NEWLAND_BRAIDED_SLOPE_DEG = 30 // 新大陆辫状河岸坡角；调小河岸更缓更宽，调大河道更陡更窄。
 const NEWLAND_BRAIDED_CHANNELS = [
   {
     id: 'braid_main',
@@ -713,6 +745,35 @@ const SOUTH_BASIN_LAKE = {
   seed: 26601,
 }
 // 南部新湖；boundaryScales/flatBedY/shoreShelf 只加强这个湖的岸线贴合、深平底和外侧承托，不影响其它静态湖。
+const BRAIDED_NORTH_BASIN_LAKE = {
+  id: 'braided_north_basin_lake',
+  x: -373.2,
+  z: -335.3,
+  rx: 70,
+  rz: 58,
+  rot: THREE.MathUtils.degToRad(-34),
+  waterDepth: 1.15,
+  shoreRun: 14,
+  treeClearance: 10,
+  boundaryScales: [
+    { angle: THREE.MathUtils.degToRad(18), scale: 1.08 },
+    { angle: THREE.MathUtils.degToRad(80), scale: 0.94 },
+    { angle: THREE.MathUtils.degToRad(145), scale: 1.02 },
+    { angle: THREE.MathUtils.degToRad(205), scale: 0.90 },
+    { angle: THREE.MathUtils.degToRad(270), scale: 1.10 },
+    { angle: THREE.MathUtils.degToRad(330), scale: 1.04 },
+  ],
+  flatBedY: 31.75,
+  flatBedRadius: 0.62,
+  flatBedFeather: 0.16,
+  steepBankPower: 2.35,
+  shoreShelfRun: 8,
+  shoreBackRun: 7,
+  shoreShelfRise: 0.55,
+  edgeDrop: 0.72,
+  seed: 373335,
+}
+// 北侧辫状河盆地湖；替代同区域的 braided restore basin，避免水面被干条切成两片。
 const BOTTOM_DEPRESSION_LAKE = {
   id: 'bottom_depression_lake',
   x: 74.6,
@@ -749,7 +810,7 @@ const BOTTOM_DEPRESSION_LAKE = {
   seed: 743194,
 }
 // 底部凹陷深潭；水面锚在低洼底部，避免把整个大凹陷灌满。
-const NEWLAND_STATIC_LAKES = [...NEWLAND_ENDPOINT_LAKES, NEWLAND_MOUNTAIN_LAKE, SOUTH_BASIN_LAKE, BOTTOM_DEPRESSION_LAKE] // 所有静态湖集合；由自动端点湖 + 固定山中湖 + 南部新湖组成，供地形/水面/树木避让共用。
+const NEWLAND_STATIC_LAKES = [...NEWLAND_ENDPOINT_LAKES, NEWLAND_MOUNTAIN_LAKE, BRAIDED_NORTH_BASIN_LAKE, SOUTH_BASIN_LAKE, BOTTOM_DEPRESSION_LAKE] // 所有静态湖集合；由自动端点湖 + 固定山中湖 + 手工湖组成，供地形/水面/树木避让共用。
 
 const NEWLAND_MOUNTAIN_OUTLET = {
   id: 'mountain_lake_outlet',
@@ -987,7 +1048,16 @@ function isInsideNewlandStaticLakeClearance(x, z) {
   return NEWLAND_STATIC_LAKES.some(lake => getNewlandStaticLakeShapeAt(lake, x, z).edge < lake.treeClearance)
 }
 
-// 由同一份（密化后）路径生成地形着色器的 GLSL 距离采样器，消除 JS/GLSL 路径重复定义，
+function getNewlandStaticLakeInteriorCutAt(x, z) {
+  let cut = 0
+  for (const lake of NEWLAND_STATIC_LAKES) {
+    const shape = getNewlandStaticLakeShapeAt(lake, x, z)
+    cut = Math.max(cut, 1 - THREE.MathUtils.smoothstep(shape.edge, -9, -1.5))
+  }
+  return cut
+}
+
+// 由同一份（密化后）路径生成地形着色器的 GLSL 距离采样器，消除 JS/GLSL 路径重复定义， 
 // 保证湿泥带在弯道处始终贴合实际碳刻出的水道。GLSL 用较低密度以控制逐像素段数开销。
 function formatGlslFloat(n) {
   return n.toFixed(3)
@@ -1136,7 +1206,6 @@ let _mineCaveUndergroundZones = []
 // 路径长度元数据缓存（getPathMeta 用）。必须在 createForestGrovePlacements() 之前声明，
 // 否则模块初始化时经 braided river 采样链调用 getPathMeta 会触发 TDZ（const 未初始化）。
 const pathMetaCache = new WeakMap()
-const FOREST_GROVE_PLACEMENTS = createForestGrovePlacements()
 const CURVED_CLIFF_CONTROL_POINTS = [
   [82, 26],
   [59, 69],
@@ -1328,6 +1397,7 @@ const _spawnGrassDummy = new THREE.Object3D()
 let _grassLodMeshes = []
 let _grassLodTimer = 0
 let _meadowGrassRuntime = null
+let _farGrassImpostorRuntime = null
 let _debugGrassDensity = 1
 let _debugModelGrassDisabled = false
 let _debugWaterEffectsDisabled = false
@@ -1383,6 +1453,57 @@ function makeGrassLodMesh(name, geometry, material) {
   inst.count = 0
   inst.visible = false
   return inst
+}
+
+function createFarGrassImpostorGeometry(colors) {
+  const positions = []
+  const vertexColors = []
+  const addBlade = (angle, offsetX, offsetZ, width, height, lean) => {
+    const sx = Math.cos(angle)
+    const sz = Math.sin(angle)
+    const px = -sz
+    const pz = sx
+    const bx = offsetX
+    const bz = offsetZ
+    const tx = bx + sx * lean
+    const tz = bz + sz * lean
+    positions.push(
+      bx - px * width, 0, bz - pz * width,
+      bx + px * width, 0, bz + pz * width,
+      tx, height, tz,
+    )
+    vertexColors.push(
+      colors.base.r, colors.base.g, colors.base.b,
+      colors.base.r, colors.base.g, colors.base.b,
+      colors.tip.r, colors.tip.g, colors.tip.b,
+    )
+  }
+
+  const blades = [
+    [0.12, -0.18, 0.03, 0.19, 1.00, 0.10],
+    [1.68, 0.13, -0.08, 0.17, 0.86, -0.06],
+    [0.78, 0.04, 0.18, 0.15, 0.72, 0.08],
+    [2.34, -0.05, -0.20, 0.16, 0.78, -0.10],
+    [-0.58, 0.22, 0.10, 0.12, 0.62, 0.05],
+    [2.88, -0.23, -0.04, 0.13, 0.68, -0.04],
+  ]
+  for (const blade of blades) addBlade(...blade)
+
+  const geometry = new THREE.BufferGeometry()
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3))
+  geometry.setAttribute('color', new THREE.Float32BufferAttribute(vertexColors, 3))
+  geometry.computeVertexNormals()
+  geometry.computeBoundingSphere()
+  return geometry
+}
+
+function createFarGrassImpostorMaterial() {
+  return new THREE.MeshBasicMaterial({
+    vertexColors: true,
+    side: THREE.DoubleSide,
+    depthWrite: true,
+    toneMapped: false,
+  })
 }
 
 function createGrassLodGroup(scene, name, geometries, material) {
@@ -1459,6 +1580,74 @@ function getMeadowGrassCandidate(gx, gz) {
     seed,
     x: (gx + 0.5) * spacing + (forestPlacementNoise(seed + 1) - 0.5) * jitter,
     z: (gz + 0.5) * spacing + (forestPlacementNoise(seed + 2) - 0.5) * jitter,
+  }
+}
+
+function getFarGrassImpostorCandidate(gx, gz) {
+  const seed = 260000 + gx * 91757 + gz * 52361
+  const jitter = FAR_GRASS_IMPOSTOR_SPACING * 0.56
+  return {
+    seed,
+    x: (gx + 0.5) * FAR_GRASS_IMPOSTOR_SPACING + (forestPlacementNoise(seed + 1) - 0.5) * jitter,
+    z: (gz + 0.5) * FAR_GRASS_IMPOSTOR_SPACING + (forestPlacementNoise(seed + 2) - 0.5) * jitter,
+  }
+}
+
+function farGrassPatchAmountAt(x, z) {
+  const broad = valueNoise2(x * 0.018 + 31.4, z * 0.018 + 9.7)
+  const middle = valueNoise2(x * 0.052 + 7.8, z * 0.052 + 44.2)
+  return THREE.MathUtils.clamp(broad * 0.76 + middle * 0.24, 0, 1)
+}
+
+function farGrassMossAccentAt(x, z) {
+  const channel = sampleChannelNetwork(x, z)
+  const channelNear = channel ? 1 - THREE.MathUtils.smoothstep(channel.distance, channel.halfWidth + 7, channel.halfWidth + 22) : 0
+  const gully = getBestWetGullyStreamSampleAt(x, z)
+  const gullyNear = gully ? 1 - THREE.MathUtils.smoothstep(gully.distance, gully.halfWidth + 5, gully.halfWidth + 17) : 0
+  const lake = sampleNewlandStaticLake(x, z, getGroundHeight)
+  const lakeNear = lake ? 1 - THREE.MathUtils.smoothstep(Math.abs(lake.edge ?? 999), 4, 18) : 0
+  return Math.max(channelNear, gullyNear, lakeNear)
+}
+
+function makeFarGrassImpostorRecord(gx, gz) {
+  const candidate = getFarGrassImpostorCandidate(gx, gz)
+  const { x, z, seed } = candidate
+  if (
+    x < GRASS_FIELD_BOUNDS.minX || x > GRASS_FIELD_BOUNDS.maxX
+    || z < GRASS_FIELD_BOUNDS.minZ || z > GRASS_FIELD_BOUNDS.maxZ
+  ) return null
+
+  const groundY = getGroundHeight(x, z)
+  if (!isGlobalModelGrassLand(x, z, groundY)) return null
+
+  const patch = farGrassPatchAmountAt(x, z)
+  const patchEdge = THREE.MathUtils.smoothstep(patch, 0.48, 0.78)
+  if (patchEdge <= 0) return null
+
+  const keep = THREE.MathUtils.lerp(0.05, 0.42, patchEdge)
+  if (forestPlacementNoise(seed + 5) > keep) return null
+
+  const moss = farGrassMossAccentAt(x, z)
+  const dry = grassDryAt(x, z)
+  const mossPick = moss > 0.25 && forestPlacementNoise(seed + 8) < moss * 0.32
+  const dryPick = !mossPick && dry + (forestPlacementNoise(seed + 9) - 0.5) * 0.16 > 0.72
+  const variantIndex = mossPick ? 2 : dryPick ? 1 : 0
+  const scaleBase = THREE.MathUtils.lerp(1.35, 2.65, forestPlacementNoise(seed + 11))
+  const patchScale = THREE.MathUtils.lerp(0.82, 1.22, patchEdge)
+
+  return {
+    x,
+    y: groundY + 0.015,
+    z,
+    seed,
+    variantIndex,
+    rotY: forestPlacementNoise(seed + 12) * Math.PI * 2,
+    tiltX: THREE.MathUtils.lerp(-0.055, 0.055, forestPlacementNoise(seed + 13)),
+    tiltZ: THREE.MathUtils.lerp(-0.055, 0.055, forestPlacementNoise(seed + 14)),
+    scaleX: scaleBase * patchScale * THREE.MathUtils.lerp(1.2, 1.8, forestPlacementNoise(seed + 15)),
+    scaleY: THREE.MathUtils.lerp(0.74, 1.28, forestPlacementNoise(seed + 16)) * patchScale,
+    scaleZ: scaleBase * patchScale * THREE.MathUtils.lerp(1.2, 1.8, forestPlacementNoise(seed + 17)),
+    clusterRank: grassDistantClusterRank(x, z, seed),
   }
 }
 
@@ -1822,6 +2011,160 @@ function applyGrassCandidates(inst, candidates, profile = null) {
   if (count > 0) inst.instanceMatrix.needsUpdate = true
 }
 
+function createFarGrassImpostorScanJob(px, pz) {
+  return {
+    px,
+    pz,
+    centerGX: Math.floor(px / FAR_GRASS_IMPOSTOR_SPACING),
+    centerGZ: Math.floor(pz / FAR_GRASS_IMPOSTOR_SPACING),
+    radiusSq: FAR_GRASS_IMPOSTOR_HIDE_DIST * FAR_GRASS_IMPOSTOR_HIDE_DIST,
+    maxRing: Math.ceil(FAR_GRASS_IMPOSTOR_HIDE_DIST / FAR_GRASS_IMPOSTOR_SPACING) + 2,
+    ring: 0,
+    ringPoints: null,
+    ringIndex: 0,
+  }
+}
+
+function farGrassImpostorGridKey(gx, gz) {
+  return `${gx}|${gz}`
+}
+
+function buildFarGrassImpostorRingPoints(job, ring) {
+  const points = []
+  const push = (dx, dz) => {
+    const gx = job.centerGX + dx
+    const gz = job.centerGZ + dz
+    const cx = (gx + 0.5) * FAR_GRASS_IMPOSTOR_SPACING
+    const cz = (gz + 0.5) * FAR_GRASS_IMPOSTOR_SPACING
+    const ddx = cx - job.px
+    const ddz = cz - job.pz
+    const distSq = ddx * ddx + ddz * ddz
+    if (distSq >= job.radiusSq) return
+    points.push({ gx, gz, distSq })
+  }
+
+  if (ring === 0) {
+    push(0, 0)
+  } else {
+    for (let dx = -ring; dx <= ring; dx++) {
+      push(dx, -ring)
+      push(dx, ring)
+    }
+    for (let dz = -ring + 1; dz <= ring - 1; dz++) {
+      push(-ring, dz)
+      push(ring, dz)
+    }
+  }
+  points.sort((a, b) => a.distSq - b.distSq)
+  return points
+}
+
+function enqueueFarGrassImpostorScan(playerPosition) {
+  const runtime = _farGrassImpostorRuntime
+  if (!runtime || !playerPosition) return
+  const px = playerPosition.x
+  const pz = playerPosition.z
+  if (runtime.lastScanCenter) {
+    const dx = px - runtime.lastScanCenter.x
+    const dz = pz - runtime.lastScanCenter.z
+    if (dx * dx + dz * dz < FAR_GRASS_IMPOSTOR_MOVE_DIST * FAR_GRASS_IMPOSTOR_MOVE_DIST) return
+  }
+  runtime.lastScanCenter = { x: px, z: pz }
+  runtime.scanJob = createFarGrassImpostorScanJob(px, pz)
+}
+
+function processFarGrassImpostorScanQueue(budgetMs = FAR_GRASS_IMPOSTOR_SCAN_BUDGET_MS) {
+  const runtime = _farGrassImpostorRuntime
+  const job = runtime?.scanJob
+  if (!runtime || !job) return
+  const t0 = performance.now()
+  let checked = 0
+
+  while (job.ring <= job.maxRing) {
+    if (checked > 0 && performance.now() - t0 >= budgetMs) break
+    if (!job.ringPoints || job.ringIndex >= job.ringPoints.length) {
+      job.ringPoints = buildFarGrassImpostorRingPoints(job, job.ring)
+      job.ringIndex = 0
+      job.ring++
+      if (!job.ringPoints.length) continue
+    }
+
+    const item = job.ringPoints[job.ringIndex++]
+    const key = farGrassImpostorGridKey(item.gx, item.gz)
+    if (!runtime.cache.has(key)) {
+      runtime.cache.set(key, makeFarGrassImpostorRecord(item.gx, item.gz))
+    }
+    checked++
+  }
+
+  if (job.ring > job.maxRing && (!job.ringPoints || job.ringIndex >= job.ringPoints.length)) runtime.scanJob = null
+}
+
+function farGrassImpostorDistanceScale(dist) {
+  const fadeIn = THREE.MathUtils.smoothstep(dist, FAR_GRASS_IMPOSTOR_START_DIST, FAR_GRASS_IMPOSTOR_FULL_DIST)
+  const fadeOut = 1 - THREE.MathUtils.smoothstep(dist, FAR_GRASS_IMPOSTOR_FADE_DIST, FAR_GRASS_IMPOSTOR_HIDE_DIST)
+  return Math.min(fadeIn, fadeOut)
+}
+
+function writeFarGrassImpostorMatrix(inst, index, record) {
+  const distanceT = THREE.MathUtils.smoothstep(record._farDist, FAR_GRASS_IMPOSTOR_FULL_DIST, FAR_GRASS_IMPOSTOR_FADE_DIST)
+  const farScale = THREE.MathUtils.lerp(0.72, 1.18, distanceT) * record._farScale
+  _spawnGrassDummy.position.set(record.x, record.y, record.z)
+  _spawnGrassDummy.rotation.set(record.tiltX, record.rotY, record.tiltZ)
+  _spawnGrassDummy.scale.set(record.scaleX * farScale, record.scaleY * farScale, record.scaleZ * farScale)
+  _spawnGrassDummy.updateMatrix()
+  inst.setMatrixAt(index, _spawnGrassDummy.matrix)
+}
+
+function applyFarGrassImpostorCandidates(inst, candidates) {
+  if (!inst) return
+  if (candidates.length > FAR_GRASS_IMPOSTOR_CAPACITY) candidates.sort((a, b) => a._farDistSq - b._farDistSq)
+  const count = _debugModelGrassDisabled ? 0 : Math.min(candidates.length, FAR_GRASS_IMPOSTOR_CAPACITY)
+  for (let i = 0; i < count; i++) writeFarGrassImpostorMatrix(inst, i, candidates[i])
+  inst.count = count
+  inst.visible = count > 0
+  if (count > 0) inst.instanceMatrix.needsUpdate = true
+}
+
+function updateFarGrassImpostors(playerPosition) {
+  const runtime = _farGrassImpostorRuntime
+  if (!runtime || !playerPosition) return
+  enqueueFarGrassImpostorScan(playerPosition)
+  processFarGrassImpostorScanQueue()
+
+  const px = playerPosition.x
+  const pz = playerPosition.z
+  const minGX = Math.floor((px - FAR_GRASS_IMPOSTOR_HIDE_DIST) / FAR_GRASS_IMPOSTOR_SPACING)
+  const maxGX = Math.floor((px + FAR_GRASS_IMPOSTOR_HIDE_DIST) / FAR_GRASS_IMPOSTOR_SPACING)
+  const minGZ = Math.floor((pz - FAR_GRASS_IMPOSTOR_HIDE_DIST) / FAR_GRASS_IMPOSTOR_SPACING)
+  const maxGZ = Math.floor((pz + FAR_GRASS_IMPOSTOR_HIDE_DIST) / FAR_GRASS_IMPOSTOR_SPACING)
+  const byVariant = runtime.meshes.map(() => [])
+
+  for (let gx = minGX; gx <= maxGX; gx++) {
+    for (let gz = minGZ; gz <= maxGZ; gz++) {
+      const record = runtime.cache.get(farGrassImpostorGridKey(gx, gz))
+      if (!record) continue
+      const dx = record.x - px
+      const dz = record.z - pz
+      const distSq = dx * dx + dz * dz
+      if (distSq < FAR_GRASS_IMPOSTOR_START_DIST * FAR_GRASS_IMPOSTOR_START_DIST) continue
+      if (distSq >= FAR_GRASS_IMPOSTOR_HIDE_DIST * FAR_GRASS_IMPOSTOR_HIDE_DIST) continue
+      const dist = Math.sqrt(distSq)
+      const scale = farGrassImpostorDistanceScale(dist)
+      if (scale <= 0.04) continue
+      if (_debugGrassDensity <= 0 || record.clusterRank < 1 - _debugGrassDensity) continue
+      record._farDist = dist
+      record._farDistSq = distSq
+      record._farScale = scale
+      byVariant[record.variantIndex]?.push(record)
+    }
+  }
+
+  for (let i = 0; i < runtime.meshes.length; i++) {
+    applyFarGrassImpostorCandidates(runtime.meshes[i], byVariant[i])
+  }
+}
+
 // 按实例到玩家距离刷新全局草 mesh，避免整块方形区域同步显隐。
 function updateGrassLod(playerPosition) {
   if (!playerPosition) return
@@ -1848,6 +2191,7 @@ function updateGrassLod(playerPosition) {
     profile.scanPending = _meadowGrassRuntime?.scanJob ? 1 : 0
     _meadowGrassQueueProfile = createMeadowGrassWorkProfile()
   }
+  updateFarGrassImpostors(playerPosition)
   if (!_grassLodMeshes.length) return
   const px = playerPosition.x
   const py = playerPosition.y ?? getGroundHeight(px, playerPosition.z)
@@ -1920,6 +2264,12 @@ function hideAllModelGrass() {
     group.hiMesh.visible = false
     group.loMesh.count = 0
     group.loMesh.visible = false
+  }
+  if (_farGrassImpostorRuntime) {
+    for (const mesh of _farGrassImpostorRuntime.meshes) {
+      mesh.count = 0
+      mesh.visible = false
+    }
   }
   const b = _worldTreeBuild
   if (!b) return
@@ -2009,6 +2359,8 @@ function shouldSkipGlobalModelGrassPlacement(x, z, groundY = getGroundHeight(x, 
 }
 
 function isGlobalModelGrassWaterSurface(x, z, groundY) {
+  if (isInsideNewlandBraidedWetBed(x, z)) return true
+
   const channel = sampleChannelNetwork(x, z)
   if (channel && channel.distance <= channel.halfWidth) {
     const waterY = channelNetworkWaterYAt(x, z, getGroundHeight)
@@ -2042,7 +2394,7 @@ function isGlobalModelGrassRiverBank(x, z) {
   const braidedRun = braided
     ? Math.max(0.35, channelBankRun(braided.channel.cutDepth, NEWLAND_BRAIDED_SLOPE_DEG))
     : 0
-  return isInsideRiverSteepBank(braided, braidedRun)
+  return isInsideNewlandBraidedWetBed(x, z) || isInsideRiverSteepBank(braided, braidedRun)
 }
 
 function isGlobalModelGrassLand(x, z, groundY = getGroundHeight(x, z)) {
@@ -2242,9 +2594,19 @@ function pickModelTreeIndex(types, seed, fallbackIndex) {
   return index >= 0 ? index : 0
 }
 
+function isTallForestPlacement(placement) {
+  return placement.file.startsWith('tree_') || placement.file.startsWith('background_tree_')
+}
+
+function isInsideCastleTreeExclusion(x, z) {
+  return x >= CASTLE_TREE_EXCLUSION.minX
+    && x <= CASTLE_TREE_EXCLUSION.maxX
+    && z >= CASTLE_TREE_EXCLUSION.minZ
+    && z <= CASTLE_TREE_EXCLUSION.maxZ
+}
+
 function isInForestCastleGateClearing(placement) {
-  const isTallPlant = placement.file.startsWith('tree_') || placement.file.startsWith('background_tree_')
-  if (!isTallPlant) return false
+  if (!isTallForestPlacement(placement)) return false
 
   const origin = getForestPlacementOrigin(placement)
   const x = origin.x + placement.dx
@@ -2253,6 +2615,12 @@ function isInForestCastleGateClearing(placement) {
     && x <= FOREST_CASTLE_GATE_CLEARING.maxX
     && z >= FOREST_CASTLE_GATE_CLEARING.minZ
     && z <= FOREST_CASTLE_GATE_CLEARING.maxZ
+}
+
+function isInForestCastleTreeExclusion(placement) {
+  if (!isTallForestPlacement(placement)) return false
+  const origin = getForestPlacementOrigin(placement)
+  return isInsideCastleTreeExclusion(origin.x + placement.dx, origin.z + placement.dz)
 }
 
 function createForestPlacementsForTypes(types, count, {
@@ -2373,6 +2741,7 @@ function createForestSegmentPlacementsForTypes(types, count, {
 
 function isInsideRandomForestClearing(x, z) {
   if (x * x + z * z <= RANDOM_FOREST_SPAWN_CLEAR_RADIUS * RANDOM_FOREST_SPAWN_CLEAR_RADIUS) return true
+  if (isInsideCastleTreeExclusion(x, z)) return true
 
   const oldChurchDx = x - OLD_CHURCH_RUINS_PLACEMENT.x
   const oldChurchDz = z - OLD_CHURCH_RUINS_PLACEMENT.z
@@ -2395,6 +2764,7 @@ function isInsideRandomForestClearing(x, z) {
     { x: 19, z: -66 },
     { x: -18, z: -2 },
     { x: 22, z: 22 },
+    { x: -386.3, z: -490.7 },
     { x: 104.5, z: -283.5 },
   ]
   for (const fire of campfires) {
@@ -2554,6 +2924,61 @@ function createRiverForestPlacements() {
   ]
 }
 
+function createRiverBankRockPlacements(existingPlacements = []) {
+  const placements = []
+  const occupied = [...existingPlacements]
+
+  for (const spec of buildRiparianChannelSpecs()) {
+    const total = riverPathTotalLength(spec.points)
+    if (total < 1) continue
+    const stationCount = Math.max(2, Math.ceil(total / RIVER_BANK_ROCK_ALONG_SPACING))
+    const run = Math.max(0.35, channelBankRun(spec.cutDepth, spec.slopeDeg))
+
+    for (let s = 0; s <= stationCount; s++) {
+      const t = stationCount === 0 ? 0.5 : s / stationCount
+      const sample = pointAlongPathAtT(spec.points, t)
+      const halfWidth = spec.halfWidthAt(t)
+      const rightX = -sample.dirZ
+      const rightZ = sample.dirX
+
+      for (const side of [-1, 1]) {
+        const seed = RIVER_BANK_ROCK_SEED_BASE + spec.seedBase + s * 1009 + (side > 0 ? 500003 : 0)
+        if (forestPlacementNoise(seed + 1) > RIVER_BANK_ROCK_KEEP_PROB) continue
+
+        const d = halfWidth
+          + THREE.MathUtils.lerp(run * 0.35, run + RIVER_BANK_ROCK_OUTER_PAD, forestPlacementNoise(seed + 2))
+        const along = (forestPlacementNoise(seed + 3) - 0.5) * RIVER_BANK_ROCK_ALONG_SPACING * 0.65
+        const x = sample.x + sample.dirX * along + rightX * side * d
+        const z = sample.z + sample.dirZ * along + rightZ * side * d
+        if (!isInsideOutdoorMountainBounds(x, z, 0)) continue
+        if (isNearGrassCampfire(x, z, GRASS_CAMPFIRE_CLEAR_RADIUS + 2.5)) continue
+        if (isInsideMineCaveClearing(x, z, 5)) continue
+        if (isTooCloseToForestPlacement(occupied, x, z, RIVER_BANK_ROCK_MIN_SPACING)) continue
+
+        const type = FOREST_GROVE_ROCK_TYPES[
+          Math.floor(forestPlacementNoise(seed + 4) * FOREST_GROVE_ROCK_TYPES.length) % FOREST_GROVE_ROCK_TYPES.length
+        ]
+        const scaleNoise = THREE.MathUtils.lerp(0.65, 1.35, forestPlacementNoise(seed + 5))
+        const placement = {
+          file: type.file,
+          origin: { x: 0, z: 0 },
+          dx: Number(x.toFixed(2)),
+          dz: Number(z.toFixed(2)),
+          rotY: Number((forestPlacementNoise(seed + 6) * Math.PI * 2).toFixed(3)),
+          scale: Number((type.scale * scaleNoise).toFixed(3)),
+        }
+        if (type.r && scaleNoise > 1.08) {
+          placement.r = Number((type.r * scaleNoise * FOREST_ROCK_COLLIDER_SCALE * 0.85).toFixed(2))
+        }
+        placements.push(placement)
+        occupied.push(placement)
+      }
+    }
+  }
+
+  return placements
+}
+
 function createNewlandBraidedRiverForestPlacements() {
   const placements = []
 
@@ -2644,6 +3069,7 @@ function createBottomLakeForestPlacements(existingPlacements = []) {
   const centerZ = -275.8
   const radius = 20
   const vegetationCount = 20
+  const shorelineTreeCount = 100
 
   const isClearOfBottomLakeWater = (x, z, minEdge = 2.5) => {
     return NEWLAND_STATIC_LAKES.every((lake) => {
@@ -2652,9 +3078,9 @@ function createBottomLakeForestPlacements(existingPlacements = []) {
     })
   }
 
-  const pushPlacement = (placement, minSpacing) => {
+  const pushPlacement = (placement, minSpacing, minLakeEdge = -4) => {
     if (!isInsideOutdoorMountainBounds(placement.dx, placement.dz, 0)) return false
-    if (!isClearOfBottomLakeWater(placement.dx, placement.dz, -4)) return false
+    if (!isClearOfBottomLakeWater(placement.dx, placement.dz, minLakeEdge)) return false
     if (isTooCloseToForestPlacement(occupied, placement.dx, placement.dz, minSpacing)) return false
     occupied.push(placement)
     placements.push(placement)
@@ -2703,8 +3129,113 @@ function createBottomLakeForestPlacements(existingPlacements = []) {
       scale: Number((type.scale * scaleNoise).toFixed(3)),
     }
     if (type.r) placement.r = Number((type.r * scaleNoise * FOREST_ROCK_COLLIDER_SCALE).toFixed(2))
-    if (pushPlacement(placement, 3.8)) rockCount++
+    if (pushPlacement(placement, 3.8, 1.5)) rockCount++
   }
+
+  let shorelineTrees = 0
+  const shoreCenterAngle = getNewlandStaticLakeShapeAt(BOTTOM_DEPRESSION_LAKE, centerX, centerZ).angle
+  const shoreArc = THREE.MathUtils.degToRad(138)
+  const shoreCos = Math.cos(BOTTOM_DEPRESSION_LAKE.rot)
+  const shoreSin = Math.sin(BOTTOM_DEPRESSION_LAKE.rot)
+  const shoreRadius = (BOTTOM_DEPRESSION_LAKE.rx + BOTTOM_DEPRESSION_LAKE.rz) * 0.5
+
+  for (let attempt = 0; shorelineTrees < shorelineTreeCount && attempt < 900; attempt++) {
+    const seed = 97100 + attempt * 131
+    const sideT = ((attempt * 0.61803398875 + forestPlacementNoise(seed + 1) * 0.16) % 1) * 2 - 1
+    const angle = shoreCenterAngle + sideT * shoreArc * 0.5 + THREE.MathUtils.lerp(-0.035, 0.035, forestPlacementNoise(seed + 2))
+    const boundary = newlandStaticLakeBoundaryScale(BOTTOM_DEPRESSION_LAKE, angle)
+    const edgeOffset = THREE.MathUtils.lerp(-3, 26, Math.pow(forestPlacementNoise(seed + 3), 0.78))
+    const localRadius = shoreRadius * boundary + edgeOffset
+    const lateralJitter = THREE.MathUtils.lerp(-2.4, 2.4, forestPlacementNoise(seed + 4))
+    const localX = Math.cos(angle) * localRadius + Math.cos(angle + Math.PI * 0.5) * lateralJitter
+    const localZ = Math.sin(angle) * localRadius + Math.sin(angle + Math.PI * 0.5) * lateralJitter
+    const x = BOTTOM_DEPRESSION_LAKE.x + localX * shoreCos - localZ * shoreSin
+    const z = BOTTOM_DEPRESSION_LAKE.z + localX * shoreSin + localZ * shoreCos
+    const type = pickModelTreeType(FOREST_GROVE_TREE_TYPES, seed + 12, attempt)
+    const scaleNoise = THREE.MathUtils.lerp(0.84, 1.18, forestPlacementNoise(seed + 5))
+    const placement = {
+      file: type.file,
+      origin: { x: 0, z: 0 },
+      dx: Number(x.toFixed(2)),
+      dz: Number(z.toFixed(2)),
+      rotY: Number((forestPlacementNoise(seed + 6) * Math.PI * 2).toFixed(3)),
+      scale: Number((type.scale * scaleNoise).toFixed(3)),
+      r: Number((type.r * scaleNoise * FOREST_TREE_COLLIDER_SCALE).toFixed(2)),
+    }
+    if (pushPlacement(placement, 4.6, -5)) shorelineTrees++
+  }
+
+  return placements
+}
+
+function createBraidedNorthBasinLakeForestPlacements(existingPlacements = []) {
+  const placements = []
+  const lake = BRAIDED_NORTH_BASIN_LAKE
+  const cos = Math.cos(lake.rot)
+  const sin = Math.sin(lake.rot)
+  const avgRadius = (lake.rx + lake.rz) * 0.5
+
+  const pushPlacement = (placement) => {
+    const x = placement.dx
+    const z = placement.dz
+    if (!isInsideOutdoorMountainBounds(x, z, 0)) return
+    const shape = getNewlandStaticLakeShapeAt(lake, x, z)
+    if (shape.edge < 2 || shape.edge > 44) return
+    placements.push(placement)
+  }
+
+  const addRingPlacements = (types, targetCount, {
+    seedBase,
+    minOffset,
+    maxOffset,
+    treeCollider = false,
+    scaleMin = 0.82,
+    scaleMax = 1.16,
+  }) => {
+    const startCount = placements.length
+    const maxAttempts = targetCount * 10
+    for (let attempt = 0; placements.length - startCount < targetCount && attempt < maxAttempts; attempt++) {
+      const seed = seedBase + attempt * 131
+      const t = (attempt * 0.61803398875 + forestPlacementNoise(seed + 1) * 0.14) % 1
+      const angle = t * Math.PI * 2 + THREE.MathUtils.lerp(-0.07, 0.07, forestPlacementNoise(seed + 2))
+      const boundary = newlandStaticLakeBoundaryScale(lake, angle)
+      const offset = THREE.MathUtils.lerp(minOffset, maxOffset, forestPlacementNoise(seed + 3))
+      const radialScale = 1 + offset / Math.max(1, avgRadius * boundary)
+      const tangentJitter = THREE.MathUtils.lerp(-5.2, 5.2, forestPlacementNoise(seed + 4))
+      const localX = Math.cos(angle) * lake.rx * boundary * radialScale - Math.sin(angle) * tangentJitter
+      const localZ = Math.sin(angle) * lake.rz * boundary * radialScale + Math.cos(angle) * tangentJitter
+      const x = lake.x + localX * cos - localZ * sin
+      const z = lake.z + localX * sin + localZ * cos
+      const type = types[Math.floor(forestPlacementNoise(seed + 5) * types.length) % types.length]
+      const scaleNoise = THREE.MathUtils.lerp(scaleMin, scaleMax, forestPlacementNoise(seed + 6))
+      const placement = {
+        file: type.file,
+        origin: { x: 0, z: 0 },
+        dx: Number(x.toFixed(2)),
+        dz: Number(z.toFixed(2)),
+        rotY: Number((forestPlacementNoise(seed + 7) * Math.PI * 2).toFixed(3)),
+        scale: Number((type.scale * scaleNoise).toFixed(3)),
+      }
+      if (treeCollider && type.r) placement.r = Number((type.r * scaleNoise * FOREST_TREE_COLLIDER_SCALE).toFixed(2))
+      pushPlacement(placement)
+    }
+  }
+
+  addRingPlacements(FOREST_GROVE_TREE_TYPES, 42, {
+    seedBase: 98200,
+    minOffset: 6,
+    maxOffset: 42,
+    treeCollider: true,
+    scaleMin: 0.84,
+    scaleMax: 1.18,
+  })
+  addRingPlacements(FOREST_GROVE_SHRUB_TYPES, 26, {
+    seedBase: 101200,
+    minOffset: 4,
+    maxOffset: 30,
+    scaleMin: 0.78,
+    scaleMax: 1.12,
+  })
 
   return placements
 }
@@ -2883,7 +3414,7 @@ function createForestGrovePlacements() {
   const riverForestPlacements = createRiverForestPlacements()
   const newlandBraidedRiverForestPlacements = createNewlandBraidedRiverForestPlacements()
 
-  const initialExistingPlacements = [
+  const initialBasePlacements = [
     ...castleLanePlacements,
     ...secondGrovePlacements,
     ...thirdGrovePlacements,
@@ -2893,10 +3424,20 @@ function createForestGrovePlacements() {
     ...riverForestPlacements,
     ...newlandBraidedRiverForestPlacements,
   ]
-  const bottomLakeForestPlacements = createBottomLakeForestPlacements(initialExistingPlacements)
-  const existingPlacements = [
-    ...initialExistingPlacements,
+  const bottomLakeForestPlacements = createBottomLakeForestPlacements(initialBasePlacements)
+  const braidedNorthBasinLakeForestPlacements = createBraidedNorthBasinLakeForestPlacements([
+    ...initialBasePlacements,
     ...bottomLakeForestPlacements,
+  ])
+  const basePlacements = [
+    ...initialBasePlacements,
+    ...bottomLakeForestPlacements,
+    ...braidedNorthBasinLakeForestPlacements,
+  ]
+  const riverBankRockPlacements = createRiverBankRockPlacements(basePlacements)
+  const existingPlacements = [
+    ...basePlacements,
+    ...riverBankRockPlacements,
   ]
   const randomTreePlacements = createRandomForestTreePlacements(existingPlacements)
 
@@ -2909,6 +3450,7 @@ function createForestGrovePlacements() {
       return isInsideOutdoorMountainBounds(origin.x + placement.dx, origin.z + placement.dz, 0)
     })
     .filter((placement) => !isInForestCastleGateClearing(placement))
+    .filter((placement) => !isInForestCastleTreeExclusion(placement))
 }
 
 function loadRockeryTexture(fileName, { color = false } = {}) {
@@ -3815,6 +4357,7 @@ function loadSpawnGrass(scene) {
   _spawnGrassInstancedMeshes = []
   _grassLodMeshes = []
   _meadowGrassRuntime = null
+  _farGrassImpostorRuntime = null
   _meadowGrassQueueProfile = createMeadowGrassWorkProfile()
   Promise.all(SPAWN_GRASS_MODEL_VARIANTS.map((variant, variantIndex) => (
     loadGLTF(variant.url).then((gltf) => ({ variant, variantIndex, gltf }))
@@ -4204,6 +4747,47 @@ function initMeadowGrass(scene) {
       playerSpeed: 0,
     }
   }).catch((error) => console.warn('Global model grass asset failed', error))
+}
+
+function initFarGrassImpostors(scene) {
+  if (!scene) return
+  const variants = [
+    {
+      name: 'fresh',
+      base: new THREE.Color(0.105, 0.155, 0.070),
+      tip: new THREE.Color(0.255, 0.335, 0.135),
+    },
+    {
+      name: 'dry',
+      base: new THREE.Color(0.170, 0.145, 0.070),
+      tip: new THREE.Color(0.355, 0.315, 0.140),
+    },
+    {
+      name: 'moss',
+      base: new THREE.Color(0.075, 0.135, 0.085),
+      tip: new THREE.Color(0.170, 0.270, 0.125),
+    },
+  ]
+
+  const meshes = variants.map((variant) => {
+    const geometry = createFarGrassImpostorGeometry(variant)
+    const mesh = new THREE.InstancedMesh(geometry, createFarGrassImpostorMaterial(), FAR_GRASS_IMPOSTOR_CAPACITY)
+    mesh.name = `far_grass_impostor_${variant.name}`
+    mesh.castShadow = false
+    mesh.receiveShadow = false
+    mesh.frustumCulled = false
+    mesh.count = 0
+    mesh.visible = false
+    scene.add(mesh)
+    return mesh
+  })
+
+  _farGrassImpostorRuntime = {
+    meshes,
+    cache: new Map(),
+    scanJob: null,
+    lastScanCenter: null,
+  }
 }
 
 // ════════════════════════════════════════════════════
@@ -4828,6 +5412,8 @@ const MAIN_RIVER_CHANNEL_SLOPE_DEG = 46 // 主河岸坡角；调小更宽缓，�
 const MAIN_RIVER_WATER_DEPTH = 0.75 // 主河水深；调大水面更高，调小更浅。
 const BRANCH_RIVER_WATER_DEPTH = 0.45 // 支流水深；影响所有 RIVER_BRANCHES 的水面高度。
 const GULLY_STREAM_WATER_DEPTH = 0.35 // wet 冲沟水深；调大细流更明显，也更容易淹没沟底。
+// 依赖 buildRiparianChannelSpecs() 里的主河切深/坡度常量，必须在这些常量之后初始化。
+const FOREST_GROVE_PLACEMENTS = createForestGrovePlacements()
 
 function channelBankRun(cutDepth, slopeDeg = RIVER_CHANNEL_MIN_SLOPE_DEG) {
   return cutDepth / Math.tan(THREE.MathUtils.degToRad(slopeDeg))
@@ -4944,6 +5530,42 @@ function getNewlandBraidedSampleAt(channel, x, z) {
   }
 }
 
+const NEWLAND_BRAIDED_WATER_BLEND_EDGE = 7.0
+const NEWLAND_BRAIDED_BED_BLEND_EDGE = 24
+const NEWLAND_BRAIDED_CORE_EXTRA_DROP = 1.15
+const NEWLAND_BRAIDED_BED_SAFETY_DEPTH = 0.42
+const NEWLAND_BRAIDED_SHALLOW_EDGE_DEPTH = 0.22
+const NEWLAND_BRAIDED_MIN_BANK_RUN = 5.25
+const NEWLAND_BRAIDED_CORE_EDGE_RUN = 3.4
+const NEWLAND_BRAIDED_WATER_EDGE_BED_RUN = 6.0
+const NEWLAND_BRAIDED_BANK_APRON_WIDTH = 13
+const NEWLAND_BRAIDED_GRASS_CLEAR_EDGE = 1.8
+const NEWLAND_BRAIDED_WATER_MASK_EDGE = 2.8
+const NEWLAND_BRAIDED_WATER_TRIANGLE_MASK = 0.055
+const DRY_CUT_WET_CORE_EDGE = 1.25
+const DRY_CUT_WET_FADE_EDGE = 10.0
+const DRY_CUT_STATIC_LAKE_FADE_EDGE = 10.0
+const NEWLAND_BRAIDED_RESTORE_BASINS = []
+// 旧 `(-391.3, -346.2)` restore basin 已升级为 `BRAIDED_NORTH_BASIN_LAKE`，避免 braided grid 和 lake 水面互相切割。
+
+function getNewlandBraidedCandidateSamplesAt(x, z, maxEdge = NEWLAND_BRAIDED_WATER_BLEND_EDGE) {
+  const candidates = []
+  for (const { channel, bounds } of NEWLAND_BRAIDED_BOUNDS) {
+    if (!isInsideBounds(bounds, x, z)) continue
+    const sample = getNewlandBraidedSampleAt(channel, x, z)
+    const edge = sample.distance - sample.halfWidth
+    if (edge > maxEdge) continue
+    const rawWeight = 1 - THREE.MathUtils.smoothstep(edge, -1.4, maxEdge)
+    candidates.push({
+      ...sample,
+      edge,
+      blendWeight: rawWeight * rawWeight,
+    })
+  }
+  candidates.sort((a, b) => a.edge - b.edge)
+  return candidates
+}
+
 function getBestNewlandBraidedSampleAt(x, z) {
   let best = null
   for (const { channel, bounds } of NEWLAND_BRAIDED_BOUNDS) {
@@ -4953,6 +5575,190 @@ function getBestNewlandBraidedSampleAt(x, z) {
     if (!best || edge < best.edge) best = { ...sample, edge }
   }
   return best
+}
+
+function getNewlandBraidedRestoreBasinAt(x, z) {
+  let best = null
+  for (const basin of NEWLAND_BRAIDED_RESTORE_BASINS) {
+    const cos = Math.cos(basin.rot)
+    const sin = Math.sin(basin.rot)
+    const dx = x - basin.x
+    const dz = z - basin.z
+    const lx = dx * cos + dz * sin
+    const lz = -dx * sin + dz * cos
+    const radial = Math.hypot(lx / basin.rx, lz / basin.rz)
+    if (radial > basin.edge + 0.18) continue
+    const weight = 1 - THREE.MathUtils.smoothstep(radial, basin.core, basin.edge)
+    const waterMask = 1 - THREE.MathUtils.smoothstep(radial, 0.88, basin.edge)
+    const bedMask = 1 - THREE.MathUtils.smoothstep(radial, basin.core, basin.edge + 0.08)
+    if (weight <= 0 && waterMask <= 0 && bedMask <= 0) continue
+    if (!best || weight > best.weight) best = { basin, radial, weight, waterMask, bedMask }
+  }
+  return best
+}
+
+function sampleNewlandBraidedRestoreBasinField(x, z, {
+  getTerrainHeight = null,
+  sampleBaseHeight = null,
+  sourceHeight = 0,
+} = {}) {
+  const hit = getNewlandBraidedRestoreBasinAt(x, z)
+  if (!hit) return null
+  const { basin, radial, weight, waterMask, bedMask } = hit
+  const anchorSample = getBestNewlandBraidedSampleAt(basin.x, basin.z)
+  const centerHeight = sampleBaseHeight
+    ? newlandBraidedPreCarveHeightAt(basin.x, basin.z, sampleBaseHeight)
+    : sourceHeight
+  const waterY = getTerrainHeight && anchorSample
+    ? getTerrainHeight(anchorSample.x, anchorSample.z) + basin.waterDepth
+    : centerHeight - basin.cutDepth + basin.waterDepth
+  const bedY = waterY - basin.waterDepth - 0.18
+  const groundY = getTerrainHeight ? getTerrainHeight(x, z) : sourceHeight
+  const submerge = waterY - groundY
+  const sample = getBestNewlandBraidedSampleAt(x, z) ?? anchorSample
+  const shoreBand = (1 - THREE.MathUtils.smoothstep(Math.abs(radial - 0.92), 0.02, 0.18)) * waterMask
+  return {
+    sample,
+    edge: (radial - 1) * Math.max(basin.rx, basin.rz),
+    waterY,
+    bedY,
+    waterDepth: basin.waterDepth,
+    waterMask,
+    rawWaterMask: waterMask,
+    bedMask,
+    coreMask: 1 - THREE.MathUtils.smoothstep(radial, 0.0, basin.core),
+    apronMask: 1 - THREE.MathUtils.smoothstep(radial, basin.core, basin.edge + 0.12),
+    submerge,
+    shore: shoreBand,
+    flowSpeed: sample?.flowSpeed ?? 0.32,
+    whitewater: shoreBand * 0.16,
+    confluence: 1,
+    restoreWeight: weight,
+  }
+}
+
+function sampleNewlandBraidedField(x, z, {
+  getTerrainHeight = null,
+  sampleBaseHeight = null,
+  sourceHeight = 0,
+  maxEdge = NEWLAND_BRAIDED_BED_BLEND_EDGE,
+} = {}) {
+  const restore = sampleNewlandBraidedRestoreBasinField(x, z, { getTerrainHeight, sampleBaseHeight, sourceHeight })
+  const candidates = getNewlandBraidedCandidateSamplesAt(x, z, maxEdge)
+  if (!candidates.length) return restore
+
+  let waterMask = 0
+  let bedMask = 0
+  let coreMask = 0
+  let apronMask = 0
+  let weightSum = 0
+  let waterYSum = 0
+  let terrainSurfaceYSum = 0
+  let waterDepthSum = 0
+  let flowSpeedSum = 0
+  let whitewaterSum = 0
+  const bedNoise = Math.sin(x * 0.17 + z * 0.11) * 0.10 + Math.sin(x * 0.049 - z * 0.083) * 0.07
+
+  for (const sample of candidates) {
+    const channel = sample.channel
+    const edge = sample.edge
+    const run = Math.max(NEWLAND_BRAIDED_MIN_BANK_RUN, channelBankRun(channel.cutDepth, NEWLAND_BRAIDED_SLOPE_DEG))
+    const outerEdge = run + NEWLAND_BRAIDED_BANK_APRON_WIDTH
+    if (edge > outerEdge) continue
+
+    const coreInnerRun = Math.max(1.35, sample.halfWidth * 0.38)
+    const core = 1 - THREE.MathUtils.smoothstep(edge, -coreInnerRun, NEWLAND_BRAIDED_CORE_EDGE_RUN)
+    const shallow = 1 - THREE.MathUtils.smoothstep(edge, -0.6, NEWLAND_BRAIDED_WATER_EDGE_BED_RUN)
+    const water = 1 - THREE.MathUtils.smoothstep(edge, -0.35, NEWLAND_BRAIDED_WATER_MASK_EDGE)
+    const apron = 1 - THREE.MathUtils.smoothstep(edge, NEWLAND_BRAIDED_WATER_EDGE_BED_RUN, outerEdge)
+    const influence = Math.max(sample.blendWeight, shallow * 0.82, core)
+    if (influence <= 0) continue
+
+    const centerHeight = sampleBaseHeight
+      ? newlandBraidedPreCarveHeightAt(sample.x, sample.z, sampleBaseHeight)
+      : sourceHeight
+    const surfaceY = getTerrainHeight
+      ? getTerrainHeight(sample.x, sample.z) + sample.waterDepth
+      : centerHeight - channel.cutDepth + sample.waterDepth + bedNoise * 0.18
+    const w = Math.max(0.0001, influence * (0.55 + core * 0.85 + shallow * 0.35))
+
+    waterMask = 1 - (1 - waterMask) * (1 - water)
+    bedMask = 1 - (1 - bedMask) * (1 - Math.max(core, shallow))
+    coreMask = 1 - (1 - coreMask) * (1 - core)
+    apronMask = 1 - (1 - apronMask) * (1 - apron)
+    waterYSum += surfaceY * w
+    terrainSurfaceYSum += (centerHeight - channel.cutDepth + sample.waterDepth + bedNoise * 0.18) * w
+    waterDepthSum += sample.waterDepth * w
+    flowSpeedSum += sample.flowSpeed * w
+    whitewaterSum += sample.whitewater * w
+    weightSum += w
+  }
+
+  if (weightSum <= 0) return null
+
+  let waterY = waterYSum / weightSum
+  const terrainSurfaceY = terrainSurfaceYSum / weightSum
+  let waterDepth = waterDepthSum / weightSum
+  const coreBed = terrainSurfaceY - waterDepth - NEWLAND_BRAIDED_BED_SAFETY_DEPTH - coreMask * NEWLAND_BRAIDED_CORE_EXTRA_DROP
+  const shallowBed = terrainSurfaceY - NEWLAND_BRAIDED_SHALLOW_EDGE_DEPTH
+  let bedY = THREE.MathUtils.lerp(shallowBed, coreBed, coreMask)
+  let dominant = candidates[0]
+  const groundY = getTerrainHeight ? getTerrainHeight(x, z) : sourceHeight
+  const staticLakeCut = getNewlandStaticLakeInteriorCutAt(x, z)
+  let visibleWaterMask = waterMask * (1 - staticLakeCut)
+  let submerge = waterY - groundY
+  let depthMask = THREE.MathUtils.smoothstep(submerge, -0.08, 0.38)
+  let edge = dominant.edge
+  let shore = (1 - THREE.MathUtils.smoothstep(submerge, 0.36, 1.45)) * visibleWaterMask * depthMask
+  let flowSpeed = flowSpeedSum / weightSum
+  let whitewater = whitewaterSum / weightSum
+  let confluence = newlandBraidedOverlapWeightAt(x, z, dominant.channelId)
+
+  if (restore) {
+    const w = THREE.MathUtils.clamp(restore.restoreWeight, 0, 1)
+    waterY = THREE.MathUtils.lerp(waterY, restore.waterY, w)
+    bedY = THREE.MathUtils.lerp(bedY, restore.bedY, w)
+    waterDepth = THREE.MathUtils.lerp(waterDepth, restore.waterDepth, w)
+    visibleWaterMask = Math.max(visibleWaterMask * (1 - w * 0.9), restore.waterMask)
+    bedMask = Math.max(bedMask * (1 - w), restore.bedMask)
+    coreMask = Math.max(coreMask * (1 - w), restore.coreMask)
+    apronMask = Math.max(apronMask, restore.apronMask)
+    submerge = waterY - groundY
+    depthMask = THREE.MathUtils.smoothstep(submerge, -0.08, 0.38)
+    edge = Math.min(edge, restore.edge)
+    shore = THREE.MathUtils.lerp(shore, restore.shore * depthMask, w)
+    flowSpeed = THREE.MathUtils.lerp(flowSpeed, restore.flowSpeed, w)
+    whitewater = THREE.MathUtils.lerp(whitewater, restore.whitewater, w)
+    confluence = Math.max(confluence, restore.confluence * w)
+    dominant = restore.sample ?? dominant
+  }
+
+  return {
+    sample: dominant,
+    edge,
+    waterY,
+    bedY,
+    waterDepth,
+    waterMask: visibleWaterMask * depthMask,
+    rawWaterMask: visibleWaterMask,
+    bedMask,
+    coreMask,
+    apronMask,
+    submerge,
+    shore,
+    flowSpeed,
+    whitewater,
+    confluence,
+  }
+}
+
+function getNewlandBraidedWaterSurfaceAt(x, z, getTerrainHeight) {
+  return sampleNewlandBraidedField(x, z, { getTerrainHeight })?.waterY ?? null
+}
+
+function isInsideNewlandBraidedWetBed(x, z, edgePad = NEWLAND_BRAIDED_GRASS_CLEAR_EDGE) {
+  const field = sampleNewlandBraidedField(x, z)
+  return Boolean(field && field.edge <= edgePad && field.bedMask > 0.12)
 }
 
 function globalWetGullyHalfWidthAt(gully, t) {
@@ -5231,6 +6037,8 @@ function lowlandErosionMicroNoise(x, z) {
 
 function applyLowlandMicroErosionHeight(x, z, height) {
   if (isLowlandErosionProtected(x, z, height)) return height
+  const dryKeep = dryCutWaterExclusionKeepAt(x, z)
+  if (dryKeep <= 0) return height
   const lowlandMask = (1 - THREE.MathUtils.smoothstep(height, 24, 64))
     * THREE.MathUtils.smoothstep(height, MOUNTAIN_FALL_FLOOR_Y + 16, MOUNTAIN_FALL_FLOOR_Y + 48)
   if (lowlandMask <= 0) return height
@@ -5242,7 +6050,7 @@ function applyLowlandMicroErosionHeight(x, z, height) {
   const swale = THREE.MathUtils.smoothstep(-broad, 0.08, 0.78)
   const shoulder = THREE.MathUtils.smoothstep(rill, 0.36, 0.82) * (0.15 + Math.max(0, broad) * 0.18)
   const cut = rill * (0.42 + swale * 0.62) + swale * 0.36
-  return height - (cut - shoulder) * lowlandMask
+  return height - (cut - shoulder) * lowlandMask * dryKeep
 }
 
 function globalDendriticLineDistance(x, z, scale, angle, phase) {
@@ -5296,7 +6104,11 @@ function globalDendriticErosionSample(x, z, height) {
 function applyGlobalDendriticErosionHeight(x, z, height) {
   const erosion = globalDendriticErosionSample(x, z, height)
   if (erosion.cut <= 0 && erosion.shoulder <= 0) return height
-  return height - erosion.cut + erosion.shoulder
+  const remotePlayableDamp = 1 - remoteTerrainClipFixMask(x, z) * 0.92
+  const dryKeep = dryCutWaterExclusionKeepAt(x, z)
+  if (dryKeep <= 0) return height
+  const strength = remotePlayableDamp * dryKeep
+  return height - erosion.cut * strength + erosion.shoulder * strength
 }
 
 function applyGlobalWetGullyHeight(x, z, height) {
@@ -5341,6 +6153,69 @@ function isDendriticGullyNearWater(x, z) {
   const channel = sampleChannelNetwork(x, z)
   if (channel && channel.edge < 12) return true
   return NEWLAND_STATIC_LAKES.some(lake => getNewlandStaticLakeShapeAt(lake, x, z).edge < 12)
+}
+
+function dryCutKeepFromWetEdge(edge, fadeEdge = DRY_CUT_WET_FADE_EDGE, coreEdge = DRY_CUT_WET_CORE_EDGE) {
+  return THREE.MathUtils.smoothstep(edge, coreEdge, fadeEdge)
+}
+
+function getWetWaterProtectionAt(x, z) {
+  let keep = 1
+  let source = null
+  let edge = Infinity
+  const consider = (candidateKeep, candidateSource, candidateEdge) => {
+    if (candidateKeep >= keep) return
+    keep = THREE.MathUtils.clamp(candidateKeep, 0, 1)
+    source = candidateSource
+    edge = candidateEdge
+  }
+
+  const channel = sampleChannelNetwork(x, z)
+  if (channel) {
+    consider(dryCutKeepFromWetEdge(channel.edge), 'channel_network', channel.edge)
+  }
+
+  const braided = getBestNewlandBraidedSampleAt(x, z)
+  if (braided) {
+    const braidedEdge = braided.distance - braided.halfWidth
+    consider(dryCutKeepFromWetEdge(braidedEdge), `newland_braided:${braided.channelId}`, braidedEdge)
+  }
+
+  const restore = getNewlandBraidedRestoreBasinAt(x, z)
+  if (restore) {
+    const restoreEdge = (restore.radial - 1) * Math.max(restore.basin.rx, restore.basin.rz)
+    consider(dryCutKeepFromWetEdge(restoreEdge), 'newland_braided_restore_basin', restoreEdge)
+  }
+
+  for (const lake of NEWLAND_STATIC_LAKES) {
+    const shape = getNewlandStaticLakeShapeAt(lake, x, z)
+    if (shape.edge > DRY_CUT_STATIC_LAKE_FADE_EDGE) continue
+    consider(THREE.MathUtils.smoothstep(shape.edge, DRY_CUT_WET_CORE_EDGE, DRY_CUT_STATIC_LAKE_FADE_EDGE), `static_lake:${lake.id}`, shape.edge)
+  }
+
+  const globalWet = getBestGlobalWetGullySampleAt(x, z)
+  if (globalWet) {
+    const globalWetEdge = globalWet.distance - globalWet.halfWidth
+    consider(dryCutKeepFromWetEdge(globalWetEdge), `global_wet_gully:${globalWet.gullyId}`, globalWetEdge)
+  }
+
+  if (isInsideBounds(NEWLAND_MOUNTAIN_OUTLET_BOUNDS, x, z)) {
+    const outlet = getNewlandMountainOutletSampleAt(x, z)
+    const outletEdge = outlet.distance - outlet.halfWidth
+    consider(dryCutKeepFromWetEdge(outletEdge), NEWLAND_MOUNTAIN_OUTLET.id, outletEdge)
+  }
+
+  return { keep, source, edge }
+}
+
+function dryCutWaterExclusionKeepAt(x, z) {
+  return getWetWaterProtectionAt(x, z).keep
+}
+
+function blendDryCutHeight(originalHeight, dryCutHeight, dryKeep) {
+  if (dryKeep <= 0) return originalHeight
+  if (dryKeep >= 1) return dryCutHeight
+  return THREE.MathUtils.lerp(originalHeight, dryCutHeight, dryKeep)
 }
 
 function newlandMountainOutletHalfWidthAt(t) {
@@ -5512,6 +6387,8 @@ function applyDendriticGullyHeight(x, z, height) {
   const sample = getBestDendriticGullySampleAt(x, z)
   if (!sample || sample.distance > sample.influence) return height
   if (isDendriticGullyNearWater(x, z)) return height
+  const dryKeep = dryCutWaterExclusionKeepAt(x, z)
+  if (dryKeep <= 0) return height
   const floorMask = 1 - THREE.MathUtils.smoothstep(sample.distance, sample.halfWidth * 0.55, sample.halfWidth + 0.5)
   const apronMask = 1 - THREE.MathUtils.smoothstep(sample.distance, sample.halfWidth + 10, sample.influence)
   const bankNoise = Math.sin(x * 0.045 + z * 0.061) * 0.30 + Math.sin(x * 0.019 - z * 0.073) * 0.18
@@ -5524,12 +6401,14 @@ function applyDendriticGullyHeight(x, z, height) {
     slopeDeg: 42,
     bedTarget: floor,
   })
-  return Math.min(height, shaped, carved)
+  return blendDryCutHeight(height, Math.min(height, shaped, carved), dryKeep)
 }
 
 function applyEastRimDryRiverHeight(x, z, height) {
   const sample = getBestEastRimDryRiverSampleAt(x, z)
   if (!sample || sample.distance > sample.influence) return height
+  const dryKeep = dryCutWaterExclusionKeepAt(x, z)
+  if (dryKeep <= 0) return height
   const floorMask = 1 - THREE.MathUtils.smoothstep(sample.distance, sample.halfWidth * 0.58, sample.halfWidth + 0.85)
   const apronMask = 1 - THREE.MathUtils.smoothstep(sample.distance, sample.halfWidth + 18, sample.influence)
   const bankNoise = Math.sin(x * 0.034 + z * 0.047) * 0.46 + Math.sin(x * 0.013 - z * 0.059) * 0.24
@@ -5542,13 +6421,15 @@ function applyEastRimDryRiverHeight(x, z, height) {
     slopeDeg: sample.river.tier === 'main' ? 27 : 34,
     bedTarget: floor,
   })
-  return Math.min(height, shaped, carved)
+  return blendDryCutHeight(height, Math.min(height, shaped, carved), dryKeep)
 }
 
 function applyLowlandErosionGullyHeight(x, z, height) {
   const sample = getBestLowlandErosionGullySampleAt(x, z)
   if (!sample || sample.distance > sample.influence) return height
   if (isLowlandErosionProtected(x, z, height)) return height
+  const dryKeep = dryCutWaterExclusionKeepAt(x, z)
+  if (dryKeep <= 0) return height
 
   const lowlandMask = 1 - THREE.MathUtils.smoothstep(height, 34, 58)
   const coreMask = 1 - THREE.MathUtils.smoothstep(sample.distance, sample.halfWidth * 0.48, sample.halfWidth + 0.6)
@@ -5570,28 +6451,26 @@ function applyLowlandErosionGullyHeight(x, z, height) {
   target += shoulderMask * (0.18 + Math.max(0, meanderNoise) * 0.16)
 
   const blend = Math.max(coreMask, bankMask * 0.9, apronMask * 0.62) * lowlandMask
-  return Math.min(height, THREE.MathUtils.lerp(height, target, blend))
+  return blendDryCutHeight(height, Math.min(height, THREE.MathUtils.lerp(height, target, blend)), dryKeep)
 }
 
-function applyNewlandBraidedRiverHeight(x, z, height) {
-  let result = height
-  for (const { channel, bounds } of NEWLAND_BRAIDED_BOUNDS) {
-    if (!isInsideBounds(bounds, x, z)) continue
-    const sample = getNewlandBraidedSampleAt(channel, x, z)
-    const run = Math.max(0.35, channelBankRun(channel.cutDepth, NEWLAND_BRAIDED_SLOPE_DEG))
-    const apronWidth = 9
-    if (sample.distance > sample.halfWidth + run + apronWidth) continue
-    const bedNoise = Math.sin(x * 0.17 + z * 0.11) * 0.10 + Math.sin(x * 0.049 - z * 0.083) * 0.07
-    const bedTarget = height - channel.cutDepth + bedNoise
-    const carved = applySteepChannelCarve(height, sample.distance, sample.halfWidth, {
-      cutDepth: channel.cutDepth,
-      slopeDeg: NEWLAND_BRAIDED_SLOPE_DEG,
-      bedTarget,
-    })
-    const apron = 1 - THREE.MathUtils.smoothstep(sample.distance, sample.halfWidth + run, sample.halfWidth + run + apronWidth)
-    result = Math.min(result, carved, height - apron * 0.42)
-  }
-  return result
+function newlandBraidedPreCarveHeightAt(x, z, sampleBaseHeight) {
+  let h = sampleBaseHeight ? sampleBaseHeight(x, z) : 0
+  h = applyLargeWorldHeight(x, z, h)
+  h = applyExtendedRegionHeight(x, z, h)
+  h = applyReferenceHeightPatch(x, z, h)
+  h = applyEastRimMegaslopeHeight(x, z, h)
+  h = applyEastRimDryRiverHeight(x, z, h)
+  return h
+}
+
+function applyNewlandBraidedRiverHeight(x, z, height, sampleBaseHeight) {
+  const field = sampleNewlandBraidedField(x, z, { sampleBaseHeight, sourceHeight: height })
+  if (!field) return height
+  const wetApron = height - field.apronMask * 0.12
+  const bedBlend = Math.max(field.bedMask, field.coreMask)
+  const sharedBed = THREE.MathUtils.lerp(wetApron, field.bedY, bedBlend)
+  return Math.min(height, sharedBed)
 }
 
 function applyNewlandMountainOutletHeight(x, z, height) {
@@ -5734,6 +6613,7 @@ function huangshanNewlandRidgeLift(x, z, crag) {
 const REFERENCE_HEIGHT_PATCH_CENTER = { x: -647, z: -650 }
 const REFERENCE_HEIGHT_PATCH_RADIUS = 560
 const REFERENCE_HEIGHT_PATCH_FADE_RADIUS = 680
+const REMOTE_TERRAIN_CLIP_FIX = { x: -448.9, z: -474.9, radius: 18, fade: 42 }
 
 function referencePatchSegmentSample(x, z, ax, az, bx, bz) {
   const vx = bx - ax
@@ -5764,6 +6644,11 @@ function referencePatchGullyCut(x, z, ax, az, bx, bz, width, cut) {
   return along * (channel + apron) * cut
 }
 
+function remoteTerrainClipFixMask(x, z) {
+  const d = Math.hypot(x - REMOTE_TERRAIN_CLIP_FIX.x, z - REMOTE_TERRAIN_CLIP_FIX.z)
+  return 1 - THREE.MathUtils.smoothstep(d, REMOTE_TERRAIN_CLIP_FIX.radius, REMOTE_TERRAIN_CLIP_FIX.fade)
+}
+
 function applyReferenceHeightPatch(x, z, height) {
   const dx = x - REFERENCE_HEIGHT_PATCH_CENTER.x
   const dz = z - REFERENCE_HEIGHT_PATCH_CENTER.z
@@ -5789,6 +6674,7 @@ function applyReferenceHeightPatch(x, z, height) {
   cut += referencePatchGullyCut(x, z, -620, -675, -305, -735, 22, 10)
   cut += referencePatchGullyCut(x, z, -760, -660, -1010, -760, 18, 8)
   cut += referencePatchGullyCut(x, z, -555, -620, -355, -520, 17, 7)
+  const dryKeep = dryCutWaterExclusionKeepAt(x, z)
 
   const ribbing = Math.max(
     0,
@@ -5797,8 +6683,10 @@ function applyReferenceHeightPatch(x, z, height) {
   )
   const fineCut = THREE.MathUtils.smoothstep(ribbing, 0.86, 0.985) * broad * (1 - core * 0.45) * 2.6
   const brokenCrest = (crag - 0.45) * 7.0 * Math.pow(Math.max(0, broad), 0.9)
+  const clipFix = remoteTerrainClipFixMask(x, z)
+  const remoteHighFrequencyDamp = 1 - clipFix * 0.86
 
-  return height + (lift + brokenCrest - cut - fineCut) * fade
+  return height + (lift + brokenCrest * remoteHighFrequencyDamp - cut * dryKeep - fineCut * (1 - clipFix * 0.98) * dryKeep) * fade
 }
 
 // 新区（−X/−Z 外扩）完整地形：近区连绵丘陵 → 中景矮山 → 外缘连续雪脊（内缓外陡，比着参考图）。
@@ -6123,6 +7011,11 @@ function confluencePoolWeightAt(x, z) {
   return { weight, pool }
 }
 
+function confluencePoolStripCutAt(x, z) {
+  const { weight } = confluencePoolWeightAt(x, z)
+  return THREE.MathUtils.smoothstep(weight, 0.46, 0.84)
+}
+
 function sampleChannelNetwork(x, z) {
   let best = null
   const consider = (s, depth) => {
@@ -6292,6 +7185,12 @@ function applyChannelSmoothGrade(x, z, height, sampleBaseHeight) {
     out = Math.min(out, target)
   }
   return out
+}
+
+function applyNewlandBraidedRestoreBasinHeight(x, z, height, sampleBaseHeight) {
+  const restore = sampleNewlandBraidedRestoreBasinField(x, z, { sampleBaseHeight, sourceHeight: height })
+  if (!restore) return height
+  return THREE.MathUtils.lerp(height, restore.bedY, restore.bedMask)
 }
 
 function createRockeryRidgeNetworkGeometry(ridges) {
@@ -7146,8 +8045,8 @@ ${TERRAIN_LOWLAND_EROSION_GULLY_SAMPLE_GLSL}
       float snowMask = clamp(max(max(max(settledSnow, streakSnow), summitSnow), glacierSnow), 0.0, 1.0);
       // ── 雪色：亮白基底 + 细颗粒微光，陡面/阴影冷蓝，起伏轻微明暗 ──
       float snowGrain = terrainNoiseTP(1.1, tpW);
-      vec3 snowColor = vec3(0.95, 0.97, 0.99) * (0.97 + snowGrain * 0.05);
-      snowColor = mix(snowColor, vec3(0.68, 0.77, 0.90), slopeMask * 0.44);                   // 冷蓝阴影面（坡面更冷暗，出体积）
+      vec3 snowColor = vec3(0.92, 0.95, 0.99) * (0.96 + snowGrain * 0.045);
+      snowColor = mix(snowColor, vec3(0.58, 0.68, 0.84), slopeMask * 0.48);                   // 冷蓝阴影面（坡面更冷暗，出体积）
       snowColor *= 0.95 + snowPatch * 0.06;
       terrainColor = mix(terrainColor, snowColor, snowMask);
       terrainColor *= 0.93 + terrainNoiseTP(1.3, tpW) * 0.10;
@@ -7420,29 +8319,33 @@ function createDistantTerrainProxyMaterial(texLoader) {
         0.24
       ) * vec3(0.86, 0.92, 0.98);
       vec3 coldRock = mix(vec3(0.40, 0.43, 0.45), proxyRockTex, alpine * 0.88);
-      coldRock = mix(coldRock, vec3(0.64, 0.66, 0.67), broad * 0.18);
+      coldRock = mix(coldRock, vec3(0.58, 0.60, 0.62), broad * 0.12);
       // 陡岩更暗更冷，强化裸岩与雪的明度对比
-      coldRock = mix(coldRock, vec3(0.26, 0.31, 0.36), smoothstep(0.30, 0.82, slope) * 0.55);
-      coldRock *= vec3(0.84, 0.92, 1.0) * (0.92 + fine * 0.10);
+      coldRock = mix(coldRock, vec3(0.22, 0.27, 0.32), smoothstep(0.26, 0.76, slope) * 0.68);
+      coldRock *= vec3(0.80, 0.90, 1.0) * (0.88 + fine * 0.11);
       vec3 baseMountain = mix(lowGround, coldRock, alpine);
       // 大尺度伪 AO：山谷/背阴处压暗，增加体积层次
-      baseMountain *= 0.82 + broad * 0.18;
+      baseMountain *= 0.76 + broad * 0.18;
       vec2 proxyGlobalGully = proxyGlobalDendriticMask(vProxyWorldPos);
       vec3 proxyGullySoil = vec3(0.15, 0.13, 0.095) * (0.82 + fine * 0.22);
       vec3 proxyGullyGravel = vec3(0.29, 0.30, 0.28) * (0.82 + broad * 0.20);
       baseMountain = mix(baseMountain, proxyGullyGravel, proxyGlobalGully.y * 0.34);
       baseMountain = mix(baseMountain, proxyGullySoil, proxyGlobalGully.x * 0.68);
       // 平缓处积雪
-      float settledSnow = smoothstep(56.0, 120.0, vProxyWorldPos.y) * (1.0 - smoothstep(0.12, 0.48, slope));
+      float settledSnow = smoothstep(64.0, 132.0, vProxyWorldPos.y) * (1.0 - smoothstep(0.10, 0.42, slope));
       // 雪沟 streak：顺坡而下的纵向雪带，陡面被裸岩切断
       float streakBreak = proxyNoise((vProxyWorldPos.xz + vec2(vProxyWorldPos.y * 0.36, -vProxyWorldPos.y * 0.24)) * 0.072 + vec2(4.8, 11.6));
       float streakMask = smoothstep(0.50, 0.84, broad * 0.36 + streakN * 0.30 + fine * 0.16 + streakBreak * 0.30);
-      float streakSnow = smoothstep(78.0, 150.0, vProxyWorldPos.y)
+      float streakSnow = smoothstep(88.0, 162.0, vProxyWorldPos.y)
         * streakMask
-        * (1.0 - smoothstep(0.48, 0.78, slope));
-      float summitSnow = smoothstep(110.0, 170.0, vProxyWorldPos.y) * (1.0 - smoothstep(0.68, 0.96, slope)) * 0.88;
-      float glacierSnow = smoothstep(165.0, 250.0, vProxyWorldPos.y) * (1.0 - smoothstep(0.76, 1.04, slope)); // 极高处雪原；最陡岩壁露灰岩
+        * (1.0 - smoothstep(0.42, 0.72, slope));
+      float summitSnow = smoothstep(120.0, 188.0, vProxyWorldPos.y) * (1.0 - smoothstep(0.62, 0.90, slope)) * 0.82;
+      float glacierSnow = smoothstep(185.0, 265.0, vProxyWorldPos.y) * (1.0 - smoothstep(0.70, 1.00, slope)); // 极高处雪原；最陡岩壁露灰岩
       float snow = clamp(max(max(max(settledSnow, streakSnow), summitSnow), glacierSnow), 0.0, 1.0);
+      float exposedRock = smoothstep(0.34, 0.76, slope)
+        * smoothstep(66.0, 190.0, vProxyWorldPos.y)
+        * (0.48 + (1.0 - broad) * 0.28 + (1.0 - streakBreak) * 0.24);
+      snow = clamp(snow * (1.0 - exposedRock * 0.38), 0.0, 1.0);
       // ── 廉价太阳光照（MeshBasicMaterial 本身不受光，这里手算）──
       vec3 sunDir = normalize(uSunDir);
       float ndl = dot(proxyN, sunDir);
@@ -7464,14 +8367,15 @@ function createDistantTerrainProxyMaterial(texLoader) {
       float gC = proxyNoise(rp * 0.072 + vec2(5.4, 2.1));
       float gX = proxyNoise((rp + vec2(3.4, 0.0)) * 0.072 + vec2(5.4, 2.1));
       float gZ = proxyNoise((rp + vec2(0.0, 3.4)) * 0.072 + vec2(5.4, 2.1));
-      vec2 reliefGrad = vec2(hX - hC, hZ - hC) * 4.2 + vec2(gX - gC, gZ - gC) * 1.6;
+      vec2 reliefGrad = vec2(hX - hC, hZ - hC) * 5.0 + vec2(gX - gC, gZ - gC) * 2.2;
       vec3 snowN = normalize(proxyN + vec3(reliefGrad.x, 0.0, reliefGrad.y));
       float snowNdl = dot(snowN, sunDir);
       // 真实兰伯特为主、极少填充：朝阳→1，侧/背阴→明显变暗
-      float snowShade = pow(clamp(snowNdl * 0.78 + 0.22, 0.0, 1.0), 1.5);
-      vec3 snowSun = vec3(1.0, 1.0, 1.02) * (0.97 + fine * 0.05);
-      vec3 snowSha = mix(vec3(0.44, 0.53, 0.74), vec3(0.24, 0.28, 0.40), uNightFactor); // 背阴冷暗蓝
+      float snowShade = pow(clamp(snowNdl * 0.88 + 0.12, 0.0, 1.0), 1.75);
+      vec3 snowSun = vec3(0.93, 0.96, 1.0) * (0.95 + fine * 0.045);
+      vec3 snowSha = mix(vec3(0.34, 0.43, 0.62), vec3(0.20, 0.24, 0.34), uNightFactor); // 背阴冷暗蓝
       vec3 snowShaded = mix(snowSha, snowSun, snowShade) * mix(1.0, 0.55, uNightFactor);
+      snowShaded = mix(snowShaded, coldRock * vec3(0.88, 0.94, 1.0), exposedRock * (0.24 + (1.0 - snowShade) * 0.34));
       diffuseColor.rgb = mix(litBase, snowShaded, snow);
 
       // ── 高度感知大气透视（在线性雾之上叠加，营造纵深）──
@@ -7484,7 +8388,7 @@ function createDistantTerrainProxyMaterial(texLoader) {
       `
     )
   }
-  material.customProgramCacheKey = () => 'distant-terrain-snow-proxy-v12-mountain-stripe-fix'
+  material.customProgramCacheKey = () => 'distant-terrain-snow-proxy-v13-rock-shadow-color'
   return material
 }
 
@@ -7993,12 +8897,18 @@ function createMainRiverMaterial() {
       attribute float aSubmerge;
       attribute float aConfluence;
       attribute float aWaterMask;
-      attribute float aFoamBoost;
+      attribute float aFlowSpeed;
+      attribute float aWhitewater;
+      attribute float aDepth01;
+      attribute float aWaterKind;
       varying float vShore;
       varying float vSubmerge;
       varying float vConfluence;
       varying float vWaterMask;
-      varying float vFoamBoost;
+      varying float vFlowSpeed;
+      varying float vWhitewater;
+      varying float vDepth01;
+      varying float vWaterKind;
       varying vec2 vUv;
       varying float vEdge;
       varying float vFlow;
@@ -8012,13 +8922,17 @@ function createMainRiverMaterial() {
         vSubmerge = aSubmerge;
         vConfluence = aConfluence;
         vWaterMask = aWaterMask;
-        vFoamBoost = aFoamBoost;
+        vFlowSpeed = aFlowSpeed;
+        vWhitewater = aWhitewater;
+        vDepth01 = aDepth01;
+        vWaterKind = aWaterKind;
         vEdge = abs(uv.x - 0.5) * 2.0;
         vFlow = uv.y;
         float shorePulse = smoothstep(0.45, 1.0, vEdge) * (1.0 - clamp(aConfluence, 0.0, 1.0));
+        float flowPulse = clamp(aFlowSpeed / 3.4, 0.0, 1.0);
         float tide = sin(uTime * 0.62 + uv.y * 0.33) * 0.070
                    + sin(uTime * 0.27 + uv.y * 0.11 + position.x * 0.018 + position.z * 0.014) * 0.045;
-        vTide = tide * (0.55 + shorePulse * 1.05) * aWaterMask;
+        vTide = tide * (0.46 + shorePulse * 0.78 + flowPulse * 0.28) * aWaterMask;
         vec3 displaced = position;
         displaced.y += vTide;
         vec4 worldPos = modelMatrix * vec4(displaced, 1.0);
@@ -8036,7 +8950,10 @@ function createMainRiverMaterial() {
       varying float vSubmerge;
       varying float vConfluence;
       varying float vWaterMask;
-      varying float vFoamBoost;
+      varying float vFlowSpeed;
+      varying float vWhitewater;
+      varying float vDepth01;
+      varying float vWaterKind;
       varying vec2 vUv;
       varying float vEdge;
       varying float vFlow;
@@ -8072,12 +8989,16 @@ function createMainRiverMaterial() {
       }
 
       float waterHeight(vec2 p, float time) {
-        vec2 flowA = vec2(p.y * 0.026 - time * 0.36, p.x * 0.070 + time * 0.045);
-        vec2 flowB = vec2(p.y * 0.066 - time * 0.78, p.x * 0.150 - time * 0.060);
+        vec2 flowA = vec2(p.y * 0.026 - time * 0.18, p.x * 0.070 + time * 0.025);
+        vec2 flowB = vec2(p.y * 0.066 - time * 0.34, p.x * 0.150 - time * 0.035);
         float broad = fbm(flowA) * 0.66;
         float detail = fbm(flowB) * 0.30;
-        float cross = sin(p.x * 0.15 + p.y * 0.055 - time * 2.0) * 0.12;
+        float cross = sin(p.x * 0.15 + p.y * 0.055 - time * 0.9) * 0.07;
         return broad + detail + cross;
+      }
+
+      float kindWeight(float target) {
+        return 1.0 - smoothstep(0.35, 0.85, abs(vWaterKind - target));
       }
 
       void main() {
@@ -8087,20 +9008,33 @@ function createMainRiverMaterial() {
         vec2 world = vWorldPos.xz;
         float time = uTime;
         float side = abs(vUv.x - 0.5) * 2.0;
+        float lakeKind = kindWeight(3.0);
+        float poolKind = kindWeight(4.0);
+        float stillWater = max(lakeKind, poolKind);
+        float braidedKind = kindWeight(2.0);
+        float gullyKind = kindWeight(1.0);
+        float riverKind = kindWeight(0.0);
+        float flow01 = clamp(vFlowSpeed / 3.4, 0.0, 1.0);
+        float whitewater = clamp(vWhitewater, 0.0, 1.0);
+        float depth01 = clamp(vDepth01, 0.0, 1.0);
         // 用世界坐标噪声扰动横向边缘坐标，让岸线/泡沫/网格边缘不规则蜿蜒，消除笔直平行条带
-        float bankWarp = (fbm(world * 0.07) - 0.5) * 0.5
-                       + (fbm(world * 0.19 + vec2(7.3, 2.1)) - 0.5) * 0.22;
+        float bankWarp = (fbm(world * 0.07) - 0.5) * 0.22
+                       + (fbm(world * 0.19 + vec2(7.3, 2.1)) - 0.5) * 0.10;
         float sideW = clamp(side + bankWarp, 0.0, 1.05);
-        float centerDepth = 1.0 - smoothstep(0.12, 0.88, side);
-        float shallowBank = smoothstep(0.34, 0.90, sideW);
+        float center = 1.0 - smoothstep(0.12, 0.88, side);
+        float centerDepth = clamp(max(center * 0.82, depth01), 0.0, 1.0);
+        float shallowBank = smoothstep(0.34, 0.90, sideW) * (1.0 - poolKind * 0.45);
         float innerShallow = smoothstep(0.24, 0.66, sideW) * (1.0 - smoothstep(0.82, 1.04, sideW));
         float edgeBand = smoothstep(0.66, 1.0, sideW);
         float confluenceGate = 1.0 - clamp(vConfluence, 0.0, 1.0);
-        float flow = vFlow * 18.0 - time * 2.25;
+        float centerFlow = mix(0.34, 1.0, pow(clamp(center, 0.0, 1.0), 0.55));
+        float flowRate = (0.14 + flow01 * 0.58) * centerFlow * (1.0 - stillWater * 0.78);
+        float flow = vFlow * 16.0 - time * (0.55 + flowRate * 1.15);
+        vec2 flowUv = vec2(vUv.x * 4.6 + bankWarp * 0.18, vFlow * 1.35 - time * (0.07 + flowRate * 0.24));
 
-        float h = waterHeight(world, time);
-        float hX = waterHeight(world + vec2(0.75, 0.0), time);
-        float hZ = waterHeight(world + vec2(0.0, 0.75), time);
+        float h = mix(waterHeight(world, time), fbm(flowUv * vec2(2.0, 3.8)), 0.46 * (1.0 - stillWater));
+        float hX = mix(waterHeight(world + vec2(0.75, 0.0), time), fbm((flowUv + vec2(0.12, 0.0)) * vec2(2.0, 3.8)), 0.46 * (1.0 - stillWater));
+        float hZ = mix(waterHeight(world + vec2(0.0, 0.75), time), fbm((flowUv + vec2(0.0, 0.12)) * vec2(2.0, 3.8)), 0.46 * (1.0 - stillWater));
         vec3 normal = normalize(vec3((h - hX) * 1.45, 1.0, (h - hZ) * 1.45));
 
         vec3 viewDir = normalize(vViewDir);
@@ -8110,41 +9044,55 @@ function createMainRiverMaterial() {
         float spec = pow(max(dot(normal, halfDir), 0.0), 86.0);
 
         float longRipple = sin(flow + h * 3.2 + vUv.x * 10.0) * 0.5 + 0.5;
-        float fine = fbm(vec2(vUv.x * 10.5 + h * 0.6, vFlow * 0.72 - time * 0.32));
+        float fine = fbm(flowUv * vec2(2.8, 4.4) + vec2(h * 0.6, 0.0));
+        float lakeRipple = sin(world.x * 0.043 + world.y * 0.031 + h * 2.0 + time * 0.22) * 0.5 + 0.5;
+        float lakeFine = fbm(world * 0.085 + vec2(time * 0.024, -time * 0.017));
+        longRipple = mix(longRipple, lakeRipple, lakeKind);
+        fine = mix(fine, lakeFine, lakeKind);
         // 网格状焦散：两层不同尺度/方向滚动的脊状噪声相乘，提取细亮网线（参考图的折射光纹）
         vec2 cuv = world * 0.42;
-        float cn1 = fbm(cuv + vec2(time * 0.22, -time * 0.10) + h * 0.4);
-        float cn2 = fbm(cuv * 1.7 + vec2(-time * 0.16, time * 0.20) + fine * 0.6);
+        float cn1 = fbm(cuv + vec2(time * 0.10, -time * 0.05) + h * 0.34);
+        float cn2 = fbm(cuv * 1.7 + vec2(-time * 0.08, time * 0.10) + fine * 0.48);
         float ridge1 = pow(1.0 - abs(2.0 * cn1 - 1.0), 3.0);
         float ridge2 = pow(1.0 - abs(2.0 * cn2 - 1.0), 3.0);
         float causticNet = ridge1 * ridge2;
         // 浅/中最亮、深处略暗
-        float caustic = causticNet * (0.5 + shallowBank * 0.7) * (0.55 + centerDepth * 0.45);
+        float caustic = causticNet * (0.42 + shallowBank * 0.82) * (0.42 + centerDepth * 0.46) * (1.0 - poolKind * 0.55);
+        float edgeCausticGate = 1.0 - smoothstep(0.78, 1.02, sideW);
 
         // vShore：浅水/真实岸线度（1=贴陆地浅水，0=深水/盖在另一片水之上）。
         // 边缘高光（绿边/泡沫/水线）只在真实岸线出现，避免交叉口内部重叠边发亮。
         float shoreGate = smoothstep(0.25, 0.7, vShore) * confluenceGate;
-        float foamBoost = clamp(vFoamBoost, 0.0, 1.0) * confluenceGate;
-        float boostedShoreGate = max(shoreGate, smoothstep(0.12, 0.62, vShore) * foamBoost);
         float tideRise = clamp(vTide * 8.0 + 0.5, 0.0, 1.0);
         float edgeLayerGate = max(confluenceGate, 0.42);
-        float visibleShore = max(shoreGate, edgeBand * edgeLayerGate * 0.98);
+        float visibleShore = max(shoreGate, edgeBand * edgeLayerGate * (0.82 + lakeKind * 0.16));
         visibleShore = clamp(visibleShore + edgeBand * tideRise * edgeLayerGate * 0.20, 0.0, 1.0);
-        float shoreNoise = fbm(vec2(vFlow * 0.62 - time * 0.42, vUv.x * 8.5 + time * 0.10));
+        float shoreNoise = fbm(vec2(vFlow * 0.62 - time * (0.12 + flowRate * 0.24), vUv.x * 8.5 + time * 0.05));
+        float lakeShoreNoise = fbm(world * 0.14 + vec2(time * 0.032, time * -0.021));
+        shoreNoise = mix(shoreNoise, lakeShoreNoise, lakeKind);
         float softFoamBand = smoothstep(0.48, 0.84, sideW) * (1.0 - smoothstep(0.98, 1.0, sideW) * 0.28);
-        float softShoreFoam = softFoamBand * smoothstep(0.24, 0.78, shoreNoise + longRipple * 0.22 + fine * 0.10) * shoreGate;
-        float shoreFoam = edgeBand * smoothstep(0.42, 0.82, shoreNoise + longRipple * 0.18) * shoreGate;
-        float brokenFoam = smoothstep(0.72, 0.96, caustic + shoreNoise * 0.22) * (edgeBand * 0.72) * shoreGate;
-        float lakeFoamNoise = fbm(world * 0.18 + vec2(time * 0.12, -time * 0.08));
-        float lakeFoamBand = smoothstep(0.43, 0.86, sideW) * (1.0 - smoothstep(0.93, 1.05, sideW));
-        float lakeFoamBreak = smoothstep(0.34, 0.72, shoreNoise + longRipple * 0.20 + lakeFoamNoise * 0.18);
-        float lakeFoam = lakeFoamBand * boostedShoreGate * (0.42 + lakeFoamBreak * 0.58) * (0.78 + tideRise * 0.20);
-        float foamMask = clamp(softShoreFoam * 0.66 + shoreFoam * 0.58 + brokenFoam * 0.52, 0.0, 1.0);
-        foamMask = clamp(foamMask + lakeFoam * 0.72, 0.0, 1.0);
+        float foamBreakup = smoothstep(0.32, 0.82, shoreNoise + longRipple * 0.18 + fine * 0.12);
+        float softShoreFoam = softFoamBand * foamBreakup * shoreGate * (0.54 + flow01 * 0.38 + lakeKind * 0.18);
+        float shoreFoam = edgeBand * foamBreakup * shoreGate * (0.36 + flow01 * 0.48);
+        float rapidFoamNoise = fbm(vec2(vFlow * 1.25 - time * (0.34 + flow01 * 0.45), vUv.x * 7.8 + h * 1.8));
+        float rapidFoam = whitewater * (0.38 + center * 0.62) * smoothstep(0.28, 0.78, rapidFoamNoise + whitewater * 0.32);
+        float shallowRiffle = shallowBank * (1.0 - depth01) * flow01 * (1.0 - stillWater) * smoothstep(0.58, 0.92, caustic + fine * 0.22);
+        float confluenceFoam = smoothstep(0.20, 0.82, vConfluence) * (1.0 - poolKind * 0.62) * smoothstep(0.38, 0.82, fine + longRipple * 0.22);
+        float lakeFoam = lakeKind * shoreGate * edgeBand * smoothstep(0.26, 0.72, shoreNoise + longRipple * 0.18) * 0.92;
+        float foamMask = clamp(
+          softShoreFoam * 0.54
+          + shoreFoam * 0.48
+          + rapidFoam * 0.86
+          + shallowRiffle * 0.22
+          + confluenceFoam * 0.16
+          + lakeFoam,
+          0.0,
+          1.0
+        );
         // 飞溅白点/气泡：高频阈值噪声，散布在水面（中心/浅滩稍多），对应参考图的小白点
-        float speckNoise = fbm(world * 2.6 + vec2(time * 0.35, -time * 0.28));
-        float specks = smoothstep(0.84, 0.96, speckNoise) * (0.4 + shallowBank * 0.5) * (0.35 + confluenceGate * 0.65);
-        foamMask = clamp(foamMask + specks * 0.7, 0.0, 1.0);
+        float speckNoise = fbm(world * 2.6 + vec2(time * 0.14, -time * 0.11));
+        float specks = smoothstep(0.86, 0.965, speckNoise) * (0.24 + shallowBank * 0.48) * (0.20 + flow01 * 0.65 + whitewater * 0.45) * (1.0 - stillWater * 0.55);
+        foamMask = clamp(foamMask + specks * 0.18, 0.0, 1.0);
 
         // 深→浅分层：保留动态浪纹，但压低亮青色，避免俯视时像发光贴图条。
         vec3 deep = vec3(0.008, 0.052, 0.092);
@@ -8152,42 +9100,51 @@ function createMainRiverMaterial() {
         vec3 shallow = vec3(0.120, 0.265, 0.205);
         vec3 shorelineSilt = vec3(0.285, 0.255, 0.160);
         vec3 wetMudTint = vec3(0.105, 0.082, 0.050);
-        vec3 mossTint = vec3(0.070, 0.210, 0.080);
+        vec3 mossTint = vec3(0.055, 0.145, 0.080);
         vec3 glint = vec3(0.42, 0.58, 0.62);
         vec3 foam = vec3(0.74, 0.84, 0.80);
-        vec3 lakeFoamColor = vec3(0.94, 0.98, 0.95);
+        vec3 lakeDeep = deep * vec3(1.04, 1.02, 0.98);
+        vec3 lakeShallow = mix(mid, shallow, 0.18);
+        vec3 gullyTint = vec3(0.035, 0.120, 0.100);
+        vec3 braidedTint = vec3(0.044, 0.105, 0.118);
 
         vec3 color = mix(mid, deep, centerDepth);
+        color = mix(color, mix(lakeShallow, lakeDeep, depth01), lakeKind * 0.24);
+        color = mix(color, gullyTint, gullyKind * 0.28);
+        color = mix(color, braidedTint, braidedKind * 0.26);
         // 深水 → 近岸浅水 → 贴水泥色，边缘颜色和 terrain 湿泥/浅淤泥保持同一色系。
-        color = mix(color, shallow, innerShallow * visibleShore * (0.62 + fine * 0.15));
+        color = mix(color, shallow, innerShallow * visibleShore * (0.50 + fine * 0.13) * (1.0 - lakeKind * 0.08));
         float greenFringe = smoothstep(0.44, 0.78, sideW) * (1.0 - smoothstep(0.86, 1.02, sideW)) * visibleShore;
         float waterlineMud = smoothstep(0.68, 1.02, sideW) * visibleShore;
-        color = mix(color, mossTint, greenFringe * (0.20 + shoreNoise * 0.22));
-        color = mix(color, shorelineSilt, edgeBand * visibleShore * (0.82 + shoreNoise * 0.28));
-        color = mix(color, wetMudTint, waterlineMud * (0.72 + tideRise * 0.24));
+        color = mix(color, mossTint, greenFringe * (0.12 + shoreNoise * 0.14) * (1.0 - lakeKind * 0.35));
+        color = mix(color, shorelineSilt, edgeBand * visibleShore * (0.58 + shoreNoise * 0.22));
+        color = mix(color, wetMudTint, waterlineMud * (0.58 + tideRise * 0.18));
         // 网格焦散：偏青白的亮光纹（保持深水偏蓝的基调），叠加在整条水面
-        color += vec3(0.18, 0.30, 0.28) * caustic * (0.64 + innerShallow * 0.42);
-        color += vec3(0.025, 0.110, 0.080) * greenFringe * (0.45 + caustic * 0.5);
+        color += vec3(0.08, 0.14, 0.13) * caustic * edgeCausticGate * (0.48 + innerShallow * 0.38) * (1.0 - stillWater * 0.28);
+        color += vec3(0.018, 0.080, 0.060) * greenFringe * (0.36 + caustic * 0.25 * edgeCausticGate);
         color = mix(color, glint, fresnel * (0.28 + centerDepth * 0.20));
-        color += vec3(0.92, 0.98, 0.94) * spec * (0.28 + fresnel * 0.52);
-        color = mix(color, foam, foamMask);
-        color = mix(color, lakeFoamColor, lakeFoam * 0.72);
+        color += vec3(0.92, 0.98, 0.94) * spec * (0.22 + fresnel * 0.48 + flow01 * 0.16);
+        color = mix(color, mix(foam, vec3(0.88, 0.94, 0.90), lakeKind * 0.78), foamMask);
 
         // ── 柔和动画水线：alpha 在网格内完全淡出（隐藏"平面切坡"的硬交界），水线随时间轻微涨落 ──
         // 用 raw side（网格边界处恒为 1.0）做淡出，保证 side→1 时 alpha=0，绝不留硬边；
         // 有机蜿蜒来自 bankWarp，时间涨落来自 lap。
-        float lap = 0.075 * sin(time * 0.9 + vFlow * 4.5 + shoreNoise * 2.5)
-                  + 0.04 * sin(time * 0.37 + vFlow * 1.7);
-        float edgeCut = clamp(0.72 + lap + bankWarp * 0.38 + vTide * 0.42, 0.46, 0.95);
-        float stripEdgeAlpha = 1.0 - smoothstep(edgeCut - 0.30, edgeCut + 0.05, side);
+        float lap = 0.025 * sin(time * 0.45 + vFlow * 4.5 + shoreNoise * 2.1)
+                  + 0.015 * sin(time * 0.22 + vFlow * 1.7);
+        float edgeCut = clamp(0.76 + lap + bankWarp * 0.16 + vTide * 0.22, 0.58, 0.94);
+        float stripEdgeAlpha = 1.0 - smoothstep(edgeCut - 0.42, edgeCut + 0.14, side);
         float realShoreAlpha = mix(1.0, stripEdgeAlpha, smoothstep(0.52, 0.92, side));
-        float edgeAlpha = mix(1.0, realShoreAlpha, confluenceGate);
+        float edgeAlpha = mix(0.72, realShoreAlpha, confluenceGate);
         float lapFoam = smoothstep(0.05, 0.0, abs(side - edgeCut)) * smoothstep(0.55, 0.85, side) * shoreGate;
-        color = mix(color, foam, lapFoam * 0.55);
-        color = mix(color, lakeFoamColor, lapFoam * foamBoost * 0.62);
-        float alpha = (mix(0.36, 0.90, centerDepth)
+        color = mix(color, foam, lapFoam * 0.16);
+        float baseAlpha = (mix(0.32, 0.88, max(centerDepth, depth01 * 0.72))
           + innerShallow * visibleShore * 0.08 + edgeBand * (0.03 + visibleShore * tideRise * 0.08) + softShoreFoam * 0.16 + foamMask * 0.22 + fresnel * 0.14
-          + lakeFoam * 0.18 + lapFoam * 0.30) * edgeAlpha * smoothstep(0.08, 0.86, vWaterMask);
+          + lapFoam * 0.08) * edgeAlpha;
+        baseAlpha = mix(baseAlpha, max(baseAlpha, 0.72 + fresnel * 0.10), lakeKind * (1.0 - edgeBand * 0.55));
+        baseAlpha = mix(baseAlpha, max(baseAlpha, 0.58 + confluenceFoam * 0.20), poolKind);
+        baseAlpha *= mix(0.78, 1.0, max(confluenceGate, poolKind));
+        float waterMaskAlpha = smoothstep(0.02, 0.92, vWaterMask);
+        float alpha = baseAlpha * waterMaskAlpha;
         if (alpha < 0.01) discard;
         gl_FragColor = vec4(color, clamp(alpha, 0.0, 0.96));
         #include <fog_fragment>
@@ -8204,6 +9161,7 @@ function buildRiverStripGeometry(points, getSampleAt, {
   getGroundYAt = null,
   maxShoreExtend = 9,
   getWaterMaskAt = null,
+  waterKind = 0,
 } = {}) {
   const verts = []
   const uvs = []
@@ -8211,7 +9169,10 @@ function buildRiverStripGeometry(points, getSampleAt, {
   const submerges = []
   const confluences = []
   const waterMasks = []
-  const foamBoosts = []
+  const flowSpeeds = []
+  const whitewaters = []
+  const depth01s = []
+  const waterKinds = []
   const idx = []
   let row = 0
   let flowV = 0
@@ -8280,15 +9241,17 @@ function buildRiverStripGeometry(points, getSampleAt, {
       let confluenceF = 0
       // 交汇抑制：第二近水道在 ~0.5–4m 内 → 判为两道交叠的交汇区，平滑压低 aShore，
       // 让交汇内部接缝不起白色岸线泡沫/亮边；单条河（无第二近水道）不受影响、岸边泡沫照旧。
+      let poolStripCut = 0
       if (getGroundYAt) {
         const secondEdge = nearbyChannelSecondEdge(wx, wz)
         const confluence = 1 - THREE.MathUtils.smoothstep(secondEdge, 0.5, 4.0)
         const braidedConfluence = newlandBraidedOverlapWeightAt(wx, wz, sample.channelId)
-        confluenceF = Math.max(confluence, braidedConfluence)
+        poolStripCut = confluencePoolStripCutAt(wx, wz)
+        confluenceF = Math.max(confluence, braidedConfluence, poolStripCut * 0.9)
         shoreF *= (1 - confluenceF)
       }
       const extent = offset < 0 ? leftExt : rightExt
-      const edgeMask = THREE.MathUtils.smoothstep(extent - Math.abs(offset), 0, 0.9)
+      const edgeMask = THREE.MathUtils.smoothstep(extent - Math.abs(offset), 0, 1.4)
       const endMask = THREE.MathUtils.smoothstep(row, 0, 2) * THREE.MathUtils.smoothstep(samples.length - 1 - row, 0, 2)
       const depthMask = getGroundYAt ? THREE.MathUtils.smoothstep(vy - gy, -0.08, 0.35) : 1
       verts.push(wx, vy, wz)
@@ -8296,9 +9259,15 @@ function buildRiverStripGeometry(points, getSampleAt, {
       shores.push(shoreF)
       confluences.push(confluenceF)
       const baseWaterMask = edgeMask * endMask * depthMask
-      waterMasks.push(getWaterMaskAt ? getWaterMaskAt(sample, wx, wz, baseWaterMask) : baseWaterMask)
-      foamBoosts.push(0)
-      submerges.push(vy - gy)  // 水面高出地形的量；<0 表示地形穿出水面（着色器据此丢弃）
+      const stripPoolKeep = 1 - poolStripCut
+      const maskedWater = getWaterMaskAt ? getWaterMaskAt(sample, wx, wz, baseWaterMask) : baseWaterMask
+      waterMasks.push(maskedWater * stripPoolKeep)
+      const submerge = vy - gy
+      submerges.push(submerge)  // 水面高出地形的量；<0 表示地形穿出水面（着色器据此丢弃）
+      flowSpeeds.push(sample.flowSpeed ?? 0)
+      whitewaters.push(sample.whitewater ?? 0)
+      depth01s.push(THREE.MathUtils.clamp((submerge - 0.02) / 1.25, 0, 1))
+      waterKinds.push(sample.waterKind ?? waterKind)
     }
     if (row < samples.length - 1) {
       const rowStride = crossSegments + 1
@@ -8318,7 +9287,10 @@ function buildRiverStripGeometry(points, getSampleAt, {
   geometry.setAttribute('aSubmerge', new THREE.Float32BufferAttribute(submerges, 1))
   geometry.setAttribute('aConfluence', new THREE.Float32BufferAttribute(confluences, 1))
   geometry.setAttribute('aWaterMask', new THREE.Float32BufferAttribute(waterMasks, 1))
-  geometry.setAttribute('aFoamBoost', new THREE.Float32BufferAttribute(foamBoosts, 1))
+  geometry.setAttribute('aFlowSpeed', new THREE.Float32BufferAttribute(flowSpeeds, 1))
+  geometry.setAttribute('aWhitewater', new THREE.Float32BufferAttribute(whitewaters, 1))
+  geometry.setAttribute('aDepth01', new THREE.Float32BufferAttribute(depth01s, 1))
+  geometry.setAttribute('aWaterKind', new THREE.Float32BufferAttribute(waterKinds, 1))
   geometry.setIndex(idx)
   geometry.computeVertexNormals()
   geometry.computeBoundingBox()
@@ -8356,6 +9328,7 @@ function buildGullyStreamGeometry(gully, getTerrainHeight) {
     getSurfaceYAt: sample => getWaterSurfaceY(sample, getTerrainHeight, GULLY_STREAM_WATER_DEPTH),
     getGroundYAt: getTerrainHeight,
     maxShoreExtend: 5,
+    waterKind: 1,
   })
 }
 
@@ -8367,6 +9340,7 @@ function buildNewlandBraidedRiverGeometry(channel, getTerrainHeight) {
     getSurfaceYAt: sample => getTerrainHeight(sample.x, sample.z) + sample.waterDepth,
     getGroundYAt: getTerrainHeight,
     maxShoreExtend: 4,
+    waterKind: 2,
   })
 }
 
@@ -8379,6 +9353,7 @@ function buildGlobalWetGullyGeometry(gully, getTerrainHeight) {
     getGroundYAt: getTerrainHeight,
     maxShoreExtend: 4,
     getWaterMaskAt: (sample, x, z, baseMask) => getGlobalWetGullyWaterMask(gully, x, z, baseMask),
+    waterKind: 1,
   })
 }
 
@@ -8390,6 +9365,7 @@ function buildNewlandMountainOutletGeometry(getTerrainHeight) {
     getSurfaceYAt: sample => getTerrainHeight(sample.x, sample.z) + NEWLAND_MOUNTAIN_OUTLET.waterDepth,
     getGroundYAt: getTerrainHeight,
     maxShoreExtend: 6,
+    waterKind: 2,
   })
 }
 
@@ -8409,7 +9385,7 @@ function makeNewlandBraidedWaterBounds(padding = 10) {
 
 function buildNewlandBraidedWaterGeometry(getTerrainHeight) {
   const bounds = makeNewlandBraidedWaterBounds(8)
-  const step = 1.25
+  const step = 1.0
   const nx = Math.ceil((bounds.maxX - bounds.minX) / step)
   const nz = Math.ceil((bounds.maxZ - bounds.minZ) / step)
   const verts = []
@@ -8418,33 +9394,36 @@ function buildNewlandBraidedWaterGeometry(getTerrainHeight) {
   const submerges = []
   const confluences = []
   const waterMasks = []
-  const foamBoosts = []
+  const flowSpeeds = []
+  const whitewaters = []
+  const depth01s = []
+  const waterKinds = []
   const idx = []
 
   for (let iz = 0; iz <= nz; iz++) {
     const z = bounds.minZ + iz * step
     for (let ix = 0; ix <= nx; ix++) {
       const x = bounds.minX + ix * step
-      const sample = getBestNewlandBraidedSampleAt(x, z)
-      const edge = sample ? sample.distance - sample.halfWidth : Infinity
-      const riverMask = sample ? 1 - THREE.MathUtils.smoothstep(edge, -0.15, 1.15) : 0
-      const southBasinLakeShape = getNewlandStaticLakeShapeAt(SOUTH_BASIN_LAKE, x, z)
-      const southBasinLakeCut = 1 - THREE.MathUtils.smoothstep(southBasinLakeShape.edge, -9, -1.5)
-      const mask = riverMask * (1 - southBasinLakeCut)
-      const waterY = sample ? getTerrainHeight(sample.x, sample.z) + sample.waterDepth : 0
-      const groundY = sample ? getTerrainHeight(x, z) : 0
-      const shore = sample ? (1 - THREE.MathUtils.smoothstep(waterY - groundY, 0.36, 1.45)) * mask : 0
-      const confluence = sample ? newlandBraidedOverlapWeightAt(x, z, sample.channelId) : 0
+      const field = sampleNewlandBraidedField(x, z, { getTerrainHeight })
+      const sample = field?.sample ?? null
+      const waterY = field?.waterY ?? 0
+      const submerge = field?.submerge ?? -1
+      const mask = field?.waterMask ?? 0
+      const shore = field?.shore ?? 0
+      const confluence = field?.confluence ?? 0
       const flowU = ((x - bounds.minX) / Math.max(1, bounds.maxX - bounds.minX))
       const flowV = ((z - bounds.minZ) / Math.max(1, bounds.maxZ - bounds.minZ)) * 9
 
       verts.push(x, waterY, z)
       uvs.push(flowU, flowV)
       shores.push(shore)
-      submerges.push(sample ? Math.max(waterY - groundY, -0.05) : -0.05)
+      submerges.push(submerge)
       confluences.push(confluence)
       waterMasks.push(mask)
-      foamBoosts.push(0)
+      flowSpeeds.push(field?.flowSpeed ?? sample?.flowSpeed ?? 0)
+      whitewaters.push(field?.whitewater ?? sample?.whitewater ?? 0)
+      depth01s.push(THREE.MathUtils.clamp((submerge - 0.02) / 1.25, 0, 1))
+      waterKinds.push(2)
     }
   }
 
@@ -8455,11 +9434,14 @@ function buildNewlandBraidedWaterGeometry(getTerrainHeight) {
       const b = a + 1
       const c = (iz + 1) * rowStride + ix
       const d = c + 1
-      const maskCount = [a, b, c, d].reduce((count, vertexIndex) => (
-        count + (waterMasks[vertexIndex] > 0.08 && submerges[vertexIndex] > -0.12 ? 1 : 0)
-      ), 0)
-      if (maskCount < 3) continue
-      idx.push(a, c, b, b, c, d)
+      const addWaterTri = (i0, i1, i2) => {
+        const maskCount = [i0, i1, i2].reduce((count, vertexIndex) => (
+          count + (waterMasks[vertexIndex] > NEWLAND_BRAIDED_WATER_TRIANGLE_MASK && submerges[vertexIndex] > -0.18 ? 1 : 0)
+        ), 0)
+        if (maskCount >= 2) idx.push(i0, i1, i2)
+      }
+      addWaterTri(a, c, b)
+      addWaterTri(b, c, d)
     }
   }
 
@@ -8470,7 +9452,10 @@ function buildNewlandBraidedWaterGeometry(getTerrainHeight) {
   geometry.setAttribute('aSubmerge', new THREE.Float32BufferAttribute(submerges, 1))
   geometry.setAttribute('aConfluence', new THREE.Float32BufferAttribute(confluences, 1))
   geometry.setAttribute('aWaterMask', new THREE.Float32BufferAttribute(waterMasks, 1))
-  geometry.setAttribute('aFoamBoost', new THREE.Float32BufferAttribute(foamBoosts, 1))
+  geometry.setAttribute('aFlowSpeed', new THREE.Float32BufferAttribute(flowSpeeds, 1))
+  geometry.setAttribute('aWhitewater', new THREE.Float32BufferAttribute(whitewaters, 1))
+  geometry.setAttribute('aDepth01', new THREE.Float32BufferAttribute(depth01s, 1))
+  geometry.setAttribute('aWaterKind', new THREE.Float32BufferAttribute(waterKinds, 1))
   geometry.setIndex(idx)
   geometry.computeVertexNormals()
   geometry.computeBoundingBox()
@@ -8495,7 +9480,10 @@ function buildNewlandStaticLakeGeometry(lake, getTerrainHeight) {
   const submerges = []
   const confluences = []
   const waterMasks = []
-  const foamBoosts = []
+  const flowSpeeds = []
+  const whitewaters = []
+  const depth01s = []
+  const waterKinds = []
   const idx = []
   const preserveWaterShape = lake.preserveWaterShape === true
 
@@ -8511,16 +9499,19 @@ function buildNewlandStaticLakeGeometry(lake, getTerrainHeight) {
       const shape = getNewlandStaticLakeShapeAt(lake, x, z)
       const groundY = getTerrainHeight(x, z)
       const mask = 1 - THREE.MathUtils.smoothstep(shape.edge, -0.5, 1.5)
-      const isSouthBasinLake = lake.id === 'south_basin_lake'
-      const shore = (1 - THREE.MathUtils.smoothstep(Math.abs(shape.edge), 0, isSouthBasinLake ? 8 : 5)) * (isSouthBasinLake ? 0.95 : 0.45)
+      const shore = (1 - THREE.MathUtils.smoothstep(Math.abs(shape.edge), 0, 5)) * 0.45
 
       verts.push(x, waterY, z)
       uvs.push(0.5 + ringT * 0.5, 0.5)
       shores.push(shore)
-      submerges.push(waterY - groundY)
-      confluences.push(isSouthBasinLake ? 0 : 1)
+      const submerge = waterY - groundY
+      submerges.push(submerge)
+      confluences.push(lake.id === 'south_basin_lake' ? 0 : 1)
       waterMasks.push(mask)
-      foamBoosts.push(isSouthBasinLake ? 1 : 0)
+      flowSpeeds.push(0)
+      whitewaters.push(shore * 0.18)
+      depth01s.push(THREE.MathUtils.clamp((submerge - 0.02) / 1.8, 0, 1))
+      waterKinds.push(3)
     }
   }
 
@@ -8545,7 +9536,10 @@ function buildNewlandStaticLakeGeometry(lake, getTerrainHeight) {
   geometry.setAttribute('aSubmerge', new THREE.Float32BufferAttribute(submerges, 1))
   geometry.setAttribute('aConfluence', new THREE.Float32BufferAttribute(confluences, 1))
   geometry.setAttribute('aWaterMask', new THREE.Float32BufferAttribute(waterMasks, 1))
-  geometry.setAttribute('aFoamBoost', new THREE.Float32BufferAttribute(foamBoosts, 1))
+  geometry.setAttribute('aFlowSpeed', new THREE.Float32BufferAttribute(flowSpeeds, 1))
+  geometry.setAttribute('aWhitewater', new THREE.Float32BufferAttribute(whitewaters, 1))
+  geometry.setAttribute('aDepth01', new THREE.Float32BufferAttribute(depth01s, 1))
+  geometry.setAttribute('aWaterKind', new THREE.Float32BufferAttribute(waterKinds, 1))
   geometry.setIndex(idx)
   geometry.computeVertexNormals()
   geometry.computeBoundingBox()
@@ -8562,7 +9556,7 @@ function buildConfluencePoolGeometry(pool, getTerrainHeight) {
   const rings = 9, seg = 56
   const poolY = confluencePoolSurfaceY(pool)
   const verts = [], uvs = [], shores = [], submerges = [], confluences = [], waterMasks = [], idx = []
-  const foamBoosts = []
+  const flowSpeeds = [], whitewaters = [], depth01s = [], waterKinds = []
   for (let r = 0; r <= rings; r++) {
     const radius = R * r / rings
     for (let s = 0; s < seg; s++) {
@@ -8579,8 +9573,13 @@ function buildConfluencePoolGeometry(pool, getTerrainHeight) {
       shores.push(0)          // 深水，不出岸线高光
       confluences.push(1)      // 池面是交汇内部水面，不渲染岸线泡沫
       waterMasks.push(1 - THREE.MathUtils.smoothstep(r / rings, 0.82, 1.0))
-      foamBoosts.push(0)
-      submerges.push(y - gy)
+      const submerge = y - gy
+      submerges.push(submerge)
+      const poolCore = 1 - r / rings
+      flowSpeeds.push(0.35)
+      whitewaters.push(poolCore * 0.22)
+      depth01s.push(THREE.MathUtils.clamp((submerge - 0.02) / 1.5, 0, 1))
+      waterKinds.push(4)
     }
   }
   for (let r = 0; r < rings; r++) {
@@ -8603,7 +9602,10 @@ function buildConfluencePoolGeometry(pool, getTerrainHeight) {
   geometry.setAttribute('aSubmerge', new THREE.Float32BufferAttribute(submerges, 1))
   geometry.setAttribute('aConfluence', new THREE.Float32BufferAttribute(confluences, 1))
   geometry.setAttribute('aWaterMask', new THREE.Float32BufferAttribute(waterMasks, 1))
-  geometry.setAttribute('aFoamBoost', new THREE.Float32BufferAttribute(foamBoosts, 1))
+  geometry.setAttribute('aFlowSpeed', new THREE.Float32BufferAttribute(flowSpeeds, 1))
+  geometry.setAttribute('aWhitewater', new THREE.Float32BufferAttribute(whitewaters, 1))
+  geometry.setAttribute('aDepth01', new THREE.Float32BufferAttribute(depth01s, 1))
+  geometry.setAttribute('aWaterKind', new THREE.Float32BufferAttribute(waterKinds, 1))
   geometry.setIndex(idx)
   geometry.computeVertexNormals()
   geometry.computeBoundingBox()
@@ -8869,16 +9871,19 @@ function createNewlandBraidedRiverSystems(scene, getTerrainHeight) {
   const systems = NEWLAND_BRAIDED_CHANNELS.map((channel) => {
     function sampleRiver(x, z) {
       const sample = getNewlandBraidedSampleAt(channel, x, z)
-      const waterY = getTerrainHeight(sample.x, sample.z) + sample.waterDepth
+      const field = sampleNewlandBraidedField(x, z, { getTerrainHeight })
+      const waterY = field?.waterY ?? getTerrainHeight(sample.x, sample.z) + sample.waterDepth
       const terrainY = getTerrainHeight(x, z)
       const depth = Math.max(0, waterY - terrainY)
-      const inWater = sample.distance <= sample.halfWidth && depth > 0.025
+      const inWater = Boolean(field && field.rawWaterMask > 0.22 && field.waterMask > 0.04 && depth > 0.025)
       return {
         ...sample,
         sourceWaterY: sample.waterY,
         waterY,
         inWater,
         depth,
+        flowSpeed: field?.flowSpeed ?? sample.flowSpeed,
+        whitewater: field?.whitewater ?? sample.whitewater,
       }
     }
 
@@ -9116,6 +10121,373 @@ function runChannelProbe(getGroundHeight) {
   }
 }
 
+function createRiverAuditState() {
+  return {
+    issues: [],
+    counts: new Map(),
+    add(issue) {
+      const key = `${issue.type}|${issue.system}`
+      this.counts.set(key, (this.counts.get(key) ?? 0) + 1)
+      this.issues.push(issue)
+    },
+  }
+}
+
+function addRiverAuditIssue(state, type, system, x, z, waterY, groundY, expectedDepth, severity, detail = '') {
+  state.add({
+    type,
+    system,
+    x: +x.toFixed(1),
+    z: +z.toFixed(1),
+    groundY: +groundY.toFixed(2),
+    waterY: +waterY.toFixed(2),
+    depth: +(waterY - groundY).toFixed(2),
+    expectedDepth: +expectedDepth.toFixed(2),
+    severity: +severity.toFixed(2),
+    detail,
+  })
+}
+
+function auditWaterDepthAt(state, system, x, z, waterY, groundY, expectedDepth, edge, isCore) {
+  if (!Number.isFinite(waterY) || !Number.isFinite(groundY) || !Number.isFinite(expectedDepth)) return
+  const depth = waterY - groundY
+  const minDepth = isCore ? -0.08 : -0.18
+  if (depth < minDepth) {
+    addRiverAuditIssue(
+      state,
+      isCore ? 'bed_above_water' : 'dry_hole_inside_water',
+      system,
+      x,
+      z,
+      waterY,
+      groundY,
+      expectedDepth,
+      minDepth - depth,
+      `edge=${edge.toFixed(2)}`,
+    )
+  }
+  const maxDepth = Math.max(expectedDepth + 2.0, expectedDepth * 3.2 + 0.8)
+  if (isCore && depth > maxDepth) {
+    addRiverAuditIssue(
+      state,
+      'bed_too_deep_under_flat_water',
+      system,
+      x,
+      z,
+      waterY,
+      groundY,
+      expectedDepth,
+      depth - maxDepth,
+      `edge=${edge.toFixed(2)}`,
+    )
+  }
+}
+
+function runStripRiverAudit(state, spec, getGroundHeight) {
+  const alongStep = 6
+  const crossStep = 1.25
+  const edgePad = 2.2
+  let prevCenter = null
+  for (let i = 0; i < spec.points.length - 1; i++) {
+    const a = spec.points[i]
+    const b = spec.points[i + 1]
+    const segLen = Math.hypot(b.x - a.x, b.z - a.z)
+    const steps = Math.max(1, Math.round(segLen / alongStep))
+    for (let j = i > 0 ? 1 : 0; j <= steps; j++) {
+      const t = j / steps
+      const wx = a.x + (b.x - a.x) * t
+      const wz = a.z + (b.z - a.z) * t
+      const centerSample = spec.sample(wx, wz)
+      if (!centerSample || !Number.isFinite(centerSample.halfWidth)) continue
+      const centerWaterY = spec.waterYAt(centerSample, getGroundHeight)
+      if (prevCenter) {
+        const dist = Math.max(0.001, Math.hypot(centerSample.x - prevCenter.x, centerSample.z - prevCenter.z))
+        const jump = Math.abs(centerWaterY - prevCenter.waterY)
+        if (jump > 1.1 && jump / dist > 0.22) {
+          addRiverAuditIssue(
+            state,
+            'water_surface_jump',
+            spec.id,
+            centerSample.x,
+            centerSample.z,
+            centerWaterY,
+            getGroundHeight(centerSample.x, centerSample.z),
+            spec.expectedDepthAt(centerSample),
+            jump,
+            `prev=${prevCenter.waterY.toFixed(2)} dist=${dist.toFixed(1)}`,
+          )
+        }
+      }
+      prevCenter = { x: centerSample.x, z: centerSample.z, waterY: centerWaterY }
+
+      const px = -centerSample.dirZ
+      const pz = centerSample.dirX
+      const extent = centerSample.halfWidth + edgePad
+      for (let off = -extent; off <= extent; off += crossStep) {
+        const x = centerSample.x + px * off
+        const z = centerSample.z + pz * off
+        const sample = spec.sample(x, z)
+        if (!sample || !Number.isFinite(sample.halfWidth)) continue
+        const edge = sample.distance - sample.halfWidth
+        if (edge > edgePad) continue
+        const waterY = spec.waterYAt(sample, getGroundHeight)
+        const groundY = getGroundHeight(x, z)
+        const expectedDepth = spec.expectedDepthAt(sample)
+        auditWaterDepthAt(state, spec.id, x, z, waterY, groundY, expectedDepth, edge, sample.distance <= sample.halfWidth)
+      }
+    }
+  }
+}
+
+function runNewlandBraidedRiverAudit(state, getGroundHeight) {
+  const bounds = makeNewlandBraidedWaterBounds(8)
+  const step = 2
+  const nx = Math.ceil((bounds.maxX - bounds.minX) / step)
+  const nz = Math.ceil((bounds.maxZ - bounds.minZ) / step)
+  let prevRow = new Array(nx + 1).fill(null)
+  for (let iz = 0; iz <= nz; iz++) {
+    const z = bounds.minZ + iz * step
+    const row = new Array(nx + 1).fill(null)
+    let prev = null
+    for (let ix = 0; ix <= nx; ix++) {
+      const x = bounds.minX + ix * step
+      const sample = getBestNewlandBraidedSampleAt(x, z)
+      if (!sample) continue
+      const edge = sample.distance - sample.halfWidth
+      if (edge > 2.2) continue
+      const waterY = getNewlandBraidedWaterSurfaceAt(x, z, getGroundHeight)
+      if (waterY === null) continue
+      const groundY = getGroundHeight(x, z)
+      auditWaterDepthAt(state, `新区辫状河:${sample.channelId}`, x, z, waterY, groundY, sample.waterDepth, edge, edge <= 0)
+
+      const previous = [prev, prevRow[ix]].filter(Boolean)
+      for (const near of previous) {
+        const jump = Math.abs(waterY - near.waterY)
+        if (edge <= 0.5 && near.edge <= 0.5 && jump > 0.85) {
+          addRiverAuditIssue(
+            state,
+            'water_surface_jump',
+            `新区辫状河:${sample.channelId}`,
+            x,
+            z,
+            waterY,
+            groundY,
+            sample.waterDepth,
+            jump,
+            `near=${near.waterY.toFixed(2)}`,
+          )
+        }
+      }
+      const cell = { waterY, edge }
+      row[ix] = cell
+      prev = cell
+    }
+    prevRow = row
+  }
+}
+
+function runStaticLakeAudit(state, getGroundHeight) {
+  const step = 3
+  for (const lake of NEWLAND_STATIC_LAKES) {
+    const radiusX = lake.rx + (lake.shoreRun ?? 10)
+    const radiusZ = lake.rz + (lake.shoreRun ?? 10)
+    const waterY = getNewlandStaticLakeWaterY(lake, getGroundHeight)
+    for (let z = lake.z - radiusZ; z <= lake.z + radiusZ; z += step) {
+      for (let x = lake.x - radiusX; x <= lake.x + radiusX; x += step) {
+        const shape = getNewlandStaticLakeShapeAt(lake, x, z)
+        if (shape.edge > 1.5) continue
+        const groundY = getGroundHeight(x, z)
+        const isCore = shape.edge <= 0
+        auditWaterDepthAt(state, `静态湖:${lake.id}`, x, z, waterY, groundY, lake.waterDepth, shape.edge, isCore)
+      }
+    }
+  }
+}
+
+function getReferencePatchDryCutStrengthAt(x, z) {
+  const dx = x - REFERENCE_HEIGHT_PATCH_CENTER.x
+  const dz = z - REFERENCE_HEIGHT_PATCH_CENTER.z
+  const dist = Math.hypot(dx, dz)
+  if (dist >= REFERENCE_HEIGHT_PATCH_FADE_RADIUS) return 0
+  const fade = 1 - THREE.MathUtils.smoothstep(dist, REFERENCE_HEIGHT_PATCH_RADIUS, REFERENCE_HEIGHT_PATCH_FADE_RADIUS)
+  const core = 1 - THREE.MathUtils.smoothstep(dist, 60, REFERENCE_HEIGHT_PATCH_RADIUS)
+  const broad = 1 - THREE.MathUtils.smoothstep(dist, 210, REFERENCE_HEIGHT_PATCH_FADE_RADIUS)
+  let cut = 0
+  cut += referencePatchGullyCut(x, z, -690, -630, -1125, -505, 26, 13)
+  cut += referencePatchGullyCut(x, z, -705, -690, -930, -975, 24, 14)
+  cut += referencePatchGullyCut(x, z, -640, -615, -460, -300, 20, 9)
+  cut += referencePatchGullyCut(x, z, -620, -675, -305, -735, 22, 10)
+  cut += referencePatchGullyCut(x, z, -760, -660, -1010, -760, 18, 8)
+  cut += referencePatchGullyCut(x, z, -555, -620, -355, -520, 17, 7)
+  const ribbing = Math.max(
+    0,
+    1 - Math.abs(Math.sin((x + z * 0.42) * 0.030)),
+    1 - Math.abs(Math.sin((x * 0.55 - z) * 0.026 + 1.7)),
+  )
+  const fineCut = THREE.MathUtils.smoothstep(ribbing, 0.86, 0.985) * broad * (1 - core * 0.45) * 2.6
+  return (cut + fineCut) * fade
+}
+
+function getDryCutAuditSampleAt(x, z, height) {
+  const candidates = []
+  const add = (source, rawStrength) => {
+    if (rawStrength > 0.05) candidates.push({ source, rawStrength })
+  }
+
+  add('reference_patch', getReferencePatchDryCutStrengthAt(x, z))
+
+  const globalErosion = globalDendriticErosionSample(x, z, height)
+  add('global_dendritic_erosion', globalErosion.cut)
+
+  const dendritic = getBestDendriticGullySampleAt(x, z)
+  if (dendritic && dendritic.distance <= dendritic.influence) {
+    const core = 1 - THREE.MathUtils.smoothstep(dendritic.distance, dendritic.halfWidth * 0.55, dendritic.halfWidth + 0.5)
+    const apron = 1 - THREE.MathUtils.smoothstep(dendritic.distance, dendritic.halfWidth + 10, dendritic.influence)
+    add(`newland_dendritic_gully:${dendritic.gully.id}`, dendritic.depth * Math.max(core, apron * 0.35))
+  }
+
+  const eastRim = getBestEastRimDryRiverSampleAt(x, z)
+  if (eastRim && eastRim.distance <= eastRim.influence) {
+    const core = 1 - THREE.MathUtils.smoothstep(eastRim.distance, eastRim.halfWidth * 0.58, eastRim.halfWidth + 0.85)
+    const apron = 1 - THREE.MathUtils.smoothstep(eastRim.distance, eastRim.halfWidth + 18, eastRim.influence)
+    add(`east_rim_dry_river:${eastRim.river.id}`, eastRim.depth * Math.max(core, apron * 0.30))
+  }
+
+  const lowland = getBestLowlandErosionGullySampleAt(x, z)
+  if (lowland && lowland.distance <= lowland.influence && !isLowlandErosionProtected(x, z, height)) {
+    const core = 1 - THREE.MathUtils.smoothstep(lowland.distance, lowland.halfWidth * 0.48, lowland.halfWidth + 0.6)
+    const apron = 1 - THREE.MathUtils.smoothstep(lowland.distance, lowland.halfWidth + 12, lowland.influence)
+    add(`lowland_erosion_gully:${lowland.gully.id}`, lowland.depth * Math.max(core, apron * 0.25))
+  }
+
+  if (!isLowlandErosionProtected(x, z, height)) {
+    const lowlandMask = (1 - THREE.MathUtils.smoothstep(height, 24, 64))
+      * THREE.MathUtils.smoothstep(height, MOUNTAIN_FALL_FLOOR_Y + 16, MOUNTAIN_FALL_FLOOR_Y + 48)
+    const micro = THREE.MathUtils.smoothstep(lowlandErosionMicroNoise(x, z), 0.72, 0.96)
+    add('lowland_micro_erosion', micro * lowlandMask)
+  }
+
+  if (!candidates.length) return null
+  candidates.sort((a, b) => b.rawStrength - a.rawStrength)
+  const best = candidates[0]
+  const wet = getWetWaterProtectionAt(x, z)
+  return {
+    ...best,
+    activeStrength: best.rawStrength * wet.keep,
+    wet,
+  }
+}
+
+function makeDryCutWetAuditBounds(padding = 24) {
+  const bounds = makeNewlandBraidedWaterBounds(padding)
+  const include = (minX, maxX, minZ, maxZ) => {
+    bounds.minX = Math.min(bounds.minX, minX - padding)
+    bounds.maxX = Math.max(bounds.maxX, maxX + padding)
+    bounds.minZ = Math.min(bounds.minZ, minZ - padding)
+    bounds.maxZ = Math.max(bounds.maxZ, maxZ + padding)
+  }
+  for (const lake of NEWLAND_STATIC_LAKES) include(lake.x - lake.rx, lake.x + lake.rx, lake.z - lake.rz, lake.z + lake.rz)
+  include(NEWLAND_MOUNTAIN_OUTLET_BOUNDS.minX, NEWLAND_MOUNTAIN_OUTLET_BOUNDS.maxX, NEWLAND_MOUNTAIN_OUTLET_BOUNDS.minZ, NEWLAND_MOUNTAIN_OUTLET_BOUNDS.maxZ)
+  for (const { bounds: wetBounds } of GLOBAL_WET_GULLY_BOUNDS) include(wetBounds.minX, wetBounds.maxX, wetBounds.minZ, wetBounds.maxZ)
+  return bounds
+}
+
+function runDryCutWetOverlapAudit(state, getGroundHeight) {
+  const bounds = makeDryCutWetAuditBounds()
+  const step = 4
+  for (let z = bounds.minZ; z <= bounds.maxZ; z += step) {
+    for (let x = bounds.minX; x <= bounds.maxX; x += step) {
+      const wet = getWetWaterProtectionAt(x, z)
+      if (!wet.source || !Number.isFinite(wet.edge) || wet.edge > DRY_CUT_WET_CORE_EDGE) continue
+      const groundY = getGroundHeight(x, z)
+      const dry = getDryCutAuditSampleAt(x, z, groundY)
+      if (!dry || dry.activeStrength <= 0.18) continue
+      state.add({
+        type: 'active_dry_cut_inside_wet_water',
+        system: wet.source,
+        drySource: dry.source,
+        x: +x.toFixed(1),
+        z: +z.toFixed(1),
+        groundY: +groundY.toFixed(2),
+        waterY: +groundY.toFixed(2),
+        depth: 0,
+        expectedDepth: +dry.rawStrength.toFixed(2),
+        severity: +dry.activeStrength.toFixed(2),
+        detail: `wetKeep=${wet.keep.toFixed(2)} edge=${Number.isFinite(wet.edge) ? wet.edge.toFixed(2) : 'n/a'}`,
+      })
+    }
+  }
+}
+
+function printRiverAuditReport(state) {
+  const summary = Array.from(state.counts.entries()).map(([key, count]) => {
+    const [type, system] = key.split('|')
+    return { type, system, count }
+  }).sort((a, b) => b.count - a.count || a.type.localeCompare(b.type))
+  const top = [...state.issues].sort((a, b) => b.severity - a.severity).slice(0, 80)
+  if (import.meta.env.DEV && typeof window !== 'undefined') {
+    window.__riverAuditLast = { total: state.issues.length, summary, top }
+  }
+  if (state.issues.length === 0) {
+    console.log('[river-audit] 全地图河床审计完成：未发现严重水面/河床不一致。')
+    return
+  }
+  console.groupCollapsed(`[river-audit] 全地图河床审计：${state.issues.length} 个问题采样点，展开查看 top ${top.length}`)
+  console.table(summary)
+  console.table(top)
+  console.groupEnd()
+}
+
+function runGlobalRiverbedAudit(getGroundHeight) {
+  try {
+    const state = createRiverAuditState()
+    const stripSpecs = [
+      {
+        id: '主河',
+        points: HERO_RIVER_POINTS,
+        sample: (x, z) => getRiverSampleAt(x, z),
+        waterYAt: sample => sample.waterY,
+        expectedDepthAt: () => MAIN_RIVER_WATER_DEPTH,
+      },
+      ...RIVER_BRANCHES.map(branch => ({
+        id: `支流:${branch.id}`,
+        points: branch.points,
+        sample: (x, z) => getBranchSampleAt(branch, x, z),
+        waterYAt: sample => sample.waterY,
+        expectedDepthAt: () => BRANCH_RIVER_WATER_DEPTH,
+      })),
+      ...EROSION_GULLIES.filter(gully => gully.wet).map(gully => ({
+        id: `湿冲沟:${gully.id}`,
+        points: gully.points,
+        sample: (x, z) => getGullyStreamSampleAt(gully, x, z),
+        waterYAt: sample => sample.waterY,
+        expectedDepthAt: () => GULLY_STREAM_WATER_DEPTH,
+      })),
+      ...GLOBAL_WET_GULLIES.map(gully => ({
+        id: `全局湿沟:${gully.id}`,
+        points: gully.points,
+        sample: (x, z) => getGlobalWetGullySampleAt(gully, x, z),
+        waterYAt: sample => getGlobalWetGullySurfaceY(gully, sample, getGroundHeight),
+        expectedDepthAt: sample => sample.waterDepth,
+      })),
+      {
+        id: '山间湖出水河',
+        points: NEWLAND_MOUNTAIN_OUTLET.points,
+        sample: (x, z) => getNewlandMountainOutletSampleAt(x, z),
+        waterYAt: sample => getGroundHeight(sample.x, sample.z) + NEWLAND_MOUNTAIN_OUTLET.waterDepth,
+        expectedDepthAt: () => NEWLAND_MOUNTAIN_OUTLET.waterDepth,
+      },
+    ]
+    for (const spec of stripSpecs) runStripRiverAudit(state, spec, getGroundHeight)
+    runNewlandBraidedRiverAudit(state, getGroundHeight)
+    runStaticLakeAudit(state, getGroundHeight)
+    runDryCutWetOverlapAudit(state, getGroundHeight)
+    printRiverAuditReport(state)
+  } catch (e) {
+    console.warn('[river-audit] 失败：', e)
+  }
+}
+
 function isMapDebugFlagEnabled(name) {
   if (!import.meta.env.DEV || typeof window === 'undefined') return false
   const params = new URLSearchParams(window.location.search)
@@ -9233,8 +10605,30 @@ export function makeCampfire(scene, x, z, y = null) {
 
 // ── 主函数 ────────────────────────────────────────────
 
-export function createMap(scene, { onStaticModelReady = null, onTerrainLoadProgress = null, fullTerrainLoad = false, perf = null } = {}) {
+export function createMap(scene, { onStaticModelReady = null, onTerrainLoadProgress = null, onStartupStage = null, fullTerrainLoad = false, perf = null } = {}) {
   const timePerf = (name, fn) => (perf?.time ? perf.time(name, fn) : fn())
+  const waitStartupFrame = () => new Promise(resolve => {
+    let done = false
+    const finish = () => {
+      if (done) return
+      done = true
+      resolve()
+    }
+    if (typeof window !== 'undefined') {
+      window.requestAnimationFrame(finish)
+      window.setTimeout(finish, 50)
+    } else {
+      finish()
+    }
+  })
+  const reportStartupStage = async (label) => {
+    onStartupStage?.(label)
+    await waitStartupFrame()
+  }
+  let resolveMapStartupReady = null
+  const startupReadyPromise = new Promise(resolve => {
+    resolveMapStartupReady = resolve
+  })
   // 地面
   const texLoader = new THREE.TextureLoader()
   const collidables = []
@@ -9307,6 +10701,7 @@ export function createMap(scene, { onStaticModelReady = null, onTerrainLoadProgr
       applyChannelNetworkCarve,
       applyConfluencePoolCarve,
       applyChannelSmoothGrade,
+      applyNewlandBraidedRestoreBasinHeight,
       applyCastleApproachHeight,
       applyMountainEdgeHeight,
     ],
@@ -9320,45 +10715,70 @@ export function createMap(scene, { onStaticModelReady = null, onTerrainLoadProgr
     ],
     heightmapUrl: '/heightmaps/main_height_1024.png',
     onReady: (sampleHeight) => {
-      _sampleTerrainHeight = sampleHeight
-      _terrainReady = true
+      const runStartupTerrainReady = async () => {
+        _sampleTerrainHeight = sampleHeight
+        _terrainReady = true
+        await reportStartupStage('初始化地形...')
 
-      if (_rockInstancedMesh?.userData?.editorMeta?.rocks) {
-        const rocks = _rockInstancedMesh.userData.editorMeta.rocks
-        scene.remove(_rockInstancedMesh)
-        _rockInstancedMesh = null
-        _buildRockInstancedMesh(scene, rocks)
-      }
-
-      const pending = _pendingGroundings.splice(0, _pendingGroundings.length)
-      pending.forEach(({ group, yOffset }) => {
-        if (group.parent) _applyGrounding(group, yOffset)
-      })
-      makeMountainCliffSkirt(scene, sampleHeight, createSnowMountainCliffMaterial())
-      riverSystem = createRiverSystem(scene, getGroundHeight)
-      riverBranchSystems = createRiverBranchSystems(scene, getGroundHeight)
-      gullyStreamSystems = createGullyStreamSystems(scene, getGroundHeight)
-      globalWetGullySystems = createGlobalWetGullySystems(scene, getGroundHeight)
-      newlandBraidedRiverSystems = createNewlandBraidedRiverSystems(scene, getGroundHeight)
-      newlandMountainOutletSystem = createNewlandMountainOutletSystem(scene, getGroundHeight)
-      unifiedWaterRender = createUnifiedWaterRender(scene, getGroundHeight)
-      if (isMapDebugFlagEnabled('riverDebug')) {
-        runChannelDiagnostics(getGroundHeight)
-        runChannelProbe(getGroundHeight)
-      }
-      if (import.meta.env.DEV) {
-        for (const [tx, tz] of [[-163, 55], [-164, 50], [-160, 40], [-160, -52], [-167, -36]]) {
-          terrainController.traceHeightAt?.(tx, tz)
+        if (_rockInstancedMesh?.userData?.editorMeta?.rocks) {
+          const rocks = _rockInstancedMesh.userData.editorMeta.rocks
+          scene.remove(_rockInstancedMesh)
+          _rockInstancedMesh = null
+          timePerf('map.startup.rocks', () => _buildRockInstancedMesh(scene, rocks))
         }
+
+        const pending = _pendingGroundings.splice(0, _pendingGroundings.length)
+        pending.forEach(({ group, yOffset }) => {
+          if (group.parent) _applyGrounding(group, yOffset)
+        })
+        await reportStartupStage('生成地形边界...')
+        timePerf('map.startup.cliffSkirt', () => makeMountainCliffSkirt(scene, sampleHeight, createSnowMountainCliffMaterial()))
+
+        await reportStartupStage('生成水系...')
+        riverSystem = timePerf('map.startup.mainRiver', () => createRiverSystem(scene, getGroundHeight))
+        riverBranchSystems = timePerf('map.startup.riverBranches', () => createRiverBranchSystems(scene, getGroundHeight))
+        gullyStreamSystems = timePerf('map.startup.gullyStreams', () => createGullyStreamSystems(scene, getGroundHeight))
+        globalWetGullySystems = timePerf('map.startup.globalWetGullies', () => createGlobalWetGullySystems(scene, getGroundHeight))
+
+        await reportStartupStage('生成湖泊和水面...')
+        newlandBraidedRiverSystems = timePerf('map.startup.braidedRiver', () => createNewlandBraidedRiverSystems(scene, getGroundHeight))
+        newlandMountainOutletSystem = timePerf('map.startup.mountainOutlet', () => createNewlandMountainOutletSystem(scene, getGroundHeight))
+        unifiedWaterRender = timePerf('map.startup.unifiedWater', () => createUnifiedWaterRender(scene, getGroundHeight))
+
+        if (isMapDebugFlagEnabled('riverDebug')) {
+          runChannelDiagnostics(getGroundHeight)
+          runChannelProbe(getGroundHeight)
+        }
+        if (isMapDebugFlagEnabled('riverAudit')) {
+          runGlobalRiverbedAudit(getGroundHeight)
+        }
+        if (import.meta.env.DEV) {
+          for (const [tx, tz] of [[-163, 55], [-164, 50], [-160, 40], [-160, -52], [-167, -36], [-457.9, -482.9], [-456.9, -482.9], [-448.9, -474.9]]) {
+            terrainController.traceHeightAt?.(tx, tz)
+          }
+        }
+
+        await reportStartupStage('加载草地...')
+        timePerf('map.startup.spawnGrass', () => loadSpawnGrass(scene))
+        await reportStartupStage('生成河岸草...')
+        timePerf('map.startup.riversideGrass', () => loadRiversideGrass(scene))
+        timePerf('map.startup.wetGullyGrass', () => loadGlobalWetGullyBedGrass(scene))
+        timePerf('map.startup.lakeGrass', () => loadSouthBasinLakeGrass(scene))
+        timePerf('map.startup.meadowGrass', () => initMeadowGrass(scene))
+        timePerf('map.startup.farGrass', () => initFarGrassImpostors(scene))
+
+        await reportStartupStage('生成树林...')
+        timePerf('map.startup.worldTrees', () => initWorldTrees(scene))
+        timePerf('map.startup.grassRef', () => loadSpawnGrass60Ref(scene))
+        await reportStartupStage('铺设地表细节...')
+        timePerf('map.startup.leafLayer', () => buildIndividualLeafLayer(scene))
       }
-      loadSpawnGrass(scene)
-      loadRiversideGrass(scene)
-      loadGlobalWetGullyBedGrass(scene)
-      loadSouthBasinLakeGrass(scene)
-      initMeadowGrass(scene)
-      initWorldTrees(scene)
-      loadSpawnGrass60Ref(scene)
-      buildIndividualLeafLayer(scene)
+      runStartupTerrainReady().then(() => {
+        resolveMapStartupReady?.()
+      }).catch((error) => {
+        console.warn('Terrain ready startup failed', error)
+        resolveMapStartupReady?.()
+      })
     },
   })
 
@@ -9500,6 +10920,7 @@ export function createMap(scene, { onStaticModelReady = null, onTerrainLoadProgr
     setDebugWaterEffectsDisabled: applyDebugWaterEffectsDisabled,
     setDebugTreeDensity,
     terrainReadyPromise: terrainController.allChunksReadyPromise,
+    startupReadyPromise,
     ponds: [],
     spawnRipple: () => {},
     getTerrainHeight: getGroundHeight,

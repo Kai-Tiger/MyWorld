@@ -1,6 +1,9 @@
 import * as THREE from 'three'
 import { BALANCE } from '../config/balance.js'
-import { PLAYER_MATERIAL_BRIGHTNESS } from '../config/lighting.js'
+import {
+  PLAYER_MATERIAL_BRIGHTNESS,
+  PLAYER_MATERIAL_GAMMA_LIFT,
+} from '../config/lighting.js'
 import { cloneFBX, cloneGLTFScene, loadFBXClips } from '../systems/modelAssets.js'
 import { playSfx } from '../systems/audio.js'
 import standFbxUrl from '../characters/player/stand.fbx?url'
@@ -47,12 +50,22 @@ function clonePlayerMaterial(material) {
   cloned.onBeforeCompile = (shader, renderer) => {
     if (typeof previousOnBeforeCompile === 'function') previousOnBeforeCompile.call(cloned, shader, renderer)
     shader.uniforms.playerMaterialBrightness = { value: PLAYER_MATERIAL_BRIGHTNESS }
-    shader.fragmentShader = `uniform float playerMaterialBrightness;\n${shader.fragmentShader.replace(
+    shader.uniforms.playerMaterialGammaLift = { value: PLAYER_MATERIAL_GAMMA_LIFT }
+    shader.fragmentShader = `
+uniform float playerMaterialBrightness;
+uniform float playerMaterialGammaLift;
+${shader.fragmentShader.replace(
       '#include <opaque_fragment>',
-      '#include <opaque_fragment>\ngl_FragColor.rgb = min(gl_FragColor.rgb * playerMaterialBrightness, vec3(1.0));',
+      `#include <opaque_fragment>
+vec3 playerMaterialGammaLifted = mix(gl_FragColor.rgb, sqrt(max(gl_FragColor.rgb, vec3(0.0))), playerMaterialGammaLift);
+gl_FragColor.rgb = min(playerMaterialGammaLifted * playerMaterialBrightness, vec3(1.0));`,
     )}`
   }
-  cloned.customProgramCacheKey = () => `${previousCacheKey ? previousCacheKey() : ''}|playerMaterialBrightness:${PLAYER_MATERIAL_BRIGHTNESS}`
+  cloned.customProgramCacheKey = () => [
+    previousCacheKey ? previousCacheKey() : '',
+    `playerMaterialBrightness:${PLAYER_MATERIAL_BRIGHTNESS}`,
+    `playerMaterialGammaLift:${PLAYER_MATERIAL_GAMMA_LIFT}`,
+  ].join('|')
   cloned.needsUpdate = true
   return cloned
 }
@@ -1999,6 +2012,10 @@ export function createPlayer(scene) {
 
     isRolling() {
       return rolling
+    },
+
+    isAirborne() {
+      return !onGround || jumping || jumpTakeoffPending
     },
 
     receiveEnemyAttack(amount = 0, source = null) {
