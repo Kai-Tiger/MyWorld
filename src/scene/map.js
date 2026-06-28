@@ -716,28 +716,22 @@ const BOTTOM_DEPRESSION_LAKE = {
   id: 'bottom_depression_lake',
   x: 74.6,
   z: -319.4,
-  rx: 74,
-  rz: 51,
+  rx: 105,
+  rz: 105,
   rot: THREE.MathUtils.degToRad(44),
+  circular: true,
+  preserveWaterShape: true,
   waterDepth: 2.7,
-  shoreRun: 16,
-  treeClearance: 14,
-  boundaryScales: [
-    { angle: THREE.MathUtils.degToRad(16), scale: 0.98 },
-    { angle: THREE.MathUtils.degToRad(74), scale: 1.04 },
-    { angle: THREE.MathUtils.degToRad(136), scale: 0.96 },
-    { angle: THREE.MathUtils.degToRad(204), scale: 1.05 },
-    { angle: THREE.MathUtils.degToRad(278), scale: 0.97 },
-    { angle: THREE.MathUtils.degToRad(338), scale: 1.02 },
-  ],
+  shoreRun: 22,
+  treeClearance: 22,
   flatBedY: -32.9,
-  flatBedRadius: 0.58,
-  flatBedFeather: 0.18,
-  steepBankPower: 2.25,
-  shoreShelfRun: 11,
-  shoreBackRun: 8,
-  shoreShelfRise: 0.58,
-  edgeDrop: 0.6,
+  flatBedRadius: 0.7,
+  flatBedFeather: 0.16,
+  steepBankPower: 2.1,
+  shoreShelfRun: 15,
+  shoreBackRun: 10,
+  shoreShelfRise: 0.72,
+  edgeDrop: 0.45,
   seed: 743194,
 }
 // 底部凹陷深潭；水面锚在低洼底部，避免把整个大凹陷灌满。
@@ -8411,6 +8405,7 @@ function buildNewlandStaticLakeGeometry(lake, getTerrainHeight) {
   const waterMasks = []
   const foamBoosts = []
   const idx = []
+  const preserveWaterShape = lake.preserveWaterShape === true
 
   for (let r = 0; r <= rings; r++) {
     const ringT = r / rings
@@ -8444,7 +8439,7 @@ function buildNewlandStaticLakeGeometry(lake, getTerrainHeight) {
       const c = (r + 1) * seg + s
       const d = (r + 1) * seg + (s + 1) % seg
       const wetCount = [a, b, c, d].reduce((count, vertexIndex) => (
-        count + (submerges[vertexIndex] > -0.12 && waterMasks[vertexIndex] > 0.015 ? 1 : 0)
+        count + ((preserveWaterShape || submerges[vertexIndex] > -0.12) && waterMasks[vertexIndex] > 0.015 ? 1 : 0)
       ), 0)
       if (wetCount < 3) continue
       idx.push(a, c, b, b, c, d)
