@@ -28,6 +28,7 @@ export const defaultMap = {
     { x:  19, z: -66 },
     { x: -18, z:  -2 },
     { x:  22, z:  22 },
+    { x:  95.6, z: -292.1, y: -26.6 },
   ],
   trees: [],
   npcs:  [],

@@ -124,6 +124,7 @@ const GRASS_CAMPFIRE_CLEARINGS = [
   { x: 19, z: -66 },
   { x: -18, z: -2 },
   { x: 22, z: 22 },
+  { x: 95.6, z: -292.1 },
 ]
 // 火堆清草中心列表；增删点会改变哪些营地周围保持裸地。
 const RANDOM_FOREST_TREE_COUNT = 120 // 旧随机林树数量；调大更密但碰撞/渲染更多，调小更稀。
@@ -2394,6 +2395,7 @@ function isInsideRandomForestClearing(x, z) {
     { x: 19, z: -66 },
     { x: -18, z: -2 },
     { x: 22, z: 22 },
+    { x: 95.6, z: -292.1 },
   ]
   for (const fire of campfires) {
     const dx = x - fire.x
@@ -9130,10 +9132,10 @@ function isPerfFlagEnabled(name) {
   return window.localStorage?.getItem(name) === '1'
 }
 
-export function makeCampfire(scene, x, z) {
+export function makeCampfire(scene, x, z, y = null) {
   const group = new THREE.Group()
-  group.position.set(x, 0, z)
-  group.userData.editorMeta = { type: 'campfire', x, z }
+  group.position.set(x, Number.isFinite(y) ? y : 0, z)
+  group.userData.editorMeta = { type: 'campfire', x, z, ...(Number.isFinite(y) ? { y } : {}) }
 
   // 石圈
   const stoneMat = new THREE.MeshLambertMaterial({ color: 0x888070 })
@@ -9218,7 +9220,11 @@ export function makeCampfire(scene, x, z) {
   group.add(glow)
 
   scene.add(group)
-  snapObjectToGround(group, -0.08)
+  if (Number.isFinite(y)) {
+    group.position.y = y - 0.08
+  } else {
+    snapObjectToGround(group, -0.08)
+  }
 
   const phase = Math.random() * Math.PI * 2
   _campfireStates.push({ flames, light, glow, phase, group })

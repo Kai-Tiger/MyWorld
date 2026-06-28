@@ -10,8 +10,8 @@ export function applyLayoutToScene(scene, layout) {
     g.userData.editorMeta.rotY = rotY
   }
   buildRockInstances(scene, d.rocks ?? [])
-  for (const { x, z } of d.campfires ?? [])
-    makeCampfire(scene, x, z)
+  for (const { x, z, y } of d.campfires ?? [])
+    makeCampfire(scene, x, z, y)
   for (const { x, z, color = 0xff6b6b } of d.npcs ?? []) {
     const group = new THREE.Group()
     group.position.set(x, 0, z)
@@ -404,7 +404,10 @@ export function createMapEditor(scene, camera, renderer, initialLookAt) {
         const { type, scale = 1, color } = o
         if      (type === 'tree')     out.trees.push({ x: o.group.position.x, z: o.group.position.z, rotY: o.group.rotation.y, scale })
         else if (type === 'rock')     out.rocks.push({ x: o.group.position.x, z: o.group.position.z, scale })
-        else if (type === 'campfire') out.campfires.push({ x: o.group.position.x, z: o.group.position.z })
+        else if (type === 'campfire') {
+          const y = o.group.userData.editorMeta?.y
+          out.campfires.push({ x: o.group.position.x, z: o.group.position.z, ...(Number.isFinite(y) ? { y } : {}) })
+        }
         else if (type === 'npc')      out.npcs.push({ x: o.group.position.x, z: o.group.position.z, color: color ?? 0xff6b6b })
       }
       return JSON.stringify(out, null, 2)
@@ -428,8 +431,8 @@ export function createMapEditor(scene, camera, renderer, initialLookAt) {
         const group = cloneRockForEditor(scene, x, z, scale)
         placedObjects.push({ type: 'rock', group, x, z, scale })
       }
-      for (const { x, z } of d.campfires ?? []) {
-        const group = makeCampfire(scene, x, z)
+      for (const { x, z, y } of d.campfires ?? []) {
+        const group = makeCampfire(scene, x, z, y)
         placedObjects.push({ type: 'campfire', group, x, z })
       }
       for (const { x, z, color = 0xff6b6b } of d.npcs ?? []) {
