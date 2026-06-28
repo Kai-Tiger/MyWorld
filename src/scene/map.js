@@ -2622,6 +2622,43 @@ function createNewlandBraidedRiverForestPlacements() {
   return placements
 }
 
+function createBottomLakeForestPlacements(existingPlacements = []) {
+  const placements = []
+  const targetX = 41.6
+  const targetZ = -277.5
+  const baseAngle = Math.atan2(targetZ - BOTTOM_DEPRESSION_LAKE.z, targetX - BOTTOM_DEPRESSION_LAKE.x)
+  const arc = THREE.MathUtils.degToRad(38)
+  const maxAttempts = 90
+
+  for (let attempt = 0; placements.length < 20 && attempt < maxAttempts; attempt++) {
+    const seed = 96000 + attempt * 113
+    const t = (attempt * 0.61803398875 + forestPlacementNoise(seed + 1) * 0.18) % 1
+    const angle = baseAngle - arc * 0.5 + arc * t + THREE.MathUtils.lerp(-0.055, 0.055, forestPlacementNoise(seed + 2))
+    const lakeRadius = (BOTTOM_DEPRESSION_LAKE.rx + BOTTOM_DEPRESSION_LAKE.rz) * 0.5
+    const radius = lakeRadius + THREE.MathUtils.lerp(29, 49, forestPlacementNoise(seed + 3))
+    const x = BOTTOM_DEPRESSION_LAKE.x + Math.cos(angle) * radius + THREE.MathUtils.lerp(-3.5, 3.5, forestPlacementNoise(seed + 4))
+    const z = BOTTOM_DEPRESSION_LAKE.z + Math.sin(angle) * radius + THREE.MathUtils.lerp(-3.5, 3.5, forestPlacementNoise(seed + 5))
+    if (!isInsideOutdoorMountainBounds(x, z, 0)) continue
+    if (isInsideNewlandStaticLakeClearance(x, z)) continue
+    if (isTooCloseToForestPlacement(existingPlacements, x, z, 9)) continue
+    if (isTooCloseToForestPlacement(placements, x, z, 8.5)) continue
+
+    const type = pickModelTreeType(FOREST_GROVE_TREE_TYPES, seed + 12, attempt)
+    const scaleNoise = THREE.MathUtils.lerp(0.86, 1.18, forestPlacementNoise(seed + 6))
+    placements.push({
+      file: type.file,
+      origin: { x: 0, z: 0 },
+      dx: Number(x.toFixed(2)),
+      dz: Number(z.toFixed(2)),
+      rotY: Number((forestPlacementNoise(seed + 7) * Math.PI * 2).toFixed(3)),
+      scale: Number((type.scale * scaleNoise).toFixed(3)),
+      r: Number((type.r * scaleNoise * FOREST_TREE_COLLIDER_SCALE).toFixed(2)),
+    })
+  }
+
+  return placements
+}
+
 function createForestGrovePlacements() {
   const targetDx = FOREST_GROVE_CASTLE_TARGET.x - FOREST_GROVE_ORIGIN.x
   const targetDz = FOREST_GROVE_CASTLE_TARGET.z - FOREST_GROVE_ORIGIN.z
@@ -2796,7 +2833,7 @@ function createForestGrovePlacements() {
   const riverForestPlacements = createRiverForestPlacements()
   const newlandBraidedRiverForestPlacements = createNewlandBraidedRiverForestPlacements()
 
-  const existingPlacements = [
+  const initialExistingPlacements = [
     ...castleLanePlacements,
     ...secondGrovePlacements,
     ...thirdGrovePlacements,
@@ -2805,6 +2842,11 @@ function createForestGrovePlacements() {
     ...castleNorthHighlandPlacements,
     ...riverForestPlacements,
     ...newlandBraidedRiverForestPlacements,
+  ]
+  const bottomLakeForestPlacements = createBottomLakeForestPlacements(initialExistingPlacements)
+  const existingPlacements = [
+    ...initialExistingPlacements,
+    ...bottomLakeForestPlacements,
   ]
   const randomTreePlacements = createRandomForestTreePlacements(existingPlacements)
 
