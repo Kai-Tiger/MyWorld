@@ -124,7 +124,7 @@ const GRASS_CAMPFIRE_CLEARINGS = [
   { x: 19, z: -66 },
   { x: -18, z: -2 },
   { x: 22, z: 22 },
-  { x: 95.6, z: -292.1 },
+  { x: 104.5, z: -283.5 },
 ]
 // 火堆清草中心列表；增删点会改变哪些营地周围保持裸地。
 const RANDOM_FOREST_TREE_COUNT = 120 // 旧随机林树数量；调大更密但碰撞/渲染更多，调小更稀。
@@ -2395,7 +2395,7 @@ function isInsideRandomForestClearing(x, z) {
     { x: 19, z: -66 },
     { x: -18, z: -2 },
     { x: 22, z: 22 },
-    { x: 95.6, z: -292.1 },
+    { x: 104.5, z: -283.5 },
   ]
   for (const fire of campfires) {
     const dx = x - fire.x
